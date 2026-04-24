@@ -1,0 +1,9 @@
+{
+  "name": "simpl-memory",
+  "version": "1.0.0",
+  "description": "Continuous-learning layer: captures recurring patterns from agent sessions, surfaces them for promotion to shared skills.",
+  "author": {
+    "name": "simpl Platform"
+  },
+  "keywords": ["memory", "learning", "instincts", "patterns", "simpl"]
+}

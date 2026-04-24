@@ -1,0 +1,82 @@
+name: Sync SKILL.md to simpl-knowledge
+
+# When .agent/SKILL.md is updated on main, open a PR in simpl-knowledge
+# to propagate the new version.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.agent/SKILL.md'
+
+  workflow_dispatch:
+
+concurrency:
+  group: sync-simpl-knowledge-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+        with:
+          path: source
+
+      - name: Checkout simpl-knowledge
+        uses: actions/checkout@v4
+        with:
+          repository: simpl/simpl-knowledge
+          token: ${{ secrets.SIMPL_KNOWLEDGE_PAT }}
+          path: marketplace
+
+      - name: Apply SKILL + semver + provenance
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPO_NAME="${GITHUB_REPOSITORY##*/}"
+          python3 marketplace/scripts/ci/apply-library-sync.py \
+            --library-root "$GITHUB_WORKSPACE/source" \
+            --marketplace-root "$GITHUB_WORKSPACE/marketplace" \
+            --repo-name "$REPO_NAME" \
+            --full-repo "$GITHUB_REPOSITORY" \
+            --sha "$GITHUB_SHA"
+
+      - name: Open PR in simpl-knowledge
+        working-directory: marketplace
+        env:
+          GH_TOKEN: ${{ secrets.SIMPL_KNOWLEDGE_PAT }}
+        run: |
+          REPO_NAME="${GITHUB_REPOSITORY##*/}"
+          BRANCH="sync/${REPO_NAME}-$(date +%s)"
+
+          git config user.name "simpl-knowledge-bot"
+          git config user.email "bot@simpl.example"
+
+          git checkout -b "$BRANCH"
+          git add plugins/ .claude-plugin/marketplace.json provenance.jsonl
+          if git diff --staged --quiet; then
+            echo "No actual content changes to propagate."
+            exit 0
+          fi
+          git commit -m "sync(${REPO_NAME}): update SKILL.md from upstream ${GITHUB_SHA:0:7}"
+          git push -u origin "$BRANCH"
+
+          BODY="$(mktemp)"
+          {
+            echo "Automated sync from \`${GITHUB_REPOSITORY}@${GITHUB_SHA:0:7}\`."
+            echo
+            echo "**Propagation PR** — primary review happened on the library repo. Merge if CI is green."
+            echo
+            echo "Upstream: https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+          } > "$BODY"
+          gh pr create \
+            --title "sync(${REPO_NAME}): SKILL.md update from ${GITHUB_SHA:0:7}" \
+            --body-file "$BODY" \
+            --label "auto-sync" \
+            --label "upstream:${REPO_NAME}"

@@ -1,0 +1,70 @@
+# ECC integration — what we took, what we built ourselves
+
+We evaluated [everything-claude-code](https://github.com/affaan-m/everything-claude-code) (ECC) as a source of patterns. We adopted four ideas but **none of the code directly**. Every pattern here is rewritten clean, small, and under our control.
+
+## What we did NOT take
+
+- **The ECC plugin itself** — too big (183 skills), opinionated ("SOUL.md", "instincts" terminology), and evolves too fast for us to track as a dependency.
+- **ECC's `continuous-learning-v2` code** — good idea, their implementation is heavy (PM2, multiple event types, cross-harness complexity). We wrote ~150 lines of Node.js that does the core loop: extract on Stop, inject on SessionStart, aggregate in CI.
+- **ECC's `skill-create` implementation** — also a slash command of similar shape, but theirs is ~400 lines of prompt engineering. We kept our version simple (~60 lines) because we're running on a team of 5 where a human reviews every generated skill anyway.
+
+## What we DID take (as patterns, rewritten)
+
+### 1. Continuous-learning pattern → our `simpl-memory` plugin
+
+**What ECC does**: Stop hook → extract patterns with LLM → store locally as "instincts" → promote when confidence is high.
+
+**What we built**: Same shape, but:
+- Uses **Haiku** (not Sonnet) for extraction → ~10x cheaper, sufficient for this task
+- Throttled to 1 extraction / 5 min per repo → caps cost
+- Stores at `~/.claude/simpl-memory/<repo>/instincts.jsonl` — per-repo scope, not global
+- Injection on SessionStart only when count ≥ 2 (avoid noise)
+- Promotion via human-reviewed PR, never automatic
+- **Private by default**: instincts stay on the dev's laptop. Only if the dev opts in (by configuring `INSTINCT_REPO_PAT` sync to `simpl/agent-instincts`) do their instincts feed into the weekly team aggregation.
+
+Files:
+- `plugins/simpl-memory/hooks/hooks.json` — registers Stop + SessionStart
+- `plugins/simpl-memory/scripts/hooks/extract-instincts.js` — the Stop hook
+- `plugins/simpl-memory/scripts/hooks/load-instincts.js` — the SessionStart hook
+- `plugins/simpl-memory/commands/instinct-status.md` — `/instinct-status`
+- `plugins/simpl-memory/commands/promote-instinct.md` — `/promote-instinct`
+- `.github/workflows/aggregate-instincts.yml` — weekly team digest
+
+### 2. Skill-create pattern → our `/skill-create` command
+
+**What ECC does**: Analyzes git history to generate a first-draft SKILL.md for a repo.
+
+**What we built**: Same goal, but scoped to the house style (`.agent/SKILL.md` convention, "does NOT do" section required, verify against source rules). Lives in `plugins/simpl-standards/commands/skill-create.md`.
+
+### 3. Cross-harness hook DRY adapter → our `.cursor/hooks/adapter.js`
+
+**What ECC does**: Cursor has more hook events than Claude Code; an adapter translates Cursor's stdin format to Claude Code's so one script works in both.
+
+**What we built**: Same pattern, our own minimal implementation (~80 lines). The shared scripts live in `simpl-knowledge/scripts/shared-hooks/` and are called by both:
+- Claude Code: directly (no adapter needed — already in native format)
+- Cursor: via `.cursor/hooks/adapter.js` that translates events first
+
+This means every new hook we write (e.g. `secret-scan.js`) **works in both tools for free**.
+
+### 4. AgentShield → invoked as external dependency
+
+**What ECC built**: AgentShield is a standalone npm package (`ecc-agentshield`) that scans Claude Code configs for secrets, permission issues, hook injection risks.
+
+**What we did**: We don't maintain it, we just `npx` it in CI. This is the right level of integration for an external security tool — we get the value without coupling to the ECC release cycle. See `.github/workflows/agentshield-scan.yml`.
+
+## Summary table
+
+| ECC concept | Our implementation | Lines of code | Dependency on ECC |
+|---|---|---|---|
+| continuous-learning-v2 | `plugins/simpl-memory/` | ~200 | None (pattern only) |
+| /skill-create | `plugins/simpl-standards/commands/skill-create.md` | ~60 | None |
+| Cursor adapter | `.cursor/hooks/adapter.js` + `scripts/shared-hooks/` | ~200 | None |
+| AgentShield | `npx ecc-agentshield` in CI | 0 (external dep) | Runtime only, pinned version |
+
+Total code we added ≈ 500 LOC. Zero long-term coupling to ECC internals. Every pattern can be modified, forked, or removed without breaking the rest.
+
+## When would we change this?
+
+- **If ECC stabilizes into a maintained project with corporate backing**, consider upgrading to their implementation of continuous-learning — it has more features (confidence scoring, expiration, export/import). For now, ours is enough.
+- **If AgentShield gets paywalled or abandoned**, swap for a different scanner (or write our own narrow rules).
+- **If we expand beyond Claude Code + Cursor**, extend the adapter pattern to cover more harnesses (Codex, OpenCode).

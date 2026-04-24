@@ -1,0 +1,9 @@
+---
+description: "Placeholder — regenerated from .agent/INTERNAL.md by .claude/hooks/sync-cursor-internal.sh"
+globs: "src/**/*,tests/**/*"
+alwaysApply: false
+---
+
+# Sync required
+
+Run `bash .claude/hooks/sync-cursor-internal.sh` (or open a session: SessionStart hook) to fill this file from `.agent/INTERNAL.md`.

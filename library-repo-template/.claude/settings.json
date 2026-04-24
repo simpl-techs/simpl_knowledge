@@ -1,0 +1,21 @@
+{
+  "$schema": "https://claude.com/schemas/claude-code-settings.json",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/session-start-refresh.sh",
+            "async": true,
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "_comments": {
+    "SessionStart": "Silently refreshes the simpl-knowledge cache in background. Throttled to once per 6h. No user interaction.",
+    "where_to_extend": "Add more hooks here: PostToolUse for auto-format, PreToolUse for guardrails, SessionStart for other per-repo bootstrapping."
+  }
+}

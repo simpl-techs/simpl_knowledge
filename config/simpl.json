@@ -1,0 +1,33 @@
+{
+  "$comment": "Single source of truth for org/repo naming. Keep scripts and docs in sync; curl-installed bootstrap reads the same values embedded at top of team-bootstrap.sh.",
+  "org": "simpl",
+  "knowledge_repo": "simpl-knowledge",
+  "github_full_name": "simpl/simpl-knowledge",
+  "marketplace_alias": "simpl",
+  "plugins": {
+    "standards": "simpl-standards",
+    "memory": "simpl-memory"
+  },
+  "paths": {
+    "claude_plugin_cache_dir": "simpl-knowledge",
+    "memory_store_dir": ".claude/simpl-memory",
+    "shared_hooks_env": "SIMPL_SHARED_HOOKS"
+  },
+  "secrets": {
+    "knowledge_pat": "SIMPL_KNOWLEDGE_PAT",
+    "instinct_repo_pat": "INSTINCT_REPO_PAT"
+  },
+  "instincts": {
+    "collector_repo": "simpl/agent-instincts"
+  },
+  "models": {
+    "extract_instincts": "claude-haiku-4-5-20251001",
+    "auto_update_skill": "claude-sonnet-4-6",
+    "fallback_extract": "claude-3-5-haiku-20241022",
+    "fallback_update": "claude-3-5-sonnet-20241022"
+  },
+  "bot": {
+    "git_name": "simpl-knowledge-bot",
+    "git_email": "bot@simpl.example"
+  }
+}

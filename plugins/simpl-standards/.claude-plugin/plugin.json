@@ -1,0 +1,9 @@
+{
+  "name": "simpl-standards",
+  "version": "1.0.0",
+  "description": "Cross-cutting standards for all simpl projects: coding conventions, git workflow, testing policy.",
+  "author": {
+    "name": "simpl Platform"
+  },
+  "keywords": ["standards", "conventions", "simpl"]
+}

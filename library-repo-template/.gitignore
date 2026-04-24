@@ -1,0 +1,9 @@
+# Local overrides (gitignored per Claude Code convention)
+.claude/settings.local.json
+.claude/.simpl-repo-report.json
+CLAUDE.local.md
+
+# OS / editor cruft
+.DS_Store
+*.swp
+.idea/
