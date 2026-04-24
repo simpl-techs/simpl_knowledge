@@ -22,7 +22,7 @@ if command -v claude >/dev/null 2>&1; then
   echo "     /plugin install simpl-memory@simpl"
   echo
   echo "  Per-project integration plugins, e.g.:"
-  echo "     /plugin install simple-tracker-context@simpl"
+  echo "     /plugin install simpl_tracker-context@simpl"
   echo
 else
   echo "⚠ Claude Code not installed — https://docs.claude.com/claude-code"

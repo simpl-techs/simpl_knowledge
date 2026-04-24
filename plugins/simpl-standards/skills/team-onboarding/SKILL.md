@@ -58,12 +58,12 @@ If any fails, diagnose the specific issue.
 
 ## 3. Per-project plugins
 
-The `simpl-standards` and `simpl-memory` plugins install once, globally. **Integration plugins** (e.g. `simple-tracker-context`) are per-project.
+The `simpl-standards` and `simpl-memory` plugins install once, globally. **Integration plugins** (e.g. `simpl_tracker-context`) are per-project.
 
 Ask the user which libraries they commonly work with and suggest installs:
 
 ```
-/plugin install simple-tracker-context@simpl
+/plugin install simpl_tracker-context@simpl
 /plugin install <other-lib>-context@simpl
 ```
 

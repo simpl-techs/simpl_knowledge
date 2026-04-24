@@ -24,7 +24,7 @@ set -euo pipefail
 MARKETPLACE_REPO="simpl/simpl-knowledge"
 MARKETPLACE_NAME="simpl"
 DEFAULT_PLUGINS=("simpl-standards" "simpl-memory")
-OPTIONAL_PLUGINS=("simple-tracker-context")  # per-project; dev picks
+OPTIONAL_PLUGINS=("simpl_tracker-context")  # per-project; dev picks
 # --------------------------------------------------------------------------
 
 DRY_RUN="${DRY_RUN:-false}"
@@ -206,7 +206,7 @@ Next steps:
      It should cite the git-workflow skill.
 
   3. Per-project integration plugins: install as needed, e.g.:
-        /plugin install simple-tracker-context@simpl
+        /plugin install simpl_tracker-context@simpl
 
   4. On a library repo you maintain (after marketplace cache exists):
         bash ~/.claude/plugins/cache/simpl-knowledge/library-repo-template/scripts/bootstrap.sh <repo-name>
