@@ -19,6 +19,7 @@ ALWAYS_APPLY = {
     "git-workflow",
     "testing-policy",
     "simpl-knowledge-system",
+    "internal-libraries-awareness",
 }
 
 for skill in pathlib.Path("plugins").rglob("SKILL.md"):

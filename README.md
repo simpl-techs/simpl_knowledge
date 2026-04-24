@@ -15,6 +15,7 @@ Marketplace Claude Code (`simpl`) + bundle Cursor + CI per l’organizzazione **
 /plugin marketplace add simpl/simpl-knowledge
 /plugin install simpl-standards@simpl
 /plugin install simpl-memory@simpl
+/plugin install simpl-libraries@simpl
 ```
 
 **Cursor** — `bash scripts/team-bootstrap.sh` oppure `bash scripts/install-team.sh` (scarica release `cursor-rules-rolling`).
@@ -24,7 +25,9 @@ Marketplace Claude Code (`simpl`) + bundle Cursor + CI per l’organizzazione **
 - `library-repo-template/` — scaffold per repo libreria (`.agent/`, hook, workflow sync marketplace); usabile da agenti via cache plugin
 - `plugins/simpl-standards` — policy condivise + meta-skill `simpl-knowledge-system`
 - `plugins/simpl-memory` — instinct / continuous learning (opt-in)
+- `plugins/simpl-libraries` — catalogo librerie interne (`catalog.md` / `catalog.json` generati in CI)
 - `plugins/<lib>-context` — mirror di `.agent/SKILL.md` dal repo della libreria
+- `catalog.md` / `catalog.json` — indice auto-generato di tutti i `*-context`
 - `provenance.jsonl` — log append-only dei sync
 - `config/simpl.json` — costanti org/repo/modelli
 

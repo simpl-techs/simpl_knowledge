@@ -9,7 +9,8 @@ description: Explains how simpl org shares agent context via simpl-knowledge (Cl
 
 | Piece | Role |
 |-------|------|
-| `simpl/simpl-knowledge` | Private marketplace: `simpl-standards`, `simpl-memory`, `<lib>-context` plugins |
+| `simpl/simpl-knowledge` | Private marketplace: `simpl-standards`, `simpl-memory`, `simpl-libraries`, `<lib>-context` plugins |
+| `catalog.md` / `catalog.json` | Repo root; auto-generated index of all `*-context` libs (summary, when to use, required_when). Updated on each library sync. |
 | `.agent/SKILL.md` (per library) | Public integration doc; **source of truth** lives in the library repo |
 | `.agent/INTERNAL.md` | Repo-local only; never synced to marketplace |
 | `~/.claude/simpl-memory/` | Local instinct store (optional, see `plugins/simpl-memory/PRIVACY.md`) |
@@ -21,7 +22,8 @@ description: Explains how simpl org shares agent context via simpl-knowledge (Cl
 /plugin marketplace add simpl/simpl-knowledge
 /plugin install simpl-standards@simpl
 /plugin install simpl-memory@simpl
-/plugin install <lib>-context@simpl   # per project
+/plugin install simpl-libraries@simpl
+/plugin install <lib>-context@simpl   # when task needs full integration SKILL
 /plugin marketplace update           # weekly
 ```
 

@@ -10,7 +10,7 @@
 # What it does:
 #   1. Detects which tools are installed (Claude Code, Cursor, Node)
 #   2. Points Claude Code at the simpl marketplace
-#   3. Installs recommended plugins (simpl-standards, simpl-memory)
+#   3. Installs recommended plugins (simpl-standards, simpl-memory, simpl-libraries)
 #   4. Copies the generated Cursor rules to ~/.cursor/rules/
 #   5. Installs global Cursor sessionStart → session-refresh (adapter + hooks.json merge)
 #   6. Verifies AgentShield is callable (`npx ecc-agentshield --version`)
@@ -23,7 +23,7 @@ set -euo pipefail
 # --- Configuration (edit before committing to your fork) -------------------
 MARKETPLACE_REPO="simpl/simpl-knowledge"
 MARKETPLACE_NAME="simpl"
-DEFAULT_PLUGINS=("simpl-standards" "simpl-memory")
+DEFAULT_PLUGINS=("simpl-standards" "simpl-memory" "simpl-libraries")
 OPTIONAL_PLUGINS=("simpl_tracker-context")  # per-project; dev picks
 # --------------------------------------------------------------------------
 
@@ -200,12 +200,13 @@ Next steps:
         /plugin marketplace add simpl/simpl-knowledge
         /plugin install simpl-standards@simpl
         /plugin install simpl-memory@simpl
+        /plugin install simpl-libraries@simpl
 
   2. In any project, ask your agent:
         "How do we write commit messages here?"
      It should cite the git-workflow skill.
 
-  3. Per-project integration plugins: install as needed, e.g.:
+  3. Per-project integration plugins: your agent reads `catalog.md` (via `simpl-libraries`) and suggests installs, e.g.:
         /plugin install simpl_tracker-context@simpl
 
   4. On a library repo you maintain (after marketplace cache exists):

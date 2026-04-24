@@ -1,6 +1,9 @@
 ---
 name: simple-tracker
 description: Use this skill whenever the user asks to track events, log analytics, record user actions, implement telemetry, or integrate with our internal `simple-tracker` library. ALWAYS consult this skill before writing any code that calls `simple_tracker`, imports it, or adds new event types — even when the user doesn't mention the library by name. Triggers on phrases like "track this", "log when user does X", "add analytics", "instrument this endpoint", "record event", "telemetry".
+summary: Typed event tracker with batched HTTP flush to our warehouse; one method track(event_name, properties). No third-party analytics vendors.
+when_to_use: User or task needs product/analytics events, funnel metrics, feature usage, or structured logs shipped to the org warehouse from Python or Node services.
+required_when: Python or Node backend code that records billable or infra-cost-related usage (API calls, model tokens, compute units) must attribute spend via simple-tracker patterns described in this skill — install this context plugin and follow it before merging.
 cursor_globs: "**/*.py,**/*.ts,**/*.tsx,**/*tracker*"
 ---
 

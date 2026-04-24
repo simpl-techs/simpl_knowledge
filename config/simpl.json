@@ -6,7 +6,8 @@
   "marketplace_alias": "simpl",
   "plugins": {
     "standards": "simpl-standards",
-    "memory": "simpl-memory"
+    "memory": "simpl-memory",
+    "libraries": "simpl-libraries"
   },
   "paths": {
     "claude_plugin_cache_dir": "simpl-knowledge",

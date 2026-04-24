@@ -15,7 +15,7 @@ flowchart LR
    `curl -fsSL https://raw.githubusercontent.com/simpl/simpl-knowledge/main/scripts/team-bootstrap.sh | bash`
 4. **Claude Code** (nella sessione):  
    `/plugin marketplace add simpl/simpl-knowledge`  
-   `/plugin install simpl-standards@simpl` e `simpl-memory@simpl` (memory opzionale).
+   `/plugin install simpl-standards@simpl`, `simpl-memory@simpl` (memory opzionale), e `simpl-libraries@simpl` (catalogo librerie interne).
 5. **Verifica**: chiedi all’agent *«come scriviamo i commit qui?»* → deve citare `git-workflow`.
 
 | Prossimo passo | Dove |

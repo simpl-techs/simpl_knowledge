@@ -1,0 +1,14 @@
+{
+  "generated_at": "2026-04-24T17:39:47.480Z",
+  "marketplace_alias": "simpl",
+  "libraries": [
+    {
+      "plugin": "simpl_tracker-context",
+      "skill_name": "simple-tracker",
+      "summary": "Typed event tracker with batched HTTP flush to our warehouse; one method track(event_name, properties). No third-party analytics vendors.",
+      "when_to_use": "User or task needs product/analytics events, funnel metrics, feature usage, or structured logs shipped to the org warehouse from Python or Node services.",
+      "required_when": "Python or Node backend code that records billable or infra-cost-related usage (API calls, model tokens, compute units) must attribute spend via simple-tracker patterns described in this skill — install this context plugin and follow it before merging.",
+      "plugin_install_command": "/plugin install simpl_tracker-context@simpl"
+    }
+  ]
+}

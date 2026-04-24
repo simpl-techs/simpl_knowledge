@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -144,6 +145,17 @@ def main() -> None:
         )
     mp["plugins"] = plugins
     mp_path.write_text(json.dumps(mp, indent=2) + "\n", encoding="utf-8")
+
+    catalog_script = mp_root / "scripts" / "ci" / "generate-catalog.js"
+    if catalog_script.is_file():
+        try:
+            subprocess.run(
+                ["node", str(catalog_script), "--root", str(mp_root)],
+                check=True,
+                timeout=120,
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired) as e:
+            print(f"generate-catalog.js failed (non-fatal for sync): {e}", file=sys.stderr)
 
     prov_path = mp_root / "provenance.jsonl"
     record = {

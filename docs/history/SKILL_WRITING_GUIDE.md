@@ -38,6 +38,22 @@ Rules of thumb:
 - Name the library/component explicitly so keyword match works.
 - Err on the side of "pushy" — current models tend to *under*-trigger skills.
 
+## Integration plugins (`*-context`): catalog frontmatter
+
+Skills mirrored under `simpl-knowledge/plugins/<repo>-context/` feed the org-wide **`catalog.md`** (via `scripts/ci/generate-catalog.js`, run after each library sync). Add these YAML fields *in addition to* `name` and `description`:
+
+```yaml
+summary: |
+  One or two sentences: what the library does and what it explicitly does not do.
+when_to_use: |
+  When another agent should reach for this library (problem shapes, stacks, triggers).
+required_when: |
+  Optional. Plain-language conditions where using this library is mandatory for compliance
+  (e.g. cost attribution for API usage). Omit the key entirely if nothing is mandatory.
+```
+
+If `summary` / `when_to_use` / `required_when` are missing, the generator falls back to `description` and the first heading in the body — but explicit fields keep the catalog stable and scannable.
+
 ## Structure of the body
 
 Our house style:

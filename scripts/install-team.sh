@@ -20,8 +20,9 @@ if command -v claude >/dev/null 2>&1; then
   echo "     /plugin marketplace add ${MARKETPLACE_REPO}"
   echo "     /plugin install simpl-standards@simpl"
   echo "     /plugin install simpl-memory@simpl"
+  echo "     /plugin install simpl-libraries@simpl"
   echo
-  echo "  Per-project integration plugins, e.g.:"
+  echo "  Per-project integration plugins (agent suggests from catalog), e.g.:"
   echo "     /plugin install simpl_tracker-context@simpl"
   echo
 else

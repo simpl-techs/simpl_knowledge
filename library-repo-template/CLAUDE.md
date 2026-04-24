@@ -12,7 +12,7 @@
 
 - **Working on this repo**: read `.agent/INTERNAL.md` for conventions specific to this codebase.
 - **Integrating this repo from elsewhere**: read `.agent/SKILL.md` — it's also published to simpl-knowledge.
-- **simpl-wide conventions** (commits, testing, code style): installed via `simpl-standards` plugin from the marketplace. If the plugin is missing, run `/plugin install simpl-standards@simpl`.
+- **simpl-wide conventions** (commits, testing, code style): `simpl-standards`. **Internal library catalog** (`catalog.md`): `simpl-libraries`. If missing, run `/plugin install simpl-standards@simpl` and `/plugin install simpl-libraries@simpl`.
 
 ## Session conventions
 

@@ -1,0 +1,34 @@
+{
+  "name": "simpl",
+  "description": "simpl org agent marketplace: standards, memory, internal library catalog, and per-repo integration plugins.",
+  "plugins": [
+    {
+      "name": "simpl-standards",
+      "source": "./plugins/simpl-standards",
+      "description": "Cross-cutting standards for all simpl projects: coding conventions, git workflow, testing policy.",
+      "version": "1.0.0",
+      "keywords": ["standards", "conventions", "simpl"]
+    },
+    {
+      "name": "simpl-memory",
+      "source": "./plugins/simpl-memory",
+      "description": "Continuous-learning layer: recurring session patterns surfaced for promotion to shared skills.",
+      "version": "1.0.0",
+      "keywords": ["memory", "learning", "instincts", "patterns", "simpl"]
+    },
+    {
+      "name": "simpl-libraries",
+      "source": "./plugins/simpl-libraries",
+      "description": "Auto-generated catalog of internal simpl libraries; consult before building new cross-cutting functionality.",
+      "version": "1.0.0",
+      "keywords": ["catalog", "internal-libraries", "awareness", "simpl"]
+    },
+    {
+      "name": "simpl_tracker-context",
+      "source": "./plugins/simpl_tracker-context",
+      "description": "Integration context for simple-tracker. Auto-synced from simpl/simple-tracker.",
+      "version": "1.0.0",
+      "keywords": ["simpl_tracker-context", "simple-tracker", "events", "tracking", "analytics", "integration", "simpl"]
+    }
+  ]
+}

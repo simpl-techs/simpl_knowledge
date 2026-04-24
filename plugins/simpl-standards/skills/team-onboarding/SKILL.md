@@ -43,6 +43,7 @@ Then, inside Claude Code (ask the user to do this in a new session or tell them 
 /plugin marketplace add simpl/simpl-knowledge
 /plugin install simpl-standards@simpl
 /plugin install simpl-memory@simpl
+/plugin install simpl-libraries@simpl
 ```
 
 ### Case B: Partial install
@@ -52,15 +53,17 @@ Only some pieces present. Install the missing ones explicitly — don't blindly 
 Verify it actually works:
 - Ask Claude "how do we write commit messages here?" — should cite `git-workflow`
 - Check `/instinct-status` — should not crash
-- Check `/plugin list` — should show simpl-standards, simpl-memory
+- Check `/plugin list` — should show simpl-standards, simpl-memory, simpl-libraries
 
 If any fails, diagnose the specific issue.
 
-## 3. Per-project plugins
+## 3. Per-project integration plugins (`*-context`)
 
-The `simpl-standards` and `simpl-memory` plugins install once, globally. **Integration plugins** (e.g. `simpl_tracker-context`) are per-project.
+**Three global plugins** (install once per machine): `simpl-standards`, `simpl-memory`, `simpl-libraries`. The last one ships the auto-generated **`catalog.md`** of every internal integration library so agents know what exists before reimplementing.
 
-Ask the user which libraries they commonly work with and suggest installs:
+**Integration plugins** (e.g. `simpl_tracker-context`) load the *full* SKILL for one library. They are still per-project in practice: install when the task needs that depth. The agent should read `catalog.md` (via `internal-libraries-awareness`) and **propose** the right `/plugin install …@simpl` — the human does not need to guess.
+
+Example after the agent matches a task to a catalog entry:
 
 ```
 /plugin install simpl_tracker-context@simpl

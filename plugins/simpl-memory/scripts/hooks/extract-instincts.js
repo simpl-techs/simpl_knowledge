@@ -260,7 +260,7 @@ Schema:
     "pattern": "One-sentence description of the pattern (<120 chars)",
     "evidence": "What in the transcript shows this (<200 chars)",
     "suggestion": "What future agents should do (<200 chars)",
-    "category": "one of: style, architecture, integration, bug-fix, testing, performance, general"
+    "category": "one of: style, architecture, integration, bug-fix, testing, performance, internal-library-usage, general"
   }
 ]
 
