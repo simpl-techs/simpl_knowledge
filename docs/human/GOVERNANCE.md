@@ -1,6 +1,8 @@
 # Governance (GitHub)
 
-## `simpl-knowledge`
+> Per il setup iniziale completo passo-passo, vedi [ADMIN_SETUP.md](ADMIN_SETUP.md). Questa pagina descrive le **regole** che la configurazione deve rispettare.
+
+## `simpl-techs/simpl-knowledge`
 
 - **Branch protection** su `main`: required PR, required status checks (`Validate skills`, `AgentShield security scan`).
 - **Review**: minimo 1 approvazione; no push diretto.

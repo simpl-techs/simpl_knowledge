@@ -1,9 +1,9 @@
 {
   "name": "simpl_tracker-context",
   "version": "1.0.0",
-  "description": "How to integrate the internal simple-tracker library: events, API, patterns.",
+  "description": "How to integrate the internal simpl-tracker library (`simpl_tracker`): events, API, patterns.",
   "author": {
-    "name": "simple-tracker maintainers"
+    "name": "simpl-tracker maintainers"
   },
-  "keywords": ["simpl_tracker-context", "simple-tracker", "events", "tracking", "analytics", "integration"]
+  "keywords": ["simpl_tracker-context", "simpl-tracker", "simpl_tracker", "events", "tracking", "analytics", "integration"]
 }

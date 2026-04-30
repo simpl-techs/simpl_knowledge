@@ -1,11 +1,11 @@
 ---
 name: simpl-knowledge-agent-context
-description: Token-efficient reference for agents about simpl-knowledge. Read when answering questions about org-wide agent setup, marketplace simpl/simpl-knowledge, plugin names simpl-standards, simpl-memory, simpl-libraries, Cursor rolling release cursor-rules-rolling, catalog.md, or provenance.jsonl.
+description: Token-efficient reference for agents about simpl-knowledge. Read when answering questions about org-wide agent setup, marketplace simpl-techs/simpl-knowledge (alias install `@simpl`), plugin names simpl-standards, simpl-memory, simpl-libraries, Cursor rolling release cursor-rules-rolling, catalog.md, or provenance.jsonl.
 ---
 
 # simpl-knowledge — agent context
 
-- **Marketplace alias**: `simpl` (`@simpl` in `/plugin install`).
+- **Marketplace alias**: `simpl` (`@simpl` in `/plugin install`). **GitHub repo** del bundle: `simpl-techs/simpl-knowledge`.
 - **Plugins**: `simpl-standards`, `simpl-memory`, `simpl-libraries` (all global defaults), `<repo>-context` (full SKILL per library when needed).
 - **Catalog**: `catalog.md` + `catalog.json` at repo root — summaries of every `*-context` plugin; agents consult via `simpl-libraries` / `internal-libraries-awareness` before duplicating org tooling.
 - **Truth**: Library integration text lives in **that library’s** `.agent/SKILL.md`; `simpl-knowledge` mirrors it under `plugins/<repo>-context/`.

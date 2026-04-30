@@ -1,8 +1,8 @@
 {
   "$comment": "Single source of truth for org/repo naming. Keep scripts and docs in sync; curl-installed bootstrap reads the same values embedded at top of team-bootstrap.sh.",
-  "org": "simpl",
+  "org": "simpl-techs",
   "knowledge_repo": "simpl-knowledge",
-  "github_full_name": "simpl/simpl-knowledge",
+  "github_full_name": "simpl-techs/simpl-knowledge",
   "marketplace_alias": "simpl",
   "plugins": {
     "standards": "simpl-standards",
@@ -19,7 +19,7 @@
     "instinct_repo_pat": "INSTINCT_REPO_PAT"
   },
   "instincts": {
-    "collector_repo": "simpl/agent-instincts"
+    "collector_repo": "simpl-techs/agent-instincts"
   },
   "models": {
     "auto_update_skill": "deepseek/deepseek-chat",

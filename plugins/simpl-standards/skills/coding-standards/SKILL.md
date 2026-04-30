@@ -5,7 +5,7 @@ description: simpl-wide coding conventions and style rules that apply to all our
 
 # simpl coding standards
 
-> **Auto-distributed via simpl-knowledge. Propose edits with a PR on `simpl/simpl-knowledge`.**
+> **Auto-distributed via simpl-knowledge. Propose edits with a PR on `simpl-techs/simpl-knowledge`.**
 
 ## Languages and stacks
 
@@ -45,7 +45,7 @@ Every service/library follows this layout:
 
 ## Imports
 
-- **Python**: absolute imports only from the package root (e.g. `from simple_tracker.events import ...`), never relative imports across subpackages.
+- **Python**: absolute imports only from the package root (e.g. `from simpl_tracker.events import ...`), never relative imports across subpackages.
 - **TypeScript**: use path aliases (`@/components/...`), never deep `../../../`.
 
 ## Comments

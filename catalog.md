@@ -6,9 +6,9 @@ Each entry summarizes an integration plugin (`*-context`). Install the plugin in
 
 ## simpl_tracker-context
 
-- **Skill**: `simple-tracker`
+- **Skill**: `simpl-tracker`
 - **Summary**: Typed event tracker with batched HTTP flush to our warehouse; one method track(event_name, properties). No third-party analytics vendors.
 - **When to use**: User or task needs product/analytics events, funnel metrics, feature usage, or structured logs shipped to the org warehouse from Python or Node services.
-- **Required when**: Python or Node backend code that records billable or infra-cost-related usage (API calls, model tokens, compute units) must attribute spend via simple-tracker patterns described in this skill — install this context plugin and follow it before merging.
+- **Required when**: Python or Node backend code that records billable or infra-cost-related usage (API calls, model tokens, compute units) must attribute spend via simpl-tracker patterns described in this skill — install this context plugin and follow it before merging.
 - **Install full context (Claude Code)**: `/plugin install simpl_tracker-context@simpl`
 - **Skill path in cache**: `~/.claude/plugins/cache/simpl-knowledge/plugins/simpl_tracker-context/skills/`

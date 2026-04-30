@@ -14,7 +14,7 @@ description: |
 # REPO-NAME integration guide
 
 > **Maintained by**: the REPO-NAME repo, auto-synced to simpl-knowledge.
-> **Source of truth**: `simpl/REPO-NAME/.agent/SKILL.md`
+> **Source of truth**: `simpl-techs/REPO-NAME/.agent/SKILL.md`
 
 ## What this library is
 
@@ -72,6 +72,6 @@ Equally important as what it does. Prevents the agent from misapplying it.
 
 ## Where to go next
 
-- Source: `https://github.com/simpl/REPO-NAME`
-- Recent integration examples: search `REPO-NAME.` in `simpl/<other-repo>`
+- Source: `https://github.com/simpl-techs/REPO-NAME`
+- Recent integration examples: search `REPO-NAME.` in `simpl-techs/<other-repo>`
 - Owner: @handle on Slack

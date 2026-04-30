@@ -20,7 +20,7 @@ We evaluated [everything-claude-code](https://github.com/affaan-m/everything-cla
 - Stores at `~/.claude/simpl-memory/<repo>/instincts.jsonl` — per-repo scope, not global
 - Injection on SessionStart only when count ≥ 2 (avoid noise)
 - Promotion via human-reviewed PR, never automatic
-- **Private by default**: instincts stay on the dev's laptop. Only if the dev opts in (by configuring `INSTINCT_REPO_PAT` sync to `simpl/agent-instincts`) do their instincts feed into the weekly team aggregation.
+- **Private by default**: instincts stay on the dev's laptop. Only if the dev opts in (by configuring `INSTINCT_REPO_PAT` sync to `simpl-techs/agent-instincts`) do their instincts feed into the weekly team aggregation.
 
 Files:
 - `plugins/simpl-memory/hooks/hooks.json` — registers Stop + SessionStart

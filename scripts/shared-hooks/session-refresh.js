@@ -17,7 +17,7 @@ const os = require('node:os');
 const { spawn, execFileSync } = require('node:child_process');
 
 const THROTTLE_SEC = 6 * 3600;
-const DEFAULT_REPO = process.env.SIMPL_KNOWLEDGE_REPO || 'simpl/simpl-knowledge';
+const DEFAULT_REPO = process.env.SIMPL_KNOWLEDGE_REPO || 'simpl-techs/simpl-knowledge';
 const CURSOR_TAG = 'cursor-rules-rolling';
 
 function home() {

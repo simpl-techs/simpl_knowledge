@@ -1,25 +1,89 @@
-# Quickstart (simpl)
+# Quickstart (developer)
+
+Guida per usare gli agent del team. Per configurare il sistema da zero nell'org → [ADMIN_SETUP.md](ADMIN_SETUP.md).
 
 ```mermaid
 flowchart LR
-  dev[Dev] --> cc[Claude / Cursor]
-  cc --> sk[simpl-knowledge]
-  sk --> lib[Library SKILL.md]
+  maintainer[Maintainer libreria] --> skill[".agent/SKILL.md"]
+  skill --> hub[simpl-techs/simpl-knowledge]
+  hub --> claude[Claude Code plugin]
+  hub --> cursor[Cursor rules]
+  claude --> dev[Agent del developer]
+  cursor --> dev
 ```
 
-## 5 passi
+---
 
-1. **Repo centrale**: crea `simpl-techs/simpl-knowledge` (questo bundle) su GitHub, branch protection su `main`.
-2. **Secrets org**: `DEEPSEEK_API_KEY` (workflow `auto-update-skill` su GitHub), `SIMPL_KNOWLEDGE_PAT` (scope repo su `simpl-knowledge`). In locale, per l’estrazione instinct serve la chiave del **provider** del modello in uso (Anthropic/OpenAI/DeepSeek), vedi `plugins/simpl-memory/PRIVACY.md`.
-3. **Bootstrap dev**:  
-   `curl -fsSL https://raw.githubusercontent.com/simpl-techs/simpl-knowledge/main/scripts/team-bootstrap.sh | bash`
-4. **Claude Code** (nella sessione):  
-   `/plugin marketplace add simpl-techs/simpl-knowledge`  
-   `/plugin install simpl-standards@simpl-techs`, `simpl-memory@simpl-techs` (obbligatorio), e `simpl-libraries@simpl-techs` (catalogo librerie interne).
-5. **Verifica**: chiedi all’agent *«come scriviamo i commit qui?»* → deve citare `git-workflow`.
+## Passo 1 — Bootstrap
 
-| Prossimo passo | Dove |
-|----------------|------|
-| Architettura | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| Ruoli | [ROLES.md](ROLES.md) |
-| Problemi | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) |
+Esegui:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/simpl-techs/simpl-knowledge/main/scripts/team-bootstrap.sh | bash
+```
+
+Lo script rileva da solo se hai Claude Code, Cursor o entrambi. È idempotente: rieseguilo per forzare un refresh.
+
+## Passo 2 — Solo se hai Claude Code
+
+Apri una sessione Claude Code e incolla:
+
+```text
+/plugin marketplace add simpl-techs/simpl-knowledge
+/plugin install simpl-standards@simpl
+/plugin install simpl-memory@simpl
+/plugin install simpl-libraries@simpl
+```
+
+Questi comandi esistono solo dentro la sessione Claude Code, lo script non può eseguirli per te.
+
+## Passo 3 — Opzionale: chiave per `simpl-memory`
+
+Puoi saltare questo passo. Senza chiave, `simpl-memory` carica i comandi e gli hook ma **non scrive nuovi instinct**: nessun errore, semplicemente niente apprendimento.
+
+Serve perché il plugin, a fine sessione, fa una chiamata HTTP a un provider per estrarre i pattern dal transcript: questa chiamata è separata da quella che Cursor o Claude Code fanno per la sessione interattiva, quindi non eredita la loro auth.
+
+Se vuoi attivarlo, esporta **una** di queste env var (quella del provider compatibile col modello che usi in sessione):
+
+```bash
+export ANTHROPIC_API_KEY="..."   # Claude
+export OPENAI_API_KEY="..."      # OpenAI
+export DEEPSEEK_API_KEY="..."    # DeepSeek
+export SIMPL_MEMORY_API_KEY="..." # fallback condiviso
+```
+
+## Passo 4 — Verifica
+
+Apri Claude o Cursor in un repo qualsiasi e chiedi:
+
+```text
+come scriviamo i commit qui?
+```
+
+L'agent deve citare lo skill `git-workflow`. Se non lo cita → [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+
+---
+
+## Aggiornamenti
+
+```text
+/plugin marketplace update
+```
+
+Cursor si aggiorna da solo all'apertura della sessione (throttle ~6h). Per forzare: rilancia il bootstrap del Passo 1.
+
+---
+
+## Sei maintainer di una libreria?
+
+1. `cd` nel tuo repo libreria.
+2. Esegui:
+   ```bash
+   bash ~/.claude/plugins/cache/simpl-knowledge/library-repo-template/scripts/bootstrap.sh <repo-name>
+   ```
+3. Compila `.agent/SKILL.md` (rimuovi i placeholder `REPLACE-ME`), commit, push.
+4. Al merge in `main`, il workflow `sync-skill-to-marketplace` apre PR sul repo centrale. Dopo il merge della PR, gli altri dev ricevono l'update con `/plugin marketplace update`.
+
+---
+
+Problemi? → [TROUBLESHOOTING.md](TROUBLESHOOTING.md)

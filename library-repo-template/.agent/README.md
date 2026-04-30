@@ -4,7 +4,7 @@ This repo participates in **simpl-knowledge**. Two conventions matter:
 
 ## `.agent/SKILL.md`
 
-Public-facing doc for *other* teammates' AI agents. Tells them how to use this library from elsewhere. Auto-synced to `simpl/simpl-knowledge` on every merge to `main`.
+Public-facing doc for *other* teammates' AI agents. Tells them how to use this library from elsewhere. Auto-synced to `simpl-techs/simpl-knowledge` on every merge to `main`.
 
 Edit freely — the sync is automatic. If you're unsure what to write, see `simpl-knowledge/docs/history/SKILL_WRITING_GUIDE.md`.
 

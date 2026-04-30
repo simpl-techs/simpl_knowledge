@@ -2,11 +2,11 @@
 # Install simpl-knowledge context for Claude Code + Cursor.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/simpl/simpl-knowledge/main/scripts/install-team.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/simpl-techs/simpl-knowledge/main/scripts/install-team.sh | bash
 
 set -euo pipefail
 
-MARKETPLACE_REPO="simpl/simpl-knowledge"
+MARKETPLACE_REPO="simpl-techs/simpl-knowledge"
 MARKETPLACE_URL="https://github.com/${MARKETPLACE_REPO}"
 MARKETPLACE_CACHE="${HOME}/.claude/plugins/cache/${MARKETPLACE_REPO##*/}"
 CURSOR_TAG="cursor-rules-rolling"

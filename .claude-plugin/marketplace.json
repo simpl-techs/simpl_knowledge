@@ -1,6 +1,6 @@
 {
   "name": "simpl",
-  "description": "simpl org agent marketplace: standards, memory, internal library catalog, and per-repo integration plugins.",
+  "description": "simpl-techs org agent marketplace: standards, memory, internal library catalog, and per-repo integration plugins.",
   "plugins": [
     {
       "name": "simpl-standards",
@@ -26,9 +26,9 @@
     {
       "name": "simpl_tracker-context",
       "source": "./plugins/simpl_tracker-context",
-      "description": "Integration context for simple-tracker. Auto-synced from simpl/simple-tracker.",
+      "description": "Integration context for simpl-tracker (`simpl_tracker`). Auto-synced from simpl-techs/simpl_tracker.",
       "version": "1.0.0",
-      "keywords": ["simpl_tracker-context", "simple-tracker", "events", "tracking", "analytics", "integration", "simpl"]
+      "keywords": ["simpl_tracker-context", "simpl-tracker", "simpl_tracker", "events", "tracking", "analytics", "integration", "simpl"]
     }
   ]
 }

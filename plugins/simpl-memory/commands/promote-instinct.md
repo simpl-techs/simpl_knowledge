@@ -40,7 +40,7 @@ rows.forEach((r, i) => {
 For each promotion-ready instinct, go through three questions WITH the user:
 
 **Q1: Is this real and worth sharing?**
-- "Yes, and it's org-wide" → target = `plugins/simpl-standards/skills/<n>/SKILL.md` (in `simpl/simpl-knowledge`)
+- "Yes, and it's org-wide" → target = `plugins/simpl-standards/skills/<n>/SKILL.md` (in `simpl-techs/simpl-knowledge`)
 - "Yes, but only relevant if integrating THIS repo" → target = `.agent/SKILL.md` in current repo
 - "Yes, but it's only relevant when working INSIDE this repo" → target = `.agent/INTERNAL.md` in current repo
 - "No, it's a personal thing" → use `/dismiss-instinct` instead
@@ -97,7 +97,7 @@ git add <target files>
 git commit -m "docs(agent): promote learned pattern — <short description>"
 ```
 
-The library repo’s sync workflow will open a PR on `simpl/simpl-knowledge` automatically on merge (when the change includes `.agent/SKILL.md`).
+The library repo’s sync workflow will open a PR on `simpl-techs/simpl-knowledge` automatically on merge (when the change includes `.agent/SKILL.md`).
 
 ## Design rules
 

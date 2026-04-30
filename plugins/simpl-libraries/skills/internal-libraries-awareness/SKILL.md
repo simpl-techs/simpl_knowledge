@@ -7,7 +7,7 @@ description: ALWAYS consult before implementing new functionality, utility modul
 
 Org-wide **canonical list** of integration libraries lives in the simpl-knowledge repo root:
 
-- **Primary**: `~/.claude/plugins/cache/simpl-knowledge/catalog.md` (same tree if you have a clone of `simpl/simpl-knowledge` at `SIMPL_KNOWLEDGE_CACHE`).
+- **Primary**: `~/.claude/plugins/cache/simpl-knowledge/catalog.md` (same tree if you have a clone of `simpl-techs/simpl-knowledge` at `SIMPL_KNOWLEDGE_CACHE`).
 - **Machine-readable**: `catalog.json` beside it.
 
 ## What you must do

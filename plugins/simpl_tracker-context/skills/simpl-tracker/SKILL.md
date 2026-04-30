@@ -9,8 +9,8 @@ cursor_globs: "**/*.py,**/*.ts,**/*.tsx,**/*tracker*"
 
 # simpl-tracker integration guide
 
-> **Maintained by**: the simpl-tracker repo, auto-synced to this marketplace. Last synced from `simpl/simpl-tracker@main`.
-> **Source of truth**: `simpl-techs/simpl-tracker/.agent/SKILL.md`
+> **Maintained by**: the `simpl_tracker` repo (GitHub `simpl-techs/simpl_tracker`), auto-synced to this marketplace. Last synced from `simpl-techs/simpl_tracker@main`.
+> **Source of truth**: `simpl-techs/simpl_tracker/.agent/SKILL.md`
 
 ## What simpl-tracker is
 
@@ -20,13 +20,13 @@ A minimal, typed event tracker used by every service we run. One method: `track(
 
 ```bash
 # Python
-pip install git+ssh://git@github.com/simpl-techs/simpl-tracker.git@v2
+pip install git+https://github.com/simpl-techs/simpl_tracker.git
 
-# Node
-npm install git+ssh://git@github.com/simpl-techs/simpl-tracker.git#v2
+# Node (if your service consumes the published package from this repo)
+npm install git+https://github.com/simpl-techs/simpl_tracker.git
 ```
 
-Pin to a major version (`v2`) — we follow SemVer strictly.
+Pin to a tagged release when available — we follow SemVer strictly.
 
 ## Basic usage (the 90% case)
 
@@ -62,7 +62,7 @@ You only supply your custom properties.
 
 ## When integrating into a new service
 
-1. Add `simpl-tracker` to dependencies pinned to `v2`.
+1. Add `simpl_tracker` to dependencies (Poetry/pip from `simpl-techs/simpl_tracker`).
 2. Set `TRACKER_API_URL` and `TRACKER_SERVICE_NAME` in the service's env config.
 3. Instantiate **one** `Tracker` per process. Reuse it. Don't `from_env()` inside hot paths.
 4. For web services: bind `session_id` per-request using the framework's context middleware. In FastAPI:
@@ -107,6 +107,6 @@ If the user's request is really about one of the above, point them there instead
 
 ## If you're stuck
 
-- Source: `https://github.com/simpl-techs/simpl-tracker`
+- Source: `https://github.com/simpl-techs/simpl_tracker`
 - Recent examples of integration: search for `tracker.track(` in `simpl-techs/web-app` or `simpl-techs/api-gateway`
 - Owner: @alice on Slack

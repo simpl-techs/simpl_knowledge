@@ -2,7 +2,7 @@
 # simpl-knowledge — one-command installer for dev machines.
 #
 # Usage (from any directory):
-#     curl -fsSL https://raw.githubusercontent.com/simpl/simpl-knowledge/main/scripts/team-bootstrap.sh | bash
+#     curl -fsSL https://raw.githubusercontent.com/simpl-techs/simpl-knowledge/main/scripts/team-bootstrap.sh | bash
 #
 # Or if you've cloned the repo:
 #     bash scripts/team-bootstrap.sh
@@ -21,7 +21,7 @@
 set -euo pipefail
 
 # --- Configuration (edit before committing to your fork) -------------------
-MARKETPLACE_REPO="simpl/simpl-knowledge"
+MARKETPLACE_REPO="simpl-techs/simpl-knowledge"
 MARKETPLACE_NAME="simpl"
 DEFAULT_PLUGINS=("simpl-standards" "simpl-memory" "simpl-libraries")
 OPTIONAL_PLUGINS=("simpl_tracker-context")  # per-project; dev picks
@@ -197,7 +197,7 @@ cat <<'EOF'
 Next steps:
 
   1. Inside Claude Code, run:
-        /plugin marketplace add simpl/simpl-knowledge
+        /plugin marketplace add simpl-techs/simpl-knowledge
         /plugin install simpl-standards@simpl
         /plugin install simpl-memory@simpl
         /plugin install simpl-libraries@simpl

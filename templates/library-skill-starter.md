@@ -54,7 +54,7 @@ ONE SENTENCE saying what it is and why it exists.
 
 ## Where to go next
 
-- Source: https://github.com/simpl/LIBRARY-NAME
+- Source: https://github.com/simpl-techs/LIBRARY-NAME
 - Slack owner: @HANDLE
 ```
 

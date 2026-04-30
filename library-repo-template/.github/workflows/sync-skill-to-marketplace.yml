@@ -31,7 +31,7 @@ jobs:
       - name: Checkout simpl-knowledge
         uses: actions/checkout@v4
         with:
-          repository: simpl/simpl-knowledge
+          repository: simpl-techs/simpl-knowledge
           token: ${{ secrets.SIMPL_KNOWLEDGE_PAT }}
           path: marketplace
 

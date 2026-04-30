@@ -25,8 +25,8 @@ description: Docs for the tracker library.
 description: |
   Use this skill whenever the user asks to track events, log analytics,
   record user actions, implement telemetry, or integrate with our internal
-  `simple-tracker` library. ALWAYS consult this skill before writing any
-  code that calls `simple_tracker`, imports it, or adds new event types —
+  `simpl-tracker` library. ALWAYS consult this skill before writing any
+  code that calls `simpl_tracker`, imports it, or adds new event types —
   even when the user doesn't mention the library by name. Triggers on
   phrases like "track this", "log when user does X", "add analytics",
   "instrument this endpoint", "record event", "telemetry".

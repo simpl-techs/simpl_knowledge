@@ -34,13 +34,13 @@ Three cases:
 Nothing set up. Run the one-command bootstrap:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/simpl/simpl-knowledge/main/scripts/team-bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/simpl-techs/simpl-knowledge/main/scripts/team-bootstrap.sh | bash
 ```
 
 Then, inside Claude Code (ask the user to do this in a new session or tell them to copy-paste):
 
 ```
-/plugin marketplace add simpl/simpl-knowledge
+/plugin marketplace add simpl-techs/simpl-knowledge
 /plugin install simpl-standards@simpl
 /plugin install simpl-memory@simpl
 /plugin install simpl-libraries@simpl

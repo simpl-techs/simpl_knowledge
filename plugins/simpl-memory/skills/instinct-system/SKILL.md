@@ -40,7 +40,7 @@ This repo participates in **simpl-memory**, a lightweight continuous-learning la
 
 ## Category: `internal-library-usage`
 
-Use this category when extraction notices the team **repeatedly imports or wraps the same internal simpl library** across sessions (e.g. always reaching for `simple_tracker` for cost attribution).
+Use this category when extraction notices the team **repeatedly imports or wraps the same internal simpl library** across sessions (e.g. always reaching for `simpl_tracker` for cost attribution).
 
 - **Emerging / active instincts** nudge the agent toward that library on this repo.
 - **Promotion** (via `/promote-instinct`) should usually become an update to the **library’s** `.agent/SKILL.md` (`when_to_use` / `required_when`) or a note in org docs — *not* raw instinct JSON in the marketplace. After merge, the next library sync regenerates **`catalog.md`** so every agent sees the canonical wording.
