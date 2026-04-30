@@ -22,10 +22,9 @@
     "collector_repo": "simpl/agent-instincts"
   },
   "models": {
-    "extract_instincts": "claude-haiku-4-5-20251001",
-    "auto_update_skill": "claude-sonnet-4-6",
-    "fallback_extract": "claude-3-5-haiku-20241022",
-    "fallback_update": "claude-3-5-sonnet-20241022"
+    "auto_update_skill": "deepseek/deepseek-chat",
+    "extract_instincts": "session-default",
+    "$comment_models": "Remote agents (GitHub Actions) use DeepSeek via aider; local extract-instincts uses the developer session model from the Stop hook payload. Override extraction with SIMPL_MEMORY_EXTRACT_MODEL."
   },
   "bot": {
     "git_name": "simpl-knowledge-bot",

@@ -26,13 +26,15 @@ Internal-only conventions for working *inside* this repo. Stays local, never syn
 
 ## Weekly safety net
 
-Every Monday, `auto-update-skill.yml` runs Claude Code against the last week of commits. If `.agent/SKILL.md` has drifted from reality, a PR is opened here with a proposed fix, labeled `needs-review`.
+Every Monday, `auto-update-skill.yml` runs **aider** (DeepSeek) against the last week of commits. If `.agent/SKILL.md` has drifted from reality, a PR is opened here with a proposed fix, labeled `needs-review`.
+
+The workflow installs `aider` into a **`python3 -m venv .venv`** (`requirements-agent-ci.txt`; `.venv/` is gitignored — same layout you can use locally to debug `aider`).
 
 Someone on the team reviews it — usually takes 5-10 minutes — and merges or closes.
 
 ## Secrets required in this repo
 
-- `ANTHROPIC_API_KEY` — for the auto-update workflow. Set at org level, inherited here.
+- `DEEPSEEK_API_KEY` — for the `auto-update-skill` workflow (aider + DeepSeek). Set at org level, inherited here.
 - `SIMPL_KNOWLEDGE_PAT` — Personal Access Token with `repo` scope on `simpl-knowledge`. Also org-level.
 
 ## Extending

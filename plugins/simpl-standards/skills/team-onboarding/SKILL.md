@@ -74,18 +74,20 @@ If they mention a library that doesn't exist in the marketplace yet, that's a si
 
 ## 4. Memory layer (simpl-memory)
 
-This is opt-in because it calls the Anthropic API in the background (uses Haiku, ~$5/month total for 5 devs).
+Install **`simpl-memory` with the other global plugins** — it is required for the team stack. The Stop hook sends session transcripts to whichever **LLM matches your current session** (Claude, GPT, DeepSeek, …); you only need the matching provider key in your shell:
 
-Ask the user:
-> "Do you want to enable the continuous-learning layer? It captures recurring patterns from your sessions and makes the agent smarter over time. It needs `ANTHROPIC_API_KEY` in your environment. Says no if you're not sure — you can enable later."
-
-If yes:
 ```bash
-# Add to ~/.zshrc or ~/.bashrc
+# Use the one that matches the model you actually run in Cursor / Claude Code:
 export ANTHROPIC_API_KEY="sk-ant-..."
+# or
+export OPENAI_API_KEY="sk-..."
+# or
+export DEEPSEEK_API_KEY="..."
+# Optional single shared key for all providers in this hook:
+export SIMPL_MEMORY_API_KEY="..."
 ```
 
-If no: the plugin is installed but extraction silently skips (no API key = no calls).
+Without a key for the active provider, instinct extraction skips silently (the plugin still loads for SessionStart and commands).
 
 ## 5. Optional: AgentShield security audit
 

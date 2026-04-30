@@ -7,3 +7,6 @@ CLAUDE.local.md
 .DS_Store
 *.swp
 .idea/
+
+# Project venv (e.g. aider via requirements-agent-ci.txt)
+.venv/

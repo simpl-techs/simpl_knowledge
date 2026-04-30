@@ -41,7 +41,7 @@ description: Explains how simpl org shares agent context via simpl-knowledge (Cl
 
 ## Instincts (simpl-memory)
 
-- **Stop** hook → extract patterns (Haiku) → `instincts.jsonl`.
+- **Stop** hook → extract patterns (provider matches session model) → `instincts.jsonl`.
 - **SessionStart** → inject count ≥ 2; notify promotion at count ≥ 3.
 - **Commands**: `/instinct-status`, `/promote-instinct`, `/dismiss-instinct`.
 - **Never** auto-promote to shared skills without human review.

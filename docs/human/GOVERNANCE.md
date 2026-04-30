@@ -4,7 +4,7 @@
 
 - **Branch protection** su `main`: required PR, required status checks (`Validate skills`, `AgentShield security scan`).
 - **Review**: minimo 1 approvazione; no push diretto.
-- **CODEOWNERS**: vedi [.github/CODEOWNERS](../../.github/CODEOWNERS) (sostituisci team con il tuo `@simpl/...`).
+- **CODEOWNERS**: vedi [.github/CODEOWNERS](../../.github/CODEOWNERS) (sostituisci team con il tuo `@simpl-techs/...`).
 
 ## Repo libreria (template)
 

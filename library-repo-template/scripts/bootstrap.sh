@@ -113,7 +113,7 @@ echo
 echo "Next steps:"
 echo "  1. Edit .agent/SKILL.md — fill in the placeholders with YOUR library's reality."
 echo "  2. Edit .agent/INTERNAL.md — document the internal conventions for this repo."
-echo "  3. Make sure the org-level secrets ANTHROPIC_API_KEY and SIMPL_KNOWLEDGE_PAT are set."
+echo "  3. Make sure the org-level secrets DEEPSEEK_API_KEY and SIMPL_KNOWLEDGE_PAT are set."
 echo "  4. Commit and push:"
 echo "       git add .agent/ .claude/ .cursor/ .github/ scripts/ CLAUDE.md"
 echo "       git commit -m 'chore(agent): bootstrap agent context'"

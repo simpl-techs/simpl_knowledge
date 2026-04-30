@@ -12,7 +12,7 @@ This repo participates in **simpl-memory**, a lightweight continuous-learning la
 ```
 ┌─────────────┐   Stop hook     ┌────────────────┐
 │   session   │ ──────────────▶ │ extract with   │
-│   (you code)│  transcript     │ Claude Haiku   │
+│   (you code)│  transcript     │ session LLM     │
 └─────────────┘                 └───────┬────────┘
                                         │
                               dedup + increment count
@@ -99,4 +99,4 @@ If X came from an instinct, say so plainly: "I noticed in past sessions you pref
 
 ## Cost
 
-Haiku extraction throttled to 1 / 5 min per repo. Team cost: ~$5/month total for 5 devs.
+Extraction runs at most once per repo per ~5 minutes. Spend depends on the **session model** (Claude vs GPT vs DeepSeek, etc.); throttle caps frequency, not creativity.

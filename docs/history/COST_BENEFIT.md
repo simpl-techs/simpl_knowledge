@@ -16,7 +16,7 @@
 | Item | Cost |
 |---|---|
 | GitHub Actions minutes | $0 (well within free tier) |
-| Anthropic API for auto-update (Sonnet, weekly per repo) | ~$6-12 |
+| DeepSeek API for auto-update (`aider`, weekly per repo via GitHub Actions) | order of magnitude similar to prior Sonnet line; varies with traffic |
 | Storage / hosting | $0 |
 | **Total recurring** | **~$10/month** |
 

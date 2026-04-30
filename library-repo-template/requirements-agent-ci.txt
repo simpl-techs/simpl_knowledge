@@ -1,0 +1,3 @@
+# CI only: installs the aider CLI for `.github/workflows/auto-update-skill.yml`.
+# Activate with `source .venv/bin/activate` locally; `.venv/` is gitignored.
+aider-chat

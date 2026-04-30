@@ -15,7 +15,7 @@ We evaluated [everything-claude-code](https://github.com/affaan-m/everything-cla
 **What ECC does**: Stop hook → extract patterns with LLM → store locally as "instincts" → promote when confidence is high.
 
 **What we built**: Same shape, but:
-- Uses **Haiku** (not Sonnet) for extraction → ~10x cheaper, sufficient for this task
+- Uses the **same session LLM as the IDE** for extraction via a small router (Anthropic / OpenAI / DeepSeek endpoints), so cost tracks each dev’s chosen model rather than one fixed SKU
 - Throttled to 1 extraction / 5 min per repo → caps cost
 - Stores at `~/.claude/simpl-memory/<repo>/instincts.jsonl` — per-repo scope, not global
 - Injection on SessionStart only when count ≥ 2 (avoid noise)
