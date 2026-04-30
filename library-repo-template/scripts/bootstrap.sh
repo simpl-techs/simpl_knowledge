@@ -7,7 +7,7 @@
 #   bash /path/to/library-repo-template/scripts/bootstrap.sh <repo-name>
 #
 # Example:
-#   bash /path/to/library-repo-template/scripts/bootstrap.sh simple-tracker
+#   bash /path/to/library-repo-template/scripts/bootstrap.sh simpl-tracker
 
 set -euo pipefail
 

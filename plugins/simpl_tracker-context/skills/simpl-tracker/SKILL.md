@@ -1,18 +1,18 @@
 ---
-name: simple-tracker
-description: Use this skill whenever the user asks to track events, log analytics, record user actions, implement telemetry, or integrate with our internal `simple-tracker` library. ALWAYS consult this skill before writing any code that calls `simple_tracker`, imports it, or adds new event types — even when the user doesn't mention the library by name. Triggers on phrases like "track this", "log when user does X", "add analytics", "instrument this endpoint", "record event", "telemetry".
+name: simpl-tracker
+description: Use this skill whenever the user asks to track events, log analytics, record user actions, implement telemetry, or integrate with our internal `simpl-tracker` library. ALWAYS consult this skill before writing any code that calls `simpl_tracker`, imports it, or adds new event types — even when the user doesn't mention the library by name. Triggers on phrases like "track this", "log when user does X", "add analytics", "instrument this endpoint", "record event", "telemetry".
 summary: Typed event tracker with batched HTTP flush to our warehouse; one method track(event_name, properties). No third-party analytics vendors.
 when_to_use: User or task needs product/analytics events, funnel metrics, feature usage, or structured logs shipped to the org warehouse from Python or Node services.
-required_when: Python or Node backend code that records billable or infra-cost-related usage (API calls, model tokens, compute units) must attribute spend via simple-tracker patterns described in this skill — install this context plugin and follow it before merging.
+required_when: Python or Node backend code that records billable or infra-cost-related usage (API calls, model tokens, compute units) must attribute spend via simpl-tracker patterns described in this skill — install this context plugin and follow it before merging.
 cursor_globs: "**/*.py,**/*.ts,**/*.tsx,**/*tracker*"
 ---
 
-# simple-tracker integration guide
+# simpl-tracker integration guide
 
-> **Maintained by**: the simple-tracker repo, auto-synced to this marketplace. Last synced from `simpl/simple-tracker@main`.
-> **Source of truth**: `simpl/simple-tracker/.agent/SKILL.md`
+> **Maintained by**: the simpl-tracker repo, auto-synced to this marketplace. Last synced from `simpl/simpl-tracker@main`.
+> **Source of truth**: `simpl-techs/simpl-tracker/.agent/SKILL.md`
 
-## What simple-tracker is
+## What simpl-tracker is
 
 A minimal, typed event tracker used by every service we run. One method: `track(event_name, properties)`. Flushes to our warehouse via batched HTTP. No external analytics vendors — everything stays in our Postgres.
 
@@ -20,10 +20,10 @@ A minimal, typed event tracker used by every service we run. One method: `track(
 
 ```bash
 # Python
-pip install git+ssh://git@github.com/simpl/simple-tracker.git@v2
+pip install git+ssh://git@github.com/simpl-techs/simpl-tracker.git@v2
 
 # Node
-npm install git+ssh://git@github.com/simpl/simple-tracker.git#v2
+npm install git+ssh://git@github.com/simpl-techs/simpl-tracker.git#v2
 ```
 
 Pin to a major version (`v2`) — we follow SemVer strictly.
@@ -31,7 +31,7 @@ Pin to a major version (`v2`) — we follow SemVer strictly.
 ## Basic usage (the 90% case)
 
 ```python
-from simple_tracker import Tracker
+from simpl_tracker import Tracker
 
 tracker = Tracker.from_env()  # reads TRACKER_API_URL + TRACKER_SERVICE_NAME
 
@@ -62,13 +62,13 @@ You only supply your custom properties.
 
 ## When integrating into a new service
 
-1. Add `simple-tracker` to dependencies pinned to `v2`.
+1. Add `simpl-tracker` to dependencies pinned to `v2`.
 2. Set `TRACKER_API_URL` and `TRACKER_SERVICE_NAME` in the service's env config.
 3. Instantiate **one** `Tracker` per process. Reuse it. Don't `from_env()` inside hot paths.
 4. For web services: bind `session_id` per-request using the framework's context middleware. In FastAPI:
    ```python
-   from simple_tracker import Tracker
-   from simple_tracker.fastapi import TrackerMiddleware
+   from simpl_tracker import Tracker
+   from simpl_tracker.fastapi import TrackerMiddleware
 
    app.add_middleware(TrackerMiddleware, tracker=tracker)
    # now `request.state.tracker.track(...)` is session-scoped
@@ -83,9 +83,9 @@ You only supply your custom properties.
 
 ## Testing
 
-Use the `MockTracker` from `simple_tracker.testing`:
+Use the `MockTracker` from `simpl_tracker.testing`:
 ```python
-from simple_tracker.testing import MockTracker
+from simpl_tracker.testing import MockTracker
 
 def test_signup_emits_event():
     tracker = MockTracker()
@@ -103,10 +103,10 @@ Never use the real tracker in tests. It won't fail the test but will pollute the
 - Does not do error/exception tracking (that's Sentry)
 - Does not provide real-time streaming (events flush every 10s or 100 events)
 
-If the user's request is really about one of the above, point them there instead of forcing simple-tracker.
+If the user's request is really about one of the above, point them there instead of forcing simpl-tracker.
 
 ## If you're stuck
 
-- Source: `https://github.com/simpl/simple-tracker`
-- Recent examples of integration: search for `tracker.track(` in `simpl/web-app` or `simpl/api-gateway`
+- Source: `https://github.com/simpl-techs/simpl-tracker`
+- Recent examples of integration: search for `tracker.track(` in `simpl-techs/web-app` or `simpl-techs/api-gateway`
 - Owner: @alice on Slack
