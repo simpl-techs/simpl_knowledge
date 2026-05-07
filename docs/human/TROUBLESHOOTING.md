@@ -15,8 +15,7 @@ Questa pagina parte dai sintomi più comuni. Prima di debuggare, ricorda la dist
 | Cursor: regole ferme da giorni | Hook globale: `~/.cursor/hooks.json` deve invocare `session-refresh` (~6h throttle). Forza: riesegui bootstrap o elimina lo stamp `.last-refresh` nella cache (vedi `session-refresh.js`). Cache git tipica: `~/.claude/plugins/cache/simpl_knowledge`. Solo file **`simpl-*.mdc`** sono gestiti dall’org; altri `.mdc` restano intatti. |
 | Sync PR non si apre dal repo libreria | Secret **`SIMPL_KNOWLEDGE_PAT`** presente sul repo? Permessi su `simpl-techs/simpl_knowledge`? Il workflow fa checkout di `simpl-techs/simpl_knowledge` — il nome org nel YAML deve combaciare col remoto. |
 | `auto-update-skill` fallisce | `DEEPSEEK_API_KEY` a livello org; opzionale repo `SKILL_AGENT_MODEL` (default `deepseek/deepseek-chat`). |
-| Instinct non si salvano | Payload Stop deve includere `model`; in locale serve la chiave del provider attivo (`ANTHROPIC_*`, `OPENAI_*`, `DEEPSEEK_*`, o `SIMPL_MEMORY_API_KEY`). Path store: `~/.claude/simpl-memory/<repo>/`. |
-| Modello / provider non valido | `config/simpl.json` (`models.*`); in CI remoto si usa DeepSeek; in locale l’estrazione segue il modello di sessione o `SIMPL_MEMORY_EXTRACT_MODEL`. |
+| Instinct locali vuoti | Solo i tre **instinct owner** (`config/simpl.json`) possono popolare righe via `/extract-instincts` (serve `gh auth login` e path al transcript). Gli altri dev consumano `team-instincts/instincts.jsonl` dopo merge. Store locale: `~/.claude/simpl-memory/<repo>/`. |
 
 ## Comandi di verifica rapida (dev)
 
@@ -94,17 +93,11 @@ Controlla questi punti nel repo libreria:
 
 ### `simpl-memory` sembra inattivo
 
-Questo può essere normale se non hai configurato chiavi provider. `simpl-memory` carica comunque comandi e hook, ma l’estrazione degli instinct salta se non trova una chiave compatibile con il modello della sessione.
+È normale se **non** sei uno dei tre instinct owner: non eseguirai `/extract-instincts`; ricevi comunque il feed team al SessionStart se `team-instincts/instincts.jsonl` è stato mergiato nel marketplace.
 
-Per abilitarlo:
+Se **sei** owner e non vedi nuove righe locali:
 
-```bash
-export ANTHROPIC_API_KEY="..."
-# oppure OPENAI_API_KEY / DEEPSEEK_API_KEY / SIMPL_MEMORY_API_KEY
-```
+1. `gh auth status` — deve essere autenticato.
+2. Esegui `/extract-instincts` con un transcript valido e verifica `~/.claude/simpl-memory/<repo>/instincts.jsonl`.
 
-Gli instinct locali sono in:
-
-```bash
-~/.claude/simpl-memory/<repo>/instincts.jsonl
-```
+Dettagli: [`plugins/simpl-memory/PRIVACY.md`](../../plugins/simpl-memory/PRIVACY.md).

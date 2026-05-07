@@ -25,5 +25,13 @@
     "enabled": true,
     "commit_prefix": "release:",
     "dry_run_by_default": true
+  },
+
+  "simpl_memory": {
+    "instinct_owners": [
+      { "github_login": "Len378", "name": "Len" },
+      { "github_login": "n3ural", "name": "Iacopo Modica" },
+      { "github_login": "not-Karot", "name": "Raffaele Scarano" }
+    ]
   }
 }

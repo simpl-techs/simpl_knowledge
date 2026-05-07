@@ -1,9 +1,31 @@
 ---
 name: share-instincts
-description: Opt-in — publish your local simpl-memory instincts to team-instincts/raw/<your-github-login>.jsonl on simpl_knowledge via PR.
+description: Opt-in — owner-only. Publish your local simpl-memory instincts to team-instincts/raw/<your-github-login>.jsonl on simpl_knowledge via PR.
 ---
 
 # /share-instincts
+
+## Allowlist check (mandatory first)
+
+Same owners as `/extract-instincts` — `Len378`, `n3ural`, `not-Karot`:
+
+```bash
+LOGIN="$(gh api user -q .login)" || { echo 'ERROR: run gh auth login first'; exit 1; }
+CONFIG="${SIMPL_KNOWLEDGE_CONFIG:-$HOME/.claude/plugins/cache/simpl_knowledge/config/simpl.json}"
+node -e '
+const fs = require("fs");
+const login = process.env.LOGIN;
+const cfgPath = process.env.CONFIG;
+if (!fs.existsSync(cfgPath)) { console.error("ERROR: missing config at", cfgPath); process.exit(1); }
+const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+const owners = (cfg.simpl_memory && cfg.simpl_memory.instinct_owners || []).map((o) => o.github_login);
+if (!owners.includes(login)) {
+  console.error("ERROR: " + login + " is not an instinct owner.");
+  process.exit(1);
+}
+console.log("OK instinct owner:", login);
+' CONFIG="$CONFIG" LOGIN="$LOGIN"
+```
 
 Publish patterns from your **local** `simpl-memory` store into the org-wide collector inside `simpl-techs/simpl_knowledge`. One file per developer: `team-instincts/raw/<github-handle>.jsonl`.
 
@@ -11,7 +33,7 @@ Publish patterns from your **local** `simpl-memory` store into the org-wide coll
 
 - `gh` CLI installed and authenticated (`gh auth status`).
 - Permission to open PRs against `simpl-techs/simpl_knowledge` (org member with appropriate repo role, or fork flow if read-only).
-- Local instinct file must exist (you have been using `simpl-memory` with extraction enabled).
+- Local instinct file must exist (populate via `/extract-instincts` or manual edit of `instincts.jsonl`).
 
 ## Workflow
 

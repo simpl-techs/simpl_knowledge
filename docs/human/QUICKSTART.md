@@ -18,21 +18,7 @@ flowchart LR
 
 Stesso contenuto, **due modi**: install con **clone** da GitHub (consigliato) oppure **solo download** ed esecuzione di `team-bootstrap.sh`.
 
-### Nome del repository su GitHub
-
-Il valore ufficiale è in [config/simpl.json](../../config/simpl.json): `github_full_name` = `simpl-techs/simpl_knowledge`. Dopo `git clone`, la directory locale si chiama come il repo (`simpl_knowledge`). Se lavori in monorepo, la cartella `simpl_knowledge/` locale non è necessariamente il nome del remote.
-
 ### A — Clone da GitHub + bootstrap (consigliato)
-
-Sostituisci `REPO` con `simpl_knowledge` (nome repo GitHub dell’org).
-
-```bash
-git clone https://github.com/simpl-techs/REPO.git
-cd REPO
-bash scripts/team-bootstrap.sh
-```
-
-Esempio con nome da config:
 
 ```bash
 git clone https://github.com/simpl-techs/simpl_knowledge.git
@@ -45,10 +31,8 @@ bash scripts/team-bootstrap.sh
 **Repo pubblico** — raw da `main`:
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/simpl-techs/REPO/main/scripts/team-bootstrap.sh" | bash
+curl -fsSL "https://raw.githubusercontent.com/simpl-techs/simpl_knowledge/main/scripts/team-bootstrap.sh" | bash
 ```
-
-(`REPO` = `simpl_knowledge`.)
 
 **Repo privato** — serve token (es. con GitHub CLI già autenticata):
 
@@ -56,19 +40,17 @@ curl -fsSL "https://raw.githubusercontent.com/simpl-techs/REPO/main/scripts/team
 curl -fsSL \
   -H "Authorization: Bearer $(gh auth token)" \
   -H "Accept: application/vnd.github.raw" \
-  "https://api.github.com/repos/simpl-techs/REPO/contents/scripts/team-bootstrap.sh?ref=main" \
+  "https://api.github.com/repos/simpl-techs/simpl_knowledge/contents/scripts/team-bootstrap.sh?ref=main" \
   | bash
 ```
 
-Se ricevi **404** con il percorso pubblico `raw.githubusercontent.com`, è spesso repo privato o nome `REPO` errato: usa il blocco privato sopra oppure il percorso **A** dal clone.
-
-Verifica accesso: `gh repo view simpl-techs/REPO` (con `REPO` corretto).
+Verifica accesso: `gh repo view simpl-techs/simpl_knowledge`.
 
 Lo script rileva da solo se hai Claude Code, Cursor o entrambi. È idempotente: rieseguilo per forzare un refresh.
 
 ## Passo 2 — Solo se hai Claude Code
 
-Apri una sessione Claude Code e incolla (`owner/repo` = `simpl-techs/simpl_knowledge`):
+Apri una sessione Claude Code e incolla:
 
 ```text
 /plugin marketplace add simpl-techs/simpl_knowledge
@@ -79,24 +61,9 @@ Apri una sessione Claude Code e incolla (`owner/repo` = `simpl-techs/simpl_knowl
 
 Questi comandi esistono solo dentro la sessione Claude Code, lo script non può eseguirli per te.
 
-## Passo 3 — Opzionale: chiave per `simpl-memory`
+Gli **instinct owner** (`Len378`, `n3ural`, `not-Karot`, vedi `config/simpl.json`) usano `/extract-instincts` per catturare pattern dalla sessione; gli altri dev ricevono i pattern team-wide al SessionStart. Dettagli: [`team-instincts/README.md`](../../team-instincts/README.md).
 
-Puoi saltare questo passo. Senza chiave, `simpl-memory` carica i comandi e gli hook ma **non scrive nuovi instinct**: nessun errore, semplicemente niente apprendimento.
-
-Serve perché il plugin, a fine sessione, fa una chiamata HTTP a un provider per estrarre i pattern dal transcript: questa chiamata è separata da quella che Cursor o Claude Code fanno per la sessione interattiva, quindi non eredita la loro auth.
-
-Se vuoi attivarlo, esporta **una** di queste env var (quella del provider compatibile col modello che usi in sessione):
-
-```bash
-export ANTHROPIC_API_KEY="..."   # Claude
-export OPENAI_API_KEY="..."      # OpenAI
-export DEEPSEEK_API_KEY="..."    # DeepSeek
-export SIMPL_MEMORY_API_KEY="..." # fallback condiviso
-```
-
-**Condivisione team (opzionale):** per pubblicare i tuoi instinct nel feed org → `/share-instincts` nel plugin `simpl-memory`. Gli operatori designati mergiano i file in `team-instincts/instincts.jsonl` con `/aggregate-team-instincts`. Dettagli: [`team-instincts/README.md`](../../team-instincts/README.md).
-
-## Passo 4 — Verifica
+## Passo 3 — Verifica
 
 Apri Claude o Cursor in un repo qualsiasi e chiedi:
 
@@ -110,11 +77,20 @@ L'agent deve citare lo skill `git-workflow`. Se non lo cita → [TROUBLESHOOTING
 
 ## Aggiornamenti
 
+**Perché** il repo centrale (`simpl_knowledge`) cambia regole, skill e plugin: devi sapere **che cosa** si aggiorna **dove** e **cosa fare tu**.
+
+| Strumento | Cosa si aggiorna “in automatico” | Cosa fai tu, quando, perché |
+|-----------|-----------------------------------|-----------------------------|
+| **Cursor** | Con l’hook globale `session-refresh` (installato dal bootstrap), ad avvio sessione viene aggiornata circa **ogni ~6h** la **cache git** del bundle in `~/.claude/plugins/cache/simpl_knowledge` e copiate le regole org **`simpl-*.mdc`** in `~/.cursor/rules/`. Così resti allineato alle release / `main` senza rifare tutto ogni giorno. | Se serve **subito** (appena mergiato qualcosa sul hub): riesegui `team-bootstrap.sh` dal clone o elimina `.last-refresh` nella cache e riapri Cursor; vedi anche [TROUBLESHOOTING.md](TROUBLESHOOTING.md). |
+| **Claude Code** | *Non* c’è lo stesso refresh automatico dei **plugin marketplace**: le skill vivono nei pacchetti che installi con `/plugin`. | Dopo che il team ha mergiato sull’hub (o vuoi solo allinearti): esegui **`/plugin marketplace update`** (e se serve una **nuova sessione** perché le skill si ricarichino). **Perché** così Claude scarica le versioni aggiornate dei plugin da `simpl-techs/simpl_knowledge`. |
+
+Comando di riferimento in sessione Claude Code:
+
 ```text
 /plugin marketplace update
 ```
 
-Cursor si aggiorna da solo all'apertura della sessione (throttle ~6h). Per forzare: rilancia il bootstrap del Passo 1.
+**In sintesi:** Cursor → cache + `.mdc` con throttle ~6h; Claude Code → aggiornamento plugin **a mano** con `/plugin marketplace update` quando il marketplace è cambiato.
 
 ---
 

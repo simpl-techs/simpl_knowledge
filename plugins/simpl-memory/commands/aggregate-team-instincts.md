@@ -1,11 +1,33 @@
 ---
 name: aggregate-team-instincts
-description: Operator-only — merge team-instincts/raw/*.jsonl into team-instincts/instincts.jsonl with hash dedup; update state.json; open PR on simpl_knowledge.
+description: Owner-only — merge team-instincts/raw/*.jsonl into team-instincts/instincts.jsonl with hash dedup; update state.json; open PR on simpl_knowledge.
 ---
 
 # /aggregate-team-instincts
 
-**Designated operators only** (2–3 volunteers). Merges all `team-instincts/raw/*.jsonl` into `team-instincts/instincts.jsonl`, deduplicates by `hash`, writes `team-instincts/state.json`, opens a PR.
+## Allowlist check (mandatory first)
+
+Same owners as `/extract-instincts` — `Len378`, `n3ural`, `not-Karot`:
+
+```bash
+LOGIN="$(gh api user -q .login)" || { echo 'ERROR: run gh auth login first'; exit 1; }
+CONFIG="${SIMPL_KNOWLEDGE_CONFIG:-$HOME/.claude/plugins/cache/simpl_knowledge/config/simpl.json}"
+node -e '
+const fs = require("fs");
+const login = process.env.LOGIN;
+const cfgPath = process.env.CONFIG;
+if (!fs.existsSync(cfgPath)) { console.error("ERROR: missing config at", cfgPath); process.exit(1); }
+const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+const owners = (cfg.simpl_memory && cfg.simpl_memory.instinct_owners || []).map((o) => o.github_login);
+if (!owners.includes(login)) {
+  console.error("ERROR: " + login + " is not an instinct owner.");
+  process.exit(1);
+}
+console.log("OK instinct owner:", login);
+' CONFIG="$CONFIG" LOGIN="$LOGIN"
+```
+
+**Designated operators** (the three github_login values in `config/simpl.json`). Merges all `team-instincts/raw/*.jsonl` into `team-instincts/instincts.jsonl`, deduplicates by `hash`, writes `team-instincts/state.json`, opens a PR.
 
 [Inference] This run uses the operator’s Claude/Cursor subscription while their agent executes the workflow.
 

@@ -10,37 +10,40 @@ This repo participates in **simpl-memory**, a lightweight continuous-learning la
 ## The full loop
 
 ```
-┌─────────────┐   Stop hook     ┌────────────────┐
-│   session   │ ──────────────▶ │ extract with   │
-│   (you code)│  transcript     │ session LLM     │
-└─────────────┘                 └───────┬────────┘
-                                        │
-                              dedup + increment count
-                                        │
-                                        ▼
+┌─────────────┐  /extract-instincts   ┌────────────────┐
+│   session   │ ────────────────────▶ │ owner session │
+│ (transcript)│   (github allowlist)   │ agent reasons  │
+└─────────────┘                        └───────┬────────┘
+                                               │
+                                     persist-instincts.js
+                                     dedup + increment count
+                                               │
+                                               ▼
                           ~/.claude/simpl-memory/<repo>/instincts.jsonl
-                                        │
-┌─────────────┐ SessionStart hook       │
-│ next session│ ◀───── inject ──────────┤ (count ≥ 2, soft pref)
-│  starts     │                         │
-│             │ ◀── notify user ────────┤ (count ≥ 3, promotion-ready)
-│             │  "💡 N patterns ready"  │
-└──────┬──────┘                         │
-       │ /promote-instinct              │
-       │ /dismiss-instinct              │
-       ▼                                │
-  user reviews ───────────────────────┐ │
-       │                              │ │
-  writes to SKILL.md ──── commits ────┘ │
-       │                                │
-       ▼                                │
-  marked promoted in store ─────────────┘
+                                               │
+┌─────────────┐ SessionStart hook              │
+│ next session│ ◀───── inject ─────────────────┤ (count ≥ 2, soft pref)
+│  starts     │                              │
+│             │ ◀── notify user ───────────────┤ (count ≥ 3, promotion-ready)
+│             │  "💡 N patterns ready"         │
+└──────┬──────┘                              │
+       │ /promote-instinct                   │
+       │ /dismiss-instinct                   │
+       ▼                                      │
+  user reviews ────────────────────────────┐ │
+       │                                    │ │
+  writes to SKILL.md ──── commits ─────────┘ │
+       │                                      │
+       ▼                                      │
+  marked promoted in store ──────────────────┘
   (stops nagging)
+
+Team path: `/share-instincts` → PR raw/*.jsonl → `/aggregate-team-instincts` → merged instincts.jsonl (owner-only).
 ```
 
 ## Category: `internal-library-usage`
 
-Use this category when extraction notices the team **repeatedly imports or wraps the same internal simpl library** across sessions (e.g. always reaching for `simpl_tracker` for cost attribution).
+Use this category when `/extract-instincts` (or manual review) surfaces that the team **repeatedly imports or wraps the same internal simpl library** across sessions (e.g. always reaching for `simpl_tracker` for cost attribution).
 
 - **Emerging / active instincts** nudge the agent toward that library on this repo.
 - **Promotion** (via `/promote-instinct`) should usually become an update to the **library’s** `.agent/SKILL.md` (`when_to_use` / `required_when`) or a note in org docs — *not* raw instinct JSON in the marketplace. After merge, the next library sync regenerates **`catalog.md`** so every agent sees the canonical wording.
@@ -61,6 +64,9 @@ Each instinct in `instincts.jsonl` has three booleans that define its state:
 
 ## Commands
 
+- `/extract-instincts` — **instinct owners only** (`config/simpl.json`); capture patterns from a transcript into the local store
+- `/share-instincts` — **same owners**; publish local rows to `team-instincts/raw/<login>.jsonl` via PR
+- `/aggregate-team-instincts` — **same owners**; merge raw files into `team-instincts/instincts.jsonl`
 - `/instinct-status` — show all instincts and their states
 - `/promote-instinct` — turn one into a real skill (then it's marked promoted)
 - `/dismiss-instinct` — silence a personal pattern (stays active locally)
@@ -91,12 +97,14 @@ If X came from an instinct, say so plainly: "I noticed in past sessions you pref
 - Never auto-promote an instinct — promotion is a deliberate human call
 - Never nag across multiple turns of one session — one notification per session max
 
+Only **three GitHub logins** (see `simpl_memory.instinct_owners` in `config/simpl.json`) run `/extract-instincts` and feed the team pipeline; every other dev **consumes** merged team instincts via SessionStart.
+
 ## What it is NOT
 
-- Not long-term memory of conversations — transcripts are NOT stored, only extracted patterns
+- Not long-term memory of conversations — transcripts are NOT stored, only merged pattern rows in JSONL
 - Not a substitute for real skills — a real skill is reviewed, versioned, documented; instincts are raw signals
 - Not a replacement for `.agent/SKILL.md` — that remains the source of truth for public integration docs
 
 ## Cost
 
-Extraction runs at most once per repo per ~5 minutes. Spend depends on the **session model** (Claude vs GPT vs DeepSeek, etc.); throttle caps frequency, not creativity.
+`/extract-instincts` uses whatever subscription or model powers **this** Cursor/Claude session when the owner runs it; there is no separate paid API channel inside the plugin.

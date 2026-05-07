@@ -5,7 +5,7 @@ We evaluated [everything-claude-code](https://github.com/affaan-m/everything-cla
 ## What we did NOT take
 
 - **The ECC plugin itself** — too big (183 skills), opinionated ("SOUL.md", "instincts" terminology), and evolves too fast for us to track as a dependency.
-- **ECC's `continuous-learning-v2` code** — good idea, their implementation is heavy (PM2, multiple event types, cross-harness complexity). We wrote ~150 lines of Node.js that does the core loop: extract on Stop, inject on SessionStart; team merge is operator-driven via slash commands, not CI.
+- **ECC's `continuous-learning-v2` code** — good idea, their implementation is heavy (PM2, multiple event types, cross-harness complexity). We reimplemented a smaller loop: on-demand `/extract-instincts` (agent session, owner-only) + persist + SessionStart inject; team merge is operator-driven via slash commands, not CI.
 - **ECC's `skill-create` implementation** — also a slash command of similar shape, but theirs is ~400 lines of prompt engineering. We kept our version simple (~60 lines) because we're running on a team of 5 where a human reviews every generated skill anyway.
 
 ## What we DID take (as patterns, rewritten)
@@ -14,23 +14,23 @@ We evaluated [everything-claude-code](https://github.com/affaan-m/everything-cla
 
 **What ECC does**: Stop hook → extract patterns with LLM → store locally as "instincts" → promote when confidence is high.
 
-**What we built**: Same shape, but:
-- Uses the **same session LLM as the IDE** for extraction via a small router (Anthropic / OpenAI / DeepSeek endpoints), so cost tracks each dev’s chosen model rather than one fixed SKU
-- Throttled to 1 extraction / 5 min per repo → caps cost
+**What we built**: Same lifecycle (local JSONL → optional team PR → merge), but:
+- **No provider HTTP calls in the plugin** — three GitHub owners (`config/simpl.json`) run `/extract-instincts`; the active Cursor/Claude session performs reasoning; `persist-instincts.js` merges rows on disk.
 - Stores at `~/.claude/simpl-memory/<repo>/instincts.jsonl` — per-repo scope, not global
 - Injection on SessionStart only when count ≥ 2 (avoid noise)
-- Promotion via human-reviewed PR, never automatic
-- **Private by default**: instincts stay on the dev's laptop until they run `/share-instincts` (PR to `team-instincts/raw/<login>.jsonl` on `simpl_knowledge`). Operators merge raw files into `team-instincts/instincts.jsonl` with `/aggregate-team-instincts` (another PR). No separate `agent-instincts` repo.
+- Promotion via human-reviewed PR, never automatic bulk merge without review
+- **Private by default**: local JSONL stays on disk until an owner runs `/share-instincts` (PR to `team-instincts/raw/<login>.jsonl` on `simpl_knowledge`). Owners merge raw files into `team-instincts/instincts.jsonl` with `/aggregate-team-instincts`. No separate `agent-instincts` repo.
 
 Files:
-- `plugins/simpl-memory/hooks/hooks.json` — registers Stop + SessionStart
-- `plugins/simpl-memory/scripts/hooks/extract-instincts.js` — the Stop hook
-- `plugins/simpl-memory/scripts/hooks/load-instincts.js` — the SessionStart hook (local + team feed)
+- `plugins/simpl-memory/hooks/hooks.json` — SessionStart → `load-instincts.js`
+- `plugins/simpl-memory/scripts/hooks/load-instincts.js` — local + team feed inject
+- `plugins/simpl-memory/scripts/persist-instincts.js` — merge after `/extract-instincts`
+- `plugins/simpl-memory/commands/extract-instincts.md` — owner-only capture
 - `plugins/simpl-memory/commands/instinct-status.md` — `/instinct-status`
 - `plugins/simpl-memory/commands/promote-instinct.md` — `/promote-instinct`
 - `plugins/simpl-memory/commands/share-instincts.md` — `/share-instincts`
 - `plugins/simpl-memory/commands/aggregate-team-instincts.md` — `/aggregate-team-instincts`
-- `team-instincts/` — raw per-dev JSONL + merged `instincts.jsonl` in `simpl_knowledge`
+- `team-instincts/` — raw per-owner JSONL + merged `instincts.jsonl` in `simpl_knowledge`
 
 ### 2. Skill-create pattern → our `/skill-create` command
 

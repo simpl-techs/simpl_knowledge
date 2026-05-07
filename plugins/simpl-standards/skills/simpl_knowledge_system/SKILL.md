@@ -41,9 +41,9 @@ description: Explains how simpl org shares agent context via simpl_knowledge (Cl
 
 ## Instincts (simpl-memory)
 
-- **Stop** hook → extract patterns (provider matches session model) → `instincts.jsonl`.
-- **SessionStart** → inject count ≥ 2; notify promotion at count ≥ 3.
-- **Commands**: `/instinct-status`, `/promote-instinct`, `/dismiss-instinct`.
+- **Owners** (`config/simpl.json` → `simpl_memory.instinct_owners`) run `/extract-instincts` on demand → local `instincts.jsonl` (uses the current IDE session; no plugin HTTP).
+- **SessionStart** hook → inject patterns (count ≥ 2) + optional promotion notice (count ≥ 3).
+- **Commands**: `/extract-instincts`, `/share-instincts`, `/aggregate-team-instincts`, `/instinct-status`, `/promote-instinct`, `/dismiss-instinct`.
 - **Never** auto-promote to shared skills without human review.
 
 ## Where to read more

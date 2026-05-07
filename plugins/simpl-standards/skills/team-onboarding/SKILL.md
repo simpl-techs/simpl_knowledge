@@ -84,20 +84,12 @@ If they mention a library that doesn't exist in the marketplace yet, that's a si
 
 ## 4. Memory layer (simpl-memory)
 
-Install **`simpl-memory` with the other global plugins** — it is required for the team stack. The Stop hook sends session transcripts to whichever **LLM matches your current session** (Claude, GPT, DeepSeek, …); you only need the matching provider key in your shell:
+Install **`simpl-memory` with the other global plugins** — it is required for the team stack.
 
-```bash
-# Use the one that matches the model you actually run in Cursor / Claude Code:
-export ANTHROPIC_API_KEY="sk-ant-..."
-# or
-export OPENAI_API_KEY="sk-..."
-# or
-export DEEPSEEK_API_KEY="..."
-# Optional single shared key for all providers in this hook:
-export SIMPL_MEMORY_API_KEY="..."
-```
+- **SessionStart**: loads local `instincts.jsonl` plus merged `team-instincts/instincts.jsonl` from the marketplace cache (no API keys).
+- **Capture**: only the three **instinct owners** in `config/simpl.json` run `/extract-instincts` (requires `gh auth` + transcript path). Everyone else consumes what they share via `/share-instincts` → `/aggregate-team-instincts`.
 
-Without a key for the active provider, instinct extraction skips silently (the plugin still loads for SessionStart and commands).
+See `plugins/simpl-memory/PRIVACY.md` and `/extract-instincts` for details.
 
 ## 5. Optional: AgentShield security audit
 

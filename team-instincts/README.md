@@ -1,6 +1,6 @@
 # Team instincts
 
-Live database of **aggregated** patterns shared across the org. Each developer who opts in publishes **one file under `raw/`**; designated operators merge raw files into `instincts.jsonl` via the agent (Cursor or Claude Code).
+Live database of **aggregated** patterns shared across the org. Instinct **owners** publish **one file each under `raw/`**; they merge raw files into `instincts.jsonl` via `/aggregate-team-instincts` in Cursor or Claude Code.
 
 ## Layout
 
@@ -25,19 +25,19 @@ Compatible with the local schema, plus:
 
 ## How to contribute
 
-1. Learn locally: `simpl-memory` Stop hook + optional API keys (see plugin `PRIVACY.md`).
-2. **Share:** slash command `/share-instincts` — filters interactively, opens a PR updating `raw/<you>.jsonl`.
-3. **Merge (operators only):** `/aggregate-team-instincts` — reads all `raw/*.jsonl`, deduplicates by `hash`, writes `instincts.jsonl` + `state.json`, opens PR.
+1. **Instinct owners only** (`config/simpl.json` → `simpl_memory.instinct_owners`): run `/extract-instincts` inside Cursor or Claude Code (see plugin `PRIVACY.md`). This writes `~/.claude/simpl-memory/<repo>/instincts.jsonl`.
+2. **Share:** `/share-instincts` (same allowlist) — filters interactively, opens a PR updating `raw/<you>.jsonl`.
+3. **Merge (same owners):** `/aggregate-team-instincts` — reads all `raw/*.jsonl`, deduplicates by `hash`, writes `instincts.jsonl` + `state.json`, opens PR.
 
 ## Operators
 
-Pick 2–3 volunteers with: adequate Claude/Cursor subscription (aggregation uses the agent in a real session), `gh` authenticated, write access to `simpl-techs/simpl_knowledge`. [Inference] Their subscription usage applies to the aggregation task.
+The three `github_login` values in `simpl_memory.instinct_owners` (`config/simpl.json`) run `/extract-instincts`, `/share-instincts`, and `/aggregate-team-instincts`. They need: Claude/Cursor subscription for agent steps, `gh` authenticated, write access to `simpl-techs/simpl_knowledge`. [Inference] Their subscription usage applies to aggregation and extraction sessions.
 
 ## Limitations
 
-- **Manual:** aggregation does not run on a schedule in CI. Someone must run `/aggregate-team-instincts` periodically.
+- **Manual:** aggregation does not run on a schedule in CI. An owner must run `/aggregate-team-instincts` periodically.
 - **Cursor:** no headless agent; the operator starts a session and runs the command when needed — same as any other slash command.
-- **No automatic secrets filter beyond redaction in extraction** — `/share-instincts` must let the human exclude sensitive repos or rows.
+- **No automatic secrets filter beyond redaction in `/extract-instincts`** — `/share-instincts` must let the human exclude sensitive repos or rows.
 
 ## TODO (optional hardening)
 

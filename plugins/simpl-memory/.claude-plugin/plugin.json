@@ -1,7 +1,7 @@
 {
   "name": "simpl-memory",
   "version": "1.0.0",
-  "description": "Continuous-learning layer: captures recurring patterns from agent sessions, surfaces them for promotion to shared skills.",
+  "description": "Team instinct layer: SessionStart injects local + merged team patterns. Owner-only slash commands capture and publish — no plugin API keys.",
   "author": {
     "name": "simpl Platform"
   },

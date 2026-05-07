@@ -16,7 +16,7 @@
 |---------|----------------|
 | Cosa installo sempre? | `simpl-standards`, `simpl-memory`, `simpl-libraries`. Sono i tre plugin globali per ogni developer. |
 | Cos’è `simpl-standards`? | Le regole comuni: git workflow, coding standards, testing policy e skill di sistema. È il “come lavoriamo a simpl”. |
-| Cosa è `simpl-memory`? | Obbligatorio per lo stack team: estrae pattern ripetuti; vedi `plugins/simpl-memory/PRIVACY.md`. Senza chiavi provider l’estrazione salta in silenzio. |
+| Cosa è `simpl-memory`? | Obbligatorio per lo stack team: SessionStart carica instinct locali + feed team. Solo i tre owner in `config/simpl.json` popolano righe con `/extract-instincts`; vedi `plugins/simpl-memory/PRIVACY.md`. |
 | Cos’è `simpl-libraries`? | Plugin globale con `catalog.md`: riassume tutte le lib `*-context` così l’agente sa cosa esiste prima di reimplementare. |
 | Cosa sono i plugin `*-context`? | Sono il contesto completo di una singola libreria. Si installano quando un task richiede quella libreria, es. `/plugin install simpl_tracker-context@simpl`. |
 
