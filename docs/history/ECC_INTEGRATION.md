@@ -5,7 +5,7 @@ We evaluated [everything-claude-code](https://github.com/affaan-m/everything-cla
 ## What we did NOT take
 
 - **The ECC plugin itself** — too big (183 skills), opinionated ("SOUL.md", "instincts" terminology), and evolves too fast for us to track as a dependency.
-- **ECC's `continuous-learning-v2` code** — good idea, their implementation is heavy (PM2, multiple event types, cross-harness complexity). We wrote ~150 lines of Node.js that does the core loop: extract on Stop, inject on SessionStart, aggregate in CI.
+- **ECC's `continuous-learning-v2` code** — good idea, their implementation is heavy (PM2, multiple event types, cross-harness complexity). We wrote ~150 lines of Node.js that does the core loop: extract on Stop, inject on SessionStart; team merge is operator-driven via slash commands, not CI.
 - **ECC's `skill-create` implementation** — also a slash command of similar shape, but theirs is ~400 lines of prompt engineering. We kept our version simple (~60 lines) because we're running on a team of 5 where a human reviews every generated skill anyway.
 
 ## What we DID take (as patterns, rewritten)
@@ -20,15 +20,17 @@ We evaluated [everything-claude-code](https://github.com/affaan-m/everything-cla
 - Stores at `~/.claude/simpl-memory/<repo>/instincts.jsonl` — per-repo scope, not global
 - Injection on SessionStart only when count ≥ 2 (avoid noise)
 - Promotion via human-reviewed PR, never automatic
-- **Private by default**: instincts stay on the dev's laptop. Only if the dev opts in (by configuring `INSTINCT_REPO_PAT` sync to `simpl-techs/agent-instincts`) do their instincts feed into the weekly team aggregation.
+- **Private by default**: instincts stay on the dev's laptop until they run `/share-instincts` (PR to `team-instincts/raw/<login>.jsonl` on `simpl-knowledge`). Operators merge raw files into `team-instincts/instincts.jsonl` with `/aggregate-team-instincts` (another PR). No separate `agent-instincts` repo.
 
 Files:
 - `plugins/simpl-memory/hooks/hooks.json` — registers Stop + SessionStart
 - `plugins/simpl-memory/scripts/hooks/extract-instincts.js` — the Stop hook
-- `plugins/simpl-memory/scripts/hooks/load-instincts.js` — the SessionStart hook
+- `plugins/simpl-memory/scripts/hooks/load-instincts.js` — the SessionStart hook (local + team feed)
 - `plugins/simpl-memory/commands/instinct-status.md` — `/instinct-status`
 - `plugins/simpl-memory/commands/promote-instinct.md` — `/promote-instinct`
-- `.github/workflows/aggregate-instincts.yml` — weekly team digest
+- `plugins/simpl-memory/commands/share-instincts.md` — `/share-instincts`
+- `plugins/simpl-memory/commands/aggregate-team-instincts.md` — `/aggregate-team-instincts`
+- `team-instincts/` — raw per-dev JSONL + merged `instincts.jsonl` in `simpl-knowledge`
 
 ### 2. Skill-create pattern → our `/skill-create` command
 

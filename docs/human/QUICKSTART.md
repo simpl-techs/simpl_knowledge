@@ -52,6 +52,8 @@ export DEEPSEEK_API_KEY="..."    # DeepSeek
 export SIMPL_MEMORY_API_KEY="..." # fallback condiviso
 ```
 
+**Condivisione team (opzionale):** per pubblicare i tuoi instinct nel feed org → `/share-instincts` nel plugin `simpl-memory`. Gli operatori designati mergiano i file in `team-instincts/instincts.jsonl` con `/aggregate-team-instincts`. Dettagli: [`team-instincts/README.md`](../../team-instincts/README.md).
+
 ## Passo 4 — Verifica
 
 Apri Claude o Cursor in un repo qualsiasi e chiedi:

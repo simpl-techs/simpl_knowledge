@@ -15,11 +15,12 @@
     "shared_hooks_env": "SIMPL_SHARED_HOOKS"
   },
   "secrets": {
-    "knowledge_pat": "SIMPL_KNOWLEDGE_PAT",
-    "instinct_repo_pat": "INSTINCT_REPO_PAT"
+    "knowledge_pat": "SIMPL_KNOWLEDGE_PAT"
   },
   "instincts": {
-    "collector_repo": "simpl-techs/agent-instincts"
+    "raw_dir": "team-instincts/raw",
+    "aggregate_file": "team-instincts/instincts.jsonl",
+    "state_file": "team-instincts/state.json"
   },
   "models": {
     "auto_update_skill": "deepseek/deepseek-chat",

@@ -1,0 +1,82 @@
+# Generate cursor-rules/*.mdc from plugins/**/SKILL.md and publish cursor-rules.zip
+# to the rolling GitHub release cursor-rules-rolling (used by team-bootstrap.sh).
+
+name: Release Cursor rules
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "plugins/**/SKILL.md"
+      - "scripts/generate-cursor-rules.sh"
+      - ".github/workflows/release-cursor-rules.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Generate Cursor rules
+        run: bash scripts/generate-cursor-rules.sh
+
+      - name: Create deterministic zip
+        run: |
+          rm -f cursor-rules.zip
+          cd cursor-rules
+          # Stable entry order => stable zip checksum when inputs unchanged
+          find . -type f -print0 | sort -z | xargs -0 zip -X -q ../cursor-rules.zip
+
+      - name: Compare with current release asset
+        id: compare
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SKIP=false
+          if gh release view cursor-rules-rolling --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            PREV_DIR=$(mktemp -d)
+            if gh release download cursor-rules-rolling \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern cursor-rules.zip \
+              --dir "$PREV_DIR" 2>/dev/null; then
+              PREV_ZIP="$PREV_DIR/cursor-rules.zip"
+              if [ -f "$PREV_ZIP" ]; then
+                OLD=$(sha256sum "$PREV_ZIP" | awk '{print $1}')
+                NEW=$(sha256sum cursor-rules.zip | awk '{print $1}')
+                if [ "$OLD" = "$NEW" ]; then
+                  SKIP=true
+                  echo "cursor-rules.zip unchanged vs release; skipping upload."
+                fi
+              fi
+            fi
+            rm -rf "$PREV_DIR"
+          fi
+          echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+
+      - name: Publish or update GitHub release
+        if: steps.compare.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view cursor-rules-rolling --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload cursor-rules-rolling cursor-rules.zip \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create cursor-rules-rolling cursor-rules.zip \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "cursor-rules-rolling" \
+              --notes "Rolling release of Cursor rules generated from plugins/**/SKILL.md"
+          fi

@@ -51,7 +51,7 @@ Config di riferimento: [config/simpl.json](config/simpl.json).
 |----------|--------|
 | Developer (uso quotidiano) | [docs/human/QUICKSTART.md](docs/human/QUICKSTART.md) |
 | Admin (configurare l’org) | [docs/human/ADMIN_SETUP.md](docs/human/ADMIN_SETUP.md) |
-| Maintainer libreria | [docs/human/QUICKSTART.md#maintainer-di-un-repo-libreria](docs/human/QUICKSTART.md#maintainer-di-un-repo-libreria) |
+| Maintainer libreria | [docs/human/QUICKSTART.md#sei-maintainer-di-una-libreria](docs/human/QUICKSTART.md#sei-maintainer-di-una-libreria) |
 | Architettura completa | [docs/human/ARCHITECTURE.md](docs/human/ARCHITECTURE.md) |
 | Agenti AI | [docs/agent/CONTEXT.md](docs/agent/CONTEXT.md) + skill `simpl-knowledge-system` |
 
@@ -73,4 +73,4 @@ Config di riferimento: [config/simpl.json](config/simpl.json).
 
 ## CI
 
-Il bundle non contiene workflow nel repo centrale. Quelli pre-configurati nel template per i repo libreria sono `auto-update-skill.yml` e `sync-skill-to-marketplace.yml` ([library-repo-template/.github/workflows/](library-repo-template/.github/workflows/)). Per la pubblicazione della release `cursor-rules-rolling` e per eventuali workflow CI nel repo centrale: [docs/human/ADMIN_SETUP.md](docs/human/ADMIN_SETUP.md).
+Il repo centrale include [.github/workflows/release-cursor-rules.yml](.github/workflows/release-cursor-rules.yml), che rigenera la release GitHub `cursor-rules-rolling` quando cambiano gli skill sotto `plugins/**/SKILL.md` (o lo script generatore). Nei repo libreria pre-configurati ci sono `auto-update-skill.yml` e `sync-skill-to-marketplace.yml` ([library-repo-template/.github/workflows/](library-repo-template/.github/workflows/)). Dettagli sulla release Cursor: [docs/human/ADMIN_SETUP.md](docs/human/ADMIN_SETUP.md) (Passo 6).

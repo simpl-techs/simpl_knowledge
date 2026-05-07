@@ -52,35 +52,32 @@ Settings → Secrets and variables → Actions → **Organization secrets** → 
 
 - `SIMPL_KNOWLEDGE_PAT` = token creato al passo 4. Usato da `sync-skill-to-marketplace.yml` nei repo libreria per aprire PR sul marketplace.
 - `DEEPSEEK_API_KEY` = API key DeepSeek. Usata da `auto-update-skill.yml` nei repo libreria (aider propone aggiornamenti a `.agent/SKILL.md`).
-- `INSTINCT_REPO_PAT` (opzionale) = PAT su `simpl-techs/agent-instincts`. Solo se attivi l'aggregazione team degli instinct.
 
 Esposizione: a tutti i repo della org, oppure restringi ai repo libreria.
 
-## Passo 6 — Pubblica la release `cursor-rules-rolling`
+**Team instincts (simpl-memory):** designa 2–3 dev volontari come operatori di `/aggregate-team-instincts`. Servono: subscription Claude/Cursor adeguata per la sessione in cui mergiano ([Inference]), `gh` autenticata, permesso di aprire PR su `simpl-techs/simpl-knowledge`. Nessun secret org dedicato: i dev pubblicano i raw con `/share-instincts` sotto la propria identità GitHub.
 
-Lo script `team-bootstrap.sh` scarica le regole Cursor da una release con tag `cursor-rules-rolling`. Crea la release così:
+## Passo 6 — Release cursor-rules-rolling (automatica)
+
+`team-bootstrap.sh` scarica le regole Cursor da una release GitHub con tag `cursor-rules-rolling` e asset `cursor-rules.zip`.
+
+Dopo che questo repo è su `main` con il workflow abilitato:
+
+1. **Automatico:** il workflow [.github/workflows/release-cursor-rules.yml](.github/workflows/release-cursor-rules.yml) gira su ogni push a `main` che modifica `plugins/**/SKILL.md`, `scripts/generate-cursor-rules.sh` o lo stesso workflow. Genera gli `.mdc`, crea uno zip con ordine deterministico e pubblica o aggiorna la release. Se lo zip è identico all’asset già in release (stesso SHA-256), non carica nulla.
+
+2. **Prima volta / forzatura:** GitHub → **Actions** → **Release Cursor rules** → **Run workflow** (trigger `workflow_dispatch`).
+
+3. **Senza asset su GitHub:** il bootstrap dei dev usa ugualmente il fallback (clone + generazione locale) finché la release non esiste.
+
+### Fallback manuale (solo se GitHub Actions non è disponibile)
 
 ```bash
-git clone https://github.com/simpl-techs/simpl-knowledge.git
-cd simpl-knowledge
-bash scripts/generate-cursor-rules.sh
-(cd cursor-rules && zip -r ../cursor-rules.zip .)
-gh release create cursor-rules-rolling cursor-rules.zip \
-  --title "cursor-rules-rolling" \
-  --notes "rolling release of cursor rules"
+git clone https://github.com/simpl-techs/simpl-knowledge.git && cd simpl-knowledge
+pip install pyyaml && bash scripts/generate-cursor-rules.sh
+(cd cursor-rules && find . -type f -print0 | sort -z | xargs -0 zip -X -q ../cursor-rules.zip)
+gh release create cursor-rules-rolling cursor-rules.zip --title cursor-rules-rolling --notes "rolling" \
+  || gh release upload cursor-rules-rolling cursor-rules.zip --clobber
 ```
-
-Per aggiornarla in futuro:
-
-```bash
-bash scripts/generate-cursor-rules.sh
-(cd cursor-rules && zip -r ../cursor-rules.zip .)
-gh release upload cursor-rules-rolling cursor-rules.zip --clobber
-```
-
-`TODO`: se vuoi automatizzare la pubblicazione, aggiungi un workflow nel repo centrale (oggi non c'è).
-
-Senza release, il bootstrap dei dev funziona comunque ma usa il fallback: clone + generazione locale (richiede Python + PyYAML sulla macchina del dev).
 
 ## Passo 7 — Verifica
 

@@ -17,10 +17,12 @@
 - Uninstall plugin **or** omit provider keys → extraction skips silently.
 - Delete `~/.claude/simpl-memory/` to wipe local data.
 
-## Team aggregation (optional, off by default)
+## Team feed (optional, opt-in per developer)
 
-- Workflow `aggregate-instincts.yml` is **dormant** until you add a collector repo and `INSTINCT_REPO_PAT`.
-- Requires an explicit privacy policy for your org before enabling.
+- **Local stays private** until a developer runs `/share-instincts`. That opens a PR adding or replacing `team-instincts/raw/<github-login>.jsonl` in `simpl-techs/simpl-knowledge`.
+- **Designated operators** (2–3 people) run `/aggregate-team-instincts` in Cursor or Claude Code to merge all `raw/*.jsonl` into `team-instincts/instincts.jsonl` and open another PR. No separate collector repo; no `INSTINCT_REPO_PAT`.
+- After merge, every dev receives the aggregated file via marketplace cache; `load-instincts.js` injects it as **Team-wide patterns** at session start (unless the same `hash` already exists in that dev’s local store for the repo — local wins).
+- Your org should document who may operate aggregation and how often. [Inference] Aggregation uses the operator’s Claude/Cursor session (subscription usage applies).
 
 ## Redaction
 
