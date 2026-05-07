@@ -1,6 +1,6 @@
 # Ruoli
 
-`simpl-knowledge` funziona bene solo se è chiaro chi mantiene cosa. La regola generale è:
+`simpl_knowledge` funziona bene solo se è chiaro chi mantiene cosa. La regola generale è:
 
 - le **convenzioni trasversali** vivono in `simpl-standards`;
 - il **catalogo delle librerie** vive in `simpl-libraries`;
@@ -9,10 +9,10 @@
 
 | Chi | Cosa fa |
 |-----|---------|
-| **Platform / admin** | Possiede `simpl-techs/simpl-knowledge`: branch protection, CI verde, release `cursor-rules-rolling`, rotazione `SIMPL_KNOWLEDGE_PAT`, onboarding org su `DEEPSEEK_API_KEY`. Risponde se il bootstrap o lo zip delle regole falliscono per tutti. |
+| **Platform / admin** | Possiede `simpl-techs/simpl_knowledge`: branch protection, CI verde, release `cursor-rules-rolling`, rotazione `SIMPL_KNOWLEDGE_PAT`, onboarding org su `DEEPSEEK_API_KEY`. Risponde se il bootstrap o lo zip delle regole falliscono per tutti. |
 | **Consumer (developer)** | Esegue `team-bootstrap.sh`, aggiunge marketplace e installa `simpl-standards`, `simpl-memory`, `simpl-libraries` con `@simpl`. Consulta `catalog.md` prima di nuove integrazioni. Settimanale: `/plugin marketplace update`. |
 | **Maintainer libreria** | Mantiene `.agent/SKILL.md` e `INTERNAL.md`; usa `/update-skill` quando cambia la superficie pubblica; review delle PR aperte da `auto-update-skill` o dal bot di sync. |
-| **Bot / automazioni** | Apre PR di sync verso `simpl-techs/simpl-knowledge` e bozze skill; **nessun merge automatico** su contenuto sensibile — serve review umana. |
+| **Bot / automazioni** | Apre PR di sync verso `simpl-techs/simpl_knowledge` e bozze skill; **nessun merge automatico** su contenuto sensibile — serve review umana. |
 
 ## Cosa fa un developer normale
 

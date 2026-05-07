@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Apply upstream library .agent/SKILL.md into simpl-knowledge marketplace checkout.
+Apply upstream library .agent/SKILL.md into simpl_knowledge marketplace checkout.
 Bumps SemVer on integration plugin, registers plugin in marketplace.json if new,
 appends provenance.jsonl and CHANGES.md reference.
 
@@ -175,7 +175,7 @@ def main() -> None:
         / "plugins"
         / "simpl-standards"
         / "skills"
-        / "simpl-knowledge-system"
+        / "simpl_knowledge_system"
         / "references"
         / "CHANGES.md"
     )

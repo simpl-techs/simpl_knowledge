@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * secret-scan.js — shared pre-tool hook (simpl-knowledge).
+ * secret-scan.js — shared pre-tool hook (simpl_knowledge).
  * Blocks obvious secrets in tool input. Regex + simple entropy heuristic.
  */
 

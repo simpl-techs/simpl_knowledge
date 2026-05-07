@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# simpl-knowledge — one-command installer for dev machines.
+# simpl_knowledge — one-command installer for dev machines.
 #
-# Usage (from any directory):
-#     curl -fsSL https://raw.githubusercontent.com/simpl-techs/simpl-knowledge/main/scripts/team-bootstrap.sh | bash
-#
-# Or if you've cloned the repo:
+# Usage (default — you already cloned this repo):
 #     bash scripts/team-bootstrap.sh
+#
+# One-liner from anywhere (public repo only):
+#     curl -fsSL https://raw.githubusercontent.com/simpl-techs/simpl_knowledge/main/scripts/team-bootstrap.sh | bash
+#
+# Private repo: raw URL returns 404 without a token — use local bash above, or GitHub API + gh auth token (see docs/human/QUICKSTART.md).
 #
 # What it does:
 #   1. Detects which tools are installed (Claude Code, Cursor, Node)
@@ -21,7 +23,7 @@
 set -euo pipefail
 
 # --- Configuration (edit before committing to your fork) -------------------
-MARKETPLACE_REPO="simpl-techs/simpl-knowledge"
+MARKETPLACE_REPO="simpl-techs/simpl_knowledge"
 MARKETPLACE_NAME="simpl"
 DEFAULT_PLUGINS=("simpl-standards" "simpl-memory" "simpl-libraries")
 OPTIONAL_PLUGINS=("simpl_tracker-context")  # per-project; dev picks
@@ -46,7 +48,7 @@ for arg in "$@"; do
   esac
 done
 
-say "simpl-knowledge — bootstrap"
+say "simpl_knowledge — bootstrap"
 [ "$DRY_RUN" = "true" ] && warn "DRY RUN — no changes will be made"
 echo
 
@@ -197,7 +199,7 @@ cat <<'EOF'
 Next steps:
 
   1. Inside Claude Code, run:
-        /plugin marketplace add simpl-techs/simpl-knowledge
+        /plugin marketplace add simpl-techs/simpl_knowledge
         /plugin install simpl-standards@simpl
         /plugin install simpl-memory@simpl
         /plugin install simpl-libraries@simpl
@@ -210,9 +212,9 @@ Next steps:
         /plugin install simpl_tracker-context@simpl
 
   4. On a library repo you maintain (after marketplace cache exists):
-        bash ~/.claude/plugins/cache/simpl-knowledge/library-repo-template/scripts/bootstrap.sh <repo-name>
+        bash ~/.claude/plugins/cache/simpl_knowledge/library-repo-template/scripts/bootstrap.sh <repo-name>
      Or ask the agent: /bootstrap-repo-context
 
 Weekly: /plugin marketplace update (Claude Code auto-updates cache; this forces refresh)
-Cursor: sessionStart runs session-refresh (~6h throttle) to pull simpl-knowledge + sync simpl-*.mdc; re-run bootstrap if you need a forced refresh.
+Cursor: sessionStart runs session-refresh (~6h throttle) to pull simpl_knowledge + sync simpl-*.mdc; re-run bootstrap if you need a forced refresh.
 EOF

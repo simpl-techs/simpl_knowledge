@@ -31,7 +31,7 @@ Compatible with the local schema, plus:
 
 ## Operators
 
-Pick 2–3 volunteers with: adequate Claude/Cursor subscription (aggregation uses the agent in a real session), `gh` authenticated, write access to `simpl-techs/simpl-knowledge`. [Inference] Their subscription usage applies to the aggregation task.
+Pick 2–3 volunteers with: adequate Claude/Cursor subscription (aggregation uses the agent in a real session), `gh` authenticated, write access to `simpl-techs/simpl_knowledge`. [Inference] Their subscription usage applies to the aggregation task.
 
 ## Limitations
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Best-effort: scan plugins/**/SKILL.md fenced code blocks for Python identifiers
-and check they exist under simpl-knowledge/ tree. Integration skills that only
+and check they exist under simpl_knowledge/ tree. Integration skills that only
 reference external packages will produce skips (no warnings). Exit 0 always;
 prints warnings to stdout for humans in CI logs.
 """

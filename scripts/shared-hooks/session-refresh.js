@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * session-refresh.js — SessionStart / sessionStart: refresh simpl-knowledge git cache,
+ * session-refresh.js — SessionStart / sessionStart: refresh simpl_knowledge git cache,
  * sync org-managed Cursor rules (simpl-*.mdc), run repo-local sync-cursor-internal.sh.
  *
  * Invoked by:
  * - Cursor: node adapter.js session-refresh (stdin has _harness: cursor)
  * - Claude Code: session-start-refresh.sh (stdin often empty)
  *
- * Throttle: 6h via .last-refresh in cache or ~/.simpl-knowledge/.last-session-refresh.
+ * Throttle: 6h via .last-refresh in cache or ~/.simpl_knowledge/.last-session-refresh.
  * Fail-open: never blocks the IDE; errors log with stack to stderr.
  */
 
@@ -17,7 +17,7 @@ const os = require('node:os');
 const { spawn, execFileSync } = require('node:child_process');
 
 const THROTTLE_SEC = 6 * 3600;
-const DEFAULT_REPO = process.env.SIMPL_KNOWLEDGE_REPO || 'simpl-techs/simpl-knowledge';
+const DEFAULT_REPO = process.env.SIMPL_KNOWLEDGE_REPO || 'simpl-techs/simpl_knowledge';
 const CURSOR_TAG = 'cursor-rules-rolling';
 
 function home() {
@@ -29,16 +29,16 @@ function resolveCacheDir() {
     const p = path.resolve(process.env.SIMPL_KNOWLEDGE_CACHE);
     if (fs.existsSync(p)) return p;
   }
-  const claudeCache = path.join(home(), '.claude', 'plugins', 'cache', 'simpl-knowledge');
+  const claudeCache = path.join(home(), '.claude', 'plugins', 'cache', 'simpl_knowledge');
   if (fs.existsSync(claudeCache)) return claudeCache;
-  const alt = path.join(home(), '.simpl-knowledge', 'cache');
+  const alt = path.join(home(), '.simpl_knowledge', 'cache');
   if (fs.existsSync(alt)) return alt;
   return null;
 }
 
 function throttleFilePath(cacheDir) {
   if (cacheDir) return path.join(cacheDir, '.last-refresh');
-  return path.join(home(), '.simpl-knowledge', '.last-session-refresh');
+  return path.join(home(), '.simpl_knowledge', '.last-session-refresh');
 }
 
 function shouldThrottle(stampPath) {

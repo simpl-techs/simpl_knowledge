@@ -18,7 +18,7 @@ ALWAYS_APPLY = {
     "coding-standards",
     "git-workflow",
     "testing-policy",
-    "simpl-knowledge-system",
+    "simpl_knowledge_system",
     "internal-libraries-awareness",
 }
 
@@ -61,7 +61,13 @@ for skill in pathlib.Path("plugins").rglob("SKILL.md"):
     fm_text += "---\n\n"
 
     # Prefix simpl- so session-refresh can overwrite only org-managed rules in ~/.cursor/rules.
-    base = f"{name}.mdc" if str(name).startswith("simpl-") else f"simpl-{name}.mdc"
+    n = str(name)
+    if n.startswith("simpl-"):
+        base = f"{n}.mdc"
+    elif n.startswith("simpl_"):
+        base = f"{n.replace('_', '-')}.mdc"
+    else:
+        base = f"simpl-{n}.mdc"
     mdc_path = out / base
     mdc_path.write_text(fm_text + body, encoding="utf-8")
     print(f"  generated {mdc_path}")

@@ -1,12 +1,12 @@
-# simpl-knowledge
+# simpl_knowledge
 
-`simpl-knowledge` è il punto centrale dove **simpl-techs** distribuisce contesto agli agenti AI del team.
+`simpl_knowledge` è il punto centrale dove **simpl-techs** distribuisce contesto agli agenti AI del team.
 
 Il problema che risolve è semplice: ogni repo ha convenzioni, librerie interne e decisioni tecniche che un agent non conosce da solo. Senza un sistema comune, ogni developer deve rispiegare le stesse cose oppure l’agent rischia di duplicare codice già esistente. Questo bundle dà agli agenti una base condivisa e aggiornata.
 
 In pratica contiene:
 
-- **Un marketplace Claude Code**: si aggiunge una volta con `/plugin marketplace add simpl-techs/simpl-knowledge` e poi si installano plugin con alias `@simpl`.
+- **Un marketplace Claude Code**: si aggiunge una volta con `/plugin marketplace add simpl-techs/simpl_knowledge` e poi si installano plugin con alias `@simpl`.
 - **Regole Cursor**: gli stessi contenuti vengono convertiti in file `.mdc` e installati in `~/.cursor/rules/`.
 - **Un catalogo delle librerie interne**: `catalog.md` / `catalog.json` dicono all’agent quali librerie esistono e quando usarle.
 - **Un template per repo libreria**: ogni libreria può pubblicare il proprio `.agent/SKILL.md` dentro questo marketplace.
@@ -17,12 +17,12 @@ In pratica contiene:
 Ci sono due flussi distinti:
 
 1. **Il developer consuma la knowledge**: installa il marketplace e le regole; da quel momento gli agent ricevono standard, catalogo e skill.
-2. **Il maintainer di una libreria pubblica knowledge**: aggiorna `.agent/SKILL.md` nel repo della libreria; il workflow apre una PR su `simpl-knowledge`; dopo merge gli altri developer ricevono l’aggiornamento.
+2. **Il maintainer di una libreria pubblica knowledge**: aggiorna `.agent/SKILL.md` nel repo della libreria; il workflow apre una PR su `simpl_knowledge`; dopo merge gli altri developer ricevono l’aggiornamento.
 
 ```mermaid
 flowchart LR
   libraryRepo[Repo libreria] --> skillFile[.agent/SKILL.md]
-  skillFile --> syncPr[PR verso simpl-knowledge]
+  skillFile --> syncPr[PR verso simpl_knowledge]
   syncPr --> marketplace[Marketplace Claude]
   syncPr --> cursorRules[Regole Cursor]
   marketplace --> devAgent[Agent del developer]
@@ -42,7 +42,7 @@ flowchart LR
 | Concetto | Valore |
 |----------|--------|
 | Org GitHub | `simpl-techs` |
-| Repo di questo bundle | `simpl-techs/simpl-knowledge` |
+| Repo di questo bundle | `simpl-techs/simpl_knowledge` |
 | Alias marketplace (comandi `/plugin install …@…`) | `simpl` |
 
 Config di riferimento: [config/simpl.json](config/simpl.json).
@@ -53,17 +53,17 @@ Config di riferimento: [config/simpl.json](config/simpl.json).
 | Admin (configurare l’org) | [docs/human/ADMIN_SETUP.md](docs/human/ADMIN_SETUP.md) |
 | Maintainer libreria | [docs/human/QUICKSTART.md#sei-maintainer-di-una-libreria](docs/human/QUICKSTART.md#sei-maintainer-di-una-libreria) |
 | Architettura completa | [docs/human/ARCHITECTURE.md](docs/human/ARCHITECTURE.md) |
-| Agenti AI | [docs/agent/CONTEXT.md](docs/agent/CONTEXT.md) + skill `simpl-knowledge-system` |
+| Agenti AI | [docs/agent/CONTEXT.md](docs/agent/CONTEXT.md) + skill `simpl_knowledge_system` |
 
 ## Install
 
-- Developer (uso quotidiano): segui [docs/human/QUICKSTART.md](docs/human/QUICKSTART.md).
+- Developer (uso quotidiano): segui [docs/human/QUICKSTART.md](docs/human/QUICKSTART.md). Con il repo già clonato: dalla root, `bash scripts/team-bootstrap.sh`.
 - Admin (setup iniziale dell'org): segui [docs/human/ADMIN_SETUP.md](docs/human/ADMIN_SETUP.md).
 
 ## Repo layout
 
 - `library-repo-template/` — scaffold per repo libreria (`.agent/`, hook, workflow sync marketplace); usabile da agenti via cache plugin
-- `plugins/simpl-standards` — policy condivise + meta-skill `simpl-knowledge-system`
+- `plugins/simpl-standards` — policy condivise + meta-skill `simpl_knowledge_system`
 - `plugins/simpl-memory` — instinct / continuous learning
 - `plugins/simpl-libraries` — catalogo librerie interne (`catalog.md` / `catalog.json` generati in CI)
 - `plugins/<lib>-context` — mirror di `.agent/SKILL.md` dal repo della libreria

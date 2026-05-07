@@ -1,6 +1,6 @@
-name: Sync SKILL.md to simpl-knowledge
+name: Sync SKILL.md to simpl_knowledge
 
-# When .agent/SKILL.md is updated on main, open a PR in simpl-knowledge
+# When .agent/SKILL.md is updated on main, open a PR in simpl_knowledge
 # to propagate the new version.
 
 on:
@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: sync-simpl-knowledge-${{ github.repository }}
+  group: sync-simpl_knowledge-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
@@ -28,10 +28,10 @@ jobs:
         with:
           path: source
 
-      - name: Checkout simpl-knowledge
+      - name: Checkout simpl_knowledge
         uses: actions/checkout@v4
         with:
-          repository: simpl-techs/simpl-knowledge
+          repository: simpl-techs/simpl_knowledge
           token: ${{ secrets.SIMPL_KNOWLEDGE_PAT }}
           path: marketplace
 
@@ -47,7 +47,7 @@ jobs:
             --full-repo "$GITHUB_REPOSITORY" \
             --sha "$GITHUB_SHA"
 
-      - name: Open PR in simpl-knowledge
+      - name: Open PR in simpl_knowledge
         working-directory: marketplace
         env:
           GH_TOKEN: ${{ secrets.SIMPL_KNOWLEDGE_PAT }}
@@ -55,8 +55,8 @@ jobs:
           REPO_NAME="${GITHUB_REPOSITORY##*/}"
           BRANCH="sync/${REPO_NAME}-$(date +%s)"
 
-          git config user.name "simpl-knowledge-bot"
-          git config user.email "bot@simpl.example"
+          git config user.name "simpl_knowledge-bot"
+          git config user.email "bot@simpl.farm"
 
           git checkout -b "$BRANCH"
           git add plugins/ .claude-plugin/marketplace.json provenance.jsonl catalog.md catalog.json

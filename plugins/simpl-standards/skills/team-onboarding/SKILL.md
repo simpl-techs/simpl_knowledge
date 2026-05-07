@@ -1,6 +1,6 @@
 ---
 name: team-onboarding
-description: Guide new team members through the full setup of simpl-knowledge (marketplace, plugins, Cursor rules, memory, AgentShield). Use when a user says "set me up", "install the simpl config", "onboard me", "how do I configure my agent", "first time setup", or asks how to get started with the team's AI tooling. ALSO use when an existing member wants to verify their setup is correct.
+description: Guide new team members through the full setup of simpl_knowledge (marketplace, plugins, Cursor rules, memory, AgentShield). Use when a user says "set me up", "install the simpl config", "onboard me", "how do I configure my agent", "first time setup", or asks how to get started with the team's AI tooling. ALSO use when an existing member wants to verify their setup is correct.
 ---
 
 # Team onboarding wizard
@@ -18,7 +18,7 @@ command -v cursor || [ -d ~/.cursor ] && echo "Cursor detected" || echo "Cursor 
 command -v node && node --version || echo "Node NOT installed"
 
 # Is the marketplace already added?
-[ -d ~/.claude/plugins/cache/simpl-knowledge ] && echo "Marketplace already added" || echo "Marketplace NOT added"
+[ -d ~/.claude/plugins/cache/simpl_knowledge ] && echo "Marketplace already added" || echo "Marketplace NOT added"
 
 # Any Cursor rules already installed?
 ls ~/.cursor/rules/*.mdc 2>/dev/null | wc -l
@@ -31,16 +31,26 @@ Report what you find in 3-4 lines. Then proceed based on the gaps.
 Three cases:
 
 ### Case A: Fresh install
-Nothing set up. Run the one-command bootstrap:
+
+If the user has cloned `simpl-techs/simpl_knowledge` (or a fork) locally, **always prefer**:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/simpl-techs/simpl-knowledge/main/scripts/team-bootstrap.sh | bash
+cd /path/to/simpl_knowledge   # repo root: contains scripts/ and plugins/
+bash scripts/team-bootstrap.sh
 ```
+
+Only if they do **not** have a clone, use the remote one-liner (works for **public** repos):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/simpl-techs/simpl_knowledge/main/scripts/team-bootstrap.sh | bash
+```
+
+If `curl` returns 404, the repo is likely **private** — use the local `bash scripts/team-bootstrap.sh` path or pipe from the GitHub API with `gh auth token` (see `docs/human/QUICKSTART.md`).
 
 Then, inside Claude Code (ask the user to do this in a new session or tell them to copy-paste):
 
 ```
-/plugin marketplace add simpl-techs/simpl-knowledge
+/plugin marketplace add simpl-techs/simpl_knowledge
 /plugin install simpl-standards@simpl
 /plugin install simpl-memory@simpl
 /plugin install simpl-libraries@simpl
@@ -70,7 +80,7 @@ Example after the agent matches a task to a catalog entry:
 /plugin install <other-lib>-context@simpl
 ```
 
-If they mention a library that doesn't exist in the marketplace yet, that's a signal: the library owner should use the `repo-context-bootstrap` skill or `/bootstrap-repo-context` (or `bash ~/.claude/plugins/cache/simpl-knowledge/library-repo-template/scripts/bootstrap.sh <name>`) to scaffold and publish it.
+If they mention a library that doesn't exist in the marketplace yet, that's a signal: the library owner should use the `repo-context-bootstrap` skill or `/bootstrap-repo-context` (or `bash ~/.claude/plugins/cache/simpl_knowledge/library-repo-template/scripts/bootstrap.sh <name>`) to scaffold and publish it.
 
 ## 4. Memory layer (simpl-memory)
 

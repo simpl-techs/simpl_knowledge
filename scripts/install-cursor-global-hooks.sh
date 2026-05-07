@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Install ~/.cursor/hooks/adapter.js + merge sessionStart into ~/.cursor/hooks.json.
-# Requires simpl-knowledge clone at ~/.claude/plugins/cache/simpl-knowledge (see callers).
+# Requires simpl_knowledge clone at ~/.claude/plugins/cache/<repo basename> (see callers).
 #
 # Usage (after sourcing):
-#   install_cursor_global_hooks "simpl-techs/simpl-knowledge"
+#   install_cursor_global_hooks "simpl-techs/simpl_knowledge"
 
 install_cursor_global_hooks() {
-  local MARKETPLACE_REPO="${1:-simpl-techs/simpl-knowledge}"
-  local CACHE="${HOME}/.claude/plugins/cache/simpl-knowledge"
+  local MARKETPLACE_REPO="${1:-simpl-techs/simpl_knowledge}"
+  local CACHE="${HOME}/.claude/plugins/cache/${MARKETPLACE_REPO##*/}"
   local ADAPTER_SRC="${CACHE}/scripts/cursor-hooks/adapter.js"
   local CURSOR_HOOKS="${HOME}/.cursor/hooks"
   local HOOKS_JSON="${HOME}/.cursor/hooks.json"

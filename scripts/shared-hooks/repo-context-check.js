@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * repo-context-check.js — Compare current repo to simpl-knowledge/library-repo-template.
+ * repo-context-check.js — Compare current repo to simpl_knowledge/library-repo-template.
  * Read-only unless writing the drift report. Used by session-refresh, Claude hook, /bootstrap-repo-context.
  */
 
@@ -64,9 +64,9 @@ function resolveSimplKnowledgeRoot() {
     const p = path.resolve(process.env.SIMPL_KNOWLEDGE_CACHE);
     if (fs.existsSync(p)) return p;
   }
-  const claudeCache = path.join(home(), '.claude', 'plugins', 'cache', 'simpl-knowledge');
+  const claudeCache = path.join(home(), '.claude', 'plugins', 'cache', 'simpl_knowledge');
   if (fs.existsSync(claudeCache)) return claudeCache;
-  const alt = path.join(home(), '.simpl-knowledge', 'cache');
+  const alt = path.join(home(), '.simpl_knowledge', 'cache');
   if (fs.existsSync(alt)) return alt;
   return null;
 }
@@ -82,7 +82,7 @@ function isGitRepo(cwd) {
   }
 }
 
-/** Opt-in: repo already chose simpl-knowledge conventions (conservative gate). */
+/** Opt-in: repo already chose simpl_knowledge conventions (conservative gate). */
 function isOptedIn(cwd) {
   if (fs.existsSync(path.join(cwd, '.agent'))) return true;
   if (fs.existsSync(path.join(cwd, 'CLAUDE.md'))) return true;
@@ -319,7 +319,7 @@ function buildHookMessage(result) {
     .map((i) => `${i.path} (${i.status})`)
     .join('; ');
   const more = bad.length > 6 ? `; +${bad.length - 6} more` : '';
-  return `simpl-knowledge: ${bad.length} file(s) drift vs library-repo-template. Suggest /bootstrap-repo-context. ${preview}${more}`;
+  return `simpl_knowledge: ${bad.length} file(s) drift vs library-repo-template. Suggest /bootstrap-repo-context. ${preview}${more}`;
 }
 
 function printHuman(result) {
@@ -328,15 +328,15 @@ function printHuman(result) {
     return;
   }
   if (result.skipped === 'not_opted_in') {
-    console.log('Repo not opted in to simpl-knowledge template markers — skip.');
+    console.log('Repo not opted in to simpl_knowledge template markers — skip.');
     return;
   }
   if (result.skipped === 'no_cache') {
-    console.log('simpl-knowledge cache not found — run team-bootstrap or add marketplace.');
+    console.log('simpl_knowledge cache not found — run team-bootstrap or add marketplace.');
     return;
   }
   if (result.skipped === 'no_template_dir') {
-    console.log('library-repo-template missing in cache — pull simpl-knowledge.');
+    console.log('library-repo-template missing in cache — pull simpl_knowledge.');
     return;
   }
   console.log(`Repo: ${result.repoName}  template_ref: ${result.templateRef}`);

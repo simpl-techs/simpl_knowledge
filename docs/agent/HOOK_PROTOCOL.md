@@ -1,13 +1,13 @@
 ---
 name: simpl-hook-protocol
-description: Normalized hook payload between Cursor and Claude Code for simpl-knowledge shared scripts under scripts/shared-hooks/. Consult when debugging secret-scan.js, session-refresh.js, or writing a new shared hook.
+description: Normalized hook payload between Cursor and Claude Code for simpl_knowledge shared scripts under scripts/shared-hooks/. Consult when debugging secret-scan.js, session-refresh.js, or writing a new shared hook.
 ---
 
 # Hook protocol
 
 ## Shared scripts
 
-- Location: `simpl-knowledge/scripts/shared-hooks/*.js`.
+- Location: `simpl_knowledge/scripts/shared-hooks/*.js`.
 - Cursor: `adapter.js` (project `.cursor/hooks/` or global `~/.cursor/hooks/`) maps events → synthetic Claude-like payload, then runs e.g. `node …/secret-scan.js` or `node …/session-refresh.js`.
 - Claude Code: same scripts; PreToolUse hooks use native stdin JSON. SessionStart refresh calls `session-refresh.js` with empty stdin (see `session-start-refresh.sh`).
 
@@ -16,7 +16,7 @@ description: Normalized hook payload between Cursor and Claude Code for simpl-kn
 | Script | Role |
 |--------|------|
 | `secret-scan.js` | `beforeShellExecution`, `beforeFileEdit`, `beforeSubmitPrompt` → block obvious secrets (exit 2). |
-| `session-refresh.js` | `sessionStart` / SessionStart → background git pull of simpl-knowledge cache + sync org `simpl-*.mdc` into `~/.cursor/rules/` + optional `sync-cursor-internal.sh` in repo cwd. |
+| `session-refresh.js` | `sessionStart` / SessionStart → background git pull of simpl_knowledge cache + sync org `simpl-*.mdc` into `~/.cursor/rules/` + optional `sync-cursor-internal.sh` in repo cwd. |
 | `repo-context-check.js` | After refresh (worker) or sync hook path (`--claude-session-hook`): compare repo to `library-repo-template/` when opted-in; write `.claude/.simpl-repo-report.json` on drift; emit SessionStart `additionalContext` on Claude when needed. |
 
 ## Adding a hook (DRY)

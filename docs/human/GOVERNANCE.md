@@ -2,7 +2,7 @@
 
 > Per il setup iniziale completo passo-passo, vedi [ADMIN_SETUP.md](ADMIN_SETUP.md). Questa pagina descrive le **regole** che la configurazione deve rispettare.
 
-## `simpl-techs/simpl-knowledge`
+## `simpl-techs/simpl_knowledge`
 
 - **Branch protection** su `main`: required PR, required status checks (`Validate skills`, `AgentShield security scan`).
 - **Review**: minimo 1 approvazione; no push diretto.
@@ -10,7 +10,7 @@
 
 ## Repo libreria (template)
 
-- Stessi principi su `main`; workflow sync usa `SIMPL_KNOWLEDGE_PAT` con scope solo su `simpl-knowledge`.
+- Stessi principi su `main`; workflow sync usa `SIMPL_KNOWLEDGE_PAT` con scope solo su `simpl_knowledge`.
 
 ## Prompt injection / skill
 

@@ -40,7 +40,7 @@ Rules of thumb:
 
 ## Integration plugins (`*-context`): catalog frontmatter
 
-Skills mirrored under `simpl-knowledge/plugins/<repo>-context/` feed the org-wide **`catalog.md`** (via `scripts/ci/generate-catalog.js`, run after each library sync). Add these YAML fields *in addition to* `name` and `description`:
+Skills mirrored under `simpl_knowledge/plugins/<repo>-context/` feed the org-wide **`catalog.md`** (via `scripts/ci/generate-catalog.js`, run after each library sync). Add these YAML fields *in addition to* `name` and `description`:
 
 ```yaml
 summary: |

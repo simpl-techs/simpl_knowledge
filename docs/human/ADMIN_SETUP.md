@@ -1,12 +1,12 @@
 # Admin setup
 
-Setup `simpl-knowledge` per l'org `simpl-techs`. Da fare una volta sola; dopo, ogni developer fa solo il [QUICKSTART](QUICKSTART.md).
+Setup `simpl_knowledge` per l'org `simpl-techs`. Da fare una volta sola; dopo, ogni developer fa solo il [QUICKSTART](QUICKSTART.md).
 
 ---
 
 ## Passo 1 — Crea il repo centrale
 
-Su GitHub crea `simpl-techs/simpl-knowledge`. Pubblica il contenuto di `simpl_knowledge/`. Branch principale: `main`.
+Su GitHub crea `simpl-techs/simpl_knowledge`. Pubblica il contenuto di `simpl_knowledge/`. Branch principale: `main`.
 
 ## Passo 2 — Branch protection su `main`
 
@@ -41,7 +41,7 @@ Sostituisci `<team-...>` con i team reali.
 GitHub → Settings → Developer settings → Personal access tokens → **Fine-grained tokens** → Generate new token:
 
 - Resource owner: `simpl-techs`.
-- Repository access: **Only select repositories** → `simpl-knowledge`.
+- Repository access: **Only select repositories** → `simpl_knowledge`.
 - Permissions: **Contents** = read & write, **Pull requests** = read & write.
 
 Salva il token, ti serve al passo 5.
@@ -55,7 +55,7 @@ Settings → Secrets and variables → Actions → **Organization secrets** → 
 
 Esposizione: a tutti i repo della org, oppure restringi ai repo libreria.
 
-**Team instincts (simpl-memory):** designa 2–3 dev volontari come operatori di `/aggregate-team-instincts`. Servono: subscription Claude/Cursor adeguata per la sessione in cui mergiano ([Inference]), `gh` autenticata, permesso di aprire PR su `simpl-techs/simpl-knowledge`. Nessun secret org dedicato: i dev pubblicano i raw con `/share-instincts` sotto la propria identità GitHub.
+**Team instincts (simpl-memory):** designa 2–3 dev volontari come operatori di `/aggregate-team-instincts`. Servono: subscription Claude/Cursor adeguata per la sessione in cui mergiano ([Inference]), `gh` autenticata, permesso di aprire PR su `simpl-techs/simpl_knowledge`. Nessun secret org dedicato: i dev pubblicano i raw con `/share-instincts` sotto la propria identità GitHub.
 
 ## Passo 6 — Release cursor-rules-rolling (automatica)
 
@@ -72,7 +72,7 @@ Dopo che questo repo è su `main` con il workflow abilitato:
 ### Fallback manuale (solo se GitHub Actions non è disponibile)
 
 ```bash
-git clone https://github.com/simpl-techs/simpl-knowledge.git && cd simpl-knowledge
+git clone https://github.com/simpl-techs/simpl_knowledge.git && cd simpl_knowledge
 pip install pyyaml && bash scripts/generate-cursor-rules.sh
 (cd cursor-rules && find . -type f -print0 | sort -z | xargs -0 zip -X -q ../cursor-rules.zip)
 gh release create cursor-rules-rolling cursor-rules.zip --title cursor-rules-rolling --notes "rolling" \
@@ -81,11 +81,19 @@ gh release create cursor-rules-rolling cursor-rules.zip --title cursor-rules-rol
 
 ## Passo 7 — Verifica
 
-Su una macchina dev pulita:
+Su una macchina dev pulita con il repo già clonato (consigliato), dalla root del clone:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/simpl-techs/simpl-knowledge/main/scripts/team-bootstrap.sh | bash
+bash scripts/team-bootstrap.sh
 ```
+
+Se non c’è il clone e il repo è pubblico, opzionalmente:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/simpl-techs/simpl_knowledge/main/scripts/team-bootstrap.sh | bash
+```
+
+Se `curl` risponde 404 (repo privato), usa solo `bash scripts/team-bootstrap.sh` dal clone o vedi [QUICKSTART.md](QUICKSTART.md) (Passo 1).
 
 Poi:
 
@@ -102,7 +110,7 @@ Per ogni libreria interna che vuoi includere:
 1. `cd` nel repo della libreria (deve avere `.git`).
 2. Esegui:
    ```bash
-   bash ~/.claude/plugins/cache/simpl-knowledge/library-repo-template/scripts/bootstrap.sh <repo-name>
+   bash ~/.claude/plugins/cache/simpl_knowledge/library-repo-template/scripts/bootstrap.sh <repo-name>
    ```
 3. Compila `.agent/SKILL.md` (rimuovi i placeholder `REPLACE-ME`).
 4. Verifica che il repo erediti gli org secret `SIMPL_KNOWLEDGE_PAT` e `DEEPSEEK_API_KEY` (Settings → Secrets and variables → Actions → tab "Organization secrets").

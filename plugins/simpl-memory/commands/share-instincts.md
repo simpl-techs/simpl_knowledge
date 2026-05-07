@@ -1,16 +1,16 @@
 ---
 name: share-instincts
-description: Opt-in — publish your local simpl-memory instincts to team-instincts/raw/<your-github-login>.jsonl on simpl-knowledge via PR.
+description: Opt-in — publish your local simpl-memory instincts to team-instincts/raw/<your-github-login>.jsonl on simpl_knowledge via PR.
 ---
 
 # /share-instincts
 
-Publish patterns from your **local** `simpl-memory` store into the org-wide collector inside `simpl-techs/simpl-knowledge`. One file per developer: `team-instincts/raw/<github-handle>.jsonl`.
+Publish patterns from your **local** `simpl-memory` store into the org-wide collector inside `simpl-techs/simpl_knowledge`. One file per developer: `team-instincts/raw/<github-handle>.jsonl`.
 
 **Requirements**
 
 - `gh` CLI installed and authenticated (`gh auth status`).
-- Permission to open PRs against `simpl-techs/simpl-knowledge` (org member with appropriate repo role, or fork flow if read-only).
+- Permission to open PRs against `simpl-techs/simpl_knowledge` (org member with appropriate repo role, or fork flow if read-only).
 - Local instinct file must exist (you have been using `simpl-memory` with extraction enabled).
 
 ## Workflow
@@ -53,24 +53,24 @@ Read `LOCAL_STORE` from step 1. Parse JSONL. For each row print: index, `hash`, 
 
 Build the filtered array `toShare`. If empty, stop and do not open a PR.
 
-### 4. Work inside simpl-knowledge clone
+### 4. Work inside simpl_knowledge clone
 
 Use the marketplace cache (same path as bootstrap):
 
 ```text
-${HOME}/.claude/plugins/cache/simpl-knowledge
+${HOME}/.claude/plugins/cache/simpl_knowledge
 ```
 
 If that directory is missing or not a git repo, clone fresh:
 
 ```bash
-git clone --depth 1 https://github.com/simpl-techs/simpl-knowledge.git "$HOME/.claude/plugins/cache/simpl-knowledge"
+git clone --depth 1 https://github.com/simpl-techs/simpl_knowledge.git "$HOME/.claude/plugins/cache/simpl_knowledge"
 ```
 
 Then:
 
 ```bash
-cd "$HOME/.claude/plugins/cache/simpl-knowledge"
+cd "$HOME/.claude/plugins/cache/simpl_knowledge"
 git fetch origin
 git checkout main
 git pull origin main
@@ -95,10 +95,10 @@ Do not modify `team-instincts/instincts.jsonl` or `state.json` in this command �
 git add "team-instincts/raw/${GITHUB_LOGIN}.jsonl"
 git commit -m "chore(instincts): share patterns from ${GITHUB_LOGIN}"
 git push -u origin "$BRANCH"
-gh pr create --repo simpl-techs/simpl-knowledge --title "chore(instincts): share from ${GITHUB_LOGIN}" --body "Opt-in raw instincts from @${GITHUB_LOGIN}. Please review before merge."
+gh pr create --repo simpl-techs/simpl_knowledge --title "chore(instincts): share from ${GITHUB_LOGIN}" --body "Opt-in raw instincts from @${GITHUB_LOGIN}. Please review before merge."
 ```
 
-If push fails due to permissions, instruct the user to fork `simpl-techs/simpl-knowledge`, push the branch there, and open PR from fork (same files under `team-instincts/raw/`).
+If push fails due to permissions, instruct the user to fork `simpl-techs/simpl_knowledge`, push the branch there, and open PR from fork (same files under `team-instincts/raw/`).
 
 ### 7. Summarize
 

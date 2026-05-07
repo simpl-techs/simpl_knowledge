@@ -167,7 +167,7 @@ function main() {
     if (e.required_when) mdLines.push(`- **Required when**: ${e.required_when}`);
     mdLines.push(`- **Install full context (Claude Code)**: \`${e.plugin_install_command}\``);
     mdLines.push(
-      `- **Skill path in cache**: \`~/.claude/plugins/cache/simpl-knowledge/plugins/${e.plugin}/skills/\``,
+      `- **Skill path in cache**: \`~/.claude/plugins/cache/simpl_knowledge/plugins/${e.plugin}/skills/\``,
     );
     mdLines.push('');
   }

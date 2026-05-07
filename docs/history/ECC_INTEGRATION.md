@@ -20,7 +20,7 @@ We evaluated [everything-claude-code](https://github.com/affaan-m/everything-cla
 - Stores at `~/.claude/simpl-memory/<repo>/instincts.jsonl` — per-repo scope, not global
 - Injection on SessionStart only when count ≥ 2 (avoid noise)
 - Promotion via human-reviewed PR, never automatic
-- **Private by default**: instincts stay on the dev's laptop until they run `/share-instincts` (PR to `team-instincts/raw/<login>.jsonl` on `simpl-knowledge`). Operators merge raw files into `team-instincts/instincts.jsonl` with `/aggregate-team-instincts` (another PR). No separate `agent-instincts` repo.
+- **Private by default**: instincts stay on the dev's laptop until they run `/share-instincts` (PR to `team-instincts/raw/<login>.jsonl` on `simpl_knowledge`). Operators merge raw files into `team-instincts/instincts.jsonl` with `/aggregate-team-instincts` (another PR). No separate `agent-instincts` repo.
 
 Files:
 - `plugins/simpl-memory/hooks/hooks.json` — registers Stop + SessionStart
@@ -30,7 +30,7 @@ Files:
 - `plugins/simpl-memory/commands/promote-instinct.md` — `/promote-instinct`
 - `plugins/simpl-memory/commands/share-instincts.md` — `/share-instincts`
 - `plugins/simpl-memory/commands/aggregate-team-instincts.md` — `/aggregate-team-instincts`
-- `team-instincts/` — raw per-dev JSONL + merged `instincts.jsonl` in `simpl-knowledge`
+- `team-instincts/` — raw per-dev JSONL + merged `instincts.jsonl` in `simpl_knowledge`
 
 ### 2. Skill-create pattern → our `/skill-create` command
 
@@ -42,7 +42,7 @@ Files:
 
 **What ECC does**: Cursor has more hook events than Claude Code; an adapter translates Cursor's stdin format to Claude Code's so one script works in both.
 
-**What we built**: Same pattern, our own minimal implementation (~80 lines). The shared scripts live in `simpl-knowledge/scripts/shared-hooks/` and are called by both:
+**What we built**: Same pattern, our own minimal implementation (~80 lines). The shared scripts live in `simpl_knowledge/scripts/shared-hooks/` and are called by both:
 - Claude Code: directly (no adapter needed — already in native format)
 - Cursor: via `.cursor/hooks/adapter.js` that translates events first
 

@@ -13,7 +13,7 @@ description: |
 
 # REPO-NAME integration guide
 
-> **Maintained by**: the REPO-NAME repo, auto-synced to simpl-knowledge.
+> **Maintained by**: the REPO-NAME repo, auto-synced to simpl_knowledge.
 > **Source of truth**: `simpl-techs/REPO-NAME/.agent/SKILL.md`
 
 ## What this library is

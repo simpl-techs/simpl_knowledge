@@ -1,6 +1,6 @@
 ---
 name: skill-create
-description: Generate a first-draft `.agent/SKILL.md` for a library repo by analyzing its git history, public API, and integration examples. Use when starting to onboard a repo to simpl-knowledge.
+description: Generate a first-draft `.agent/SKILL.md` for a library repo by analyzing its git history, public API, and integration examples. Use when starting to onboard a repo to simpl_knowledge.
 ---
 
 # /skill-create

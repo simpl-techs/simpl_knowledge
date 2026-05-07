@@ -2,12 +2,12 @@
 /**
  * adapter.js — Cursor → Claude Code hook event adapter.
  *
- * Keep in sync with: simpl-knowledge/scripts/cursor-hooks/adapter.js
+ * Keep in sync with: simpl_knowledge/scripts/cursor-hooks/adapter.js
  *
  * Cursor and Claude Code both support hooks but use different event names
  * and payload shapes. This adapter normalizes Cursor's stdin JSON to
  * Claude Code's format so we can share one set of hook scripts
- * (in simpl-knowledge/scripts/shared-hooks/) across both tools.
+ * (in simpl_knowledge/scripts/shared-hooks/) across both tools.
  *
  * Usage (called by Cursor via .cursor/hooks.json):
  *
@@ -20,8 +20,8 @@
  * Arg 1 is the script name to invoke from the shared hooks directory.
  * The shared directory is resolved by (in order):
  *   1. SIMPL_SHARED_HOOKS env var
- *   2. ~/.claude/plugins/cache/simpl-knowledge/scripts/shared-hooks/
- *   3. ~/.simpl-knowledge/cache/scripts/shared-hooks/
+ *   2. ~/.claude/plugins/cache/simpl_knowledge/scripts/shared-hooks/
+ *   3. ~/.simpl_knowledge/cache/scripts/shared-hooks/
  *   4. Built-in fallback (this file's sibling `shared-hooks/` if copied here)
  */
 
@@ -85,12 +85,12 @@ function findSharedHooksDir() {
     '.claude',
     'plugins',
     'cache',
-    'simpl-knowledge',
+    'simpl_knowledge',
     'scripts',
     'shared-hooks',
   );
   if (fs.existsSync(cachePath)) return cachePath;
-  const altCache = path.join(os.homedir(), '.simpl-knowledge', 'cache', 'scripts', 'shared-hooks');
+  const altCache = path.join(os.homedir(), '.simpl_knowledge', 'cache', 'scripts', 'shared-hooks');
   if (fs.existsSync(altCache)) return altCache;
   const local = path.join(__dirname, 'shared-hooks');
   if (fs.existsSync(local)) return local;

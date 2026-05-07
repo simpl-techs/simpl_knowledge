@@ -1,12 +1,12 @@
 # Agent context for this repo
 
-This repo participates in **simpl-knowledge**. Two conventions matter:
+This repo participates in **simpl_knowledge**. Two conventions matter:
 
 ## `.agent/SKILL.md`
 
-Public-facing doc for *other* teammates' AI agents. Tells them how to use this library from elsewhere. Auto-synced to `simpl-techs/simpl-knowledge` on every merge to `main`.
+Public-facing doc for *other* teammates' AI agents. Tells them how to use this library from elsewhere. Auto-synced to `simpl-techs/simpl_knowledge` on every merge to `main`.
 
-Edit freely — the sync is automatic. If you're unsure what to write, see `simpl-knowledge/docs/history/SKILL_WRITING_GUIDE.md`.
+Edit freely — the sync is automatic. If you're unsure what to write, see `simpl_knowledge/docs/history/SKILL_WRITING_GUIDE.md`.
 
 ## `.agent/INTERNAL.md`
 
@@ -35,7 +35,7 @@ Someone on the team reviews it — usually takes 5-10 minutes — and merges or 
 ## Secrets required in this repo
 
 - `DEEPSEEK_API_KEY` — for the `auto-update-skill` workflow (aider + DeepSeek). Set at org level, inherited here.
-- `SIMPL_KNOWLEDGE_PAT` — Personal Access Token with `repo` scope on `simpl-knowledge`. Also org-level.
+- `SIMPL_KNOWLEDGE_PAT` — Personal Access Token with `repo` scope on `simpl_knowledge`. Also org-level.
 
 ## Extending
 
@@ -43,4 +43,4 @@ Add more hooks in `.claude/settings.json` for this repo only (e.g. auto-run test
 
 Add more slash commands in `.claude/commands/` for repeatable per-repo workflows.
 
-Org-wide stuff doesn't go here — it goes in `simpl-knowledge/plugins/simpl-standards/`.
+Org-wide stuff doesn't go here — it goes in `simpl_knowledge/plugins/simpl-standards/`.

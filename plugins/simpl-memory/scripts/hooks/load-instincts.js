@@ -3,7 +3,7 @@
  * load-instincts.js — SessionStart hook.
  *
  * Does:
- *  1. Injects team-wide patterns from simpl-knowledge cache (`team-instincts/instincts.jsonl`), if present.
+ *  1. Injects team-wide patterns from simpl_knowledge cache (`team-instincts/instincts.jsonl`), if present.
  *  2. Injects high-confidence local instincts (count >= 2) into the session as soft preferences.
  *  3. If any local instincts are promotion-ready (count >= 3, not promoted, not dismissed),
  *     prepends a visible notification for Claude to mention /promote-instinct once.
@@ -19,7 +19,10 @@ const { execSync } = require('node:child_process');
 
 const TEAM_INSTINCTS_PATH = path.join(
   os.homedir(),
-  '.claude/plugins/cache/simpl-knowledge',
+  '.claude',
+  'plugins',
+  'cache',
+  'simpl_knowledge',
   'team-instincts',
   'instincts.jsonl',
 );
@@ -101,7 +104,7 @@ function main() {
       [
         '## Team-wide patterns',
         '',
-        'Aggregated from `simpl-knowledge/team-instincts` (shared via PR). Treat as soft preferences unless the user overrides:',
+        'Aggregated from `simpl_knowledge/team-instincts` (shared via PR). Treat as soft preferences unless the user overrides:',
         '',
         ...teamForContext.map((i, idx) => {
           const score = teamScore(i);

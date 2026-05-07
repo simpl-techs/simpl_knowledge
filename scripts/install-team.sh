@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
-# Install simpl-knowledge context for Claude Code + Cursor.
+# Install simpl_knowledge context for Claude Code + Cursor.
 #
-# Usage:
-#   curl -fsSL https://raw.githubusercontent.com/simpl-techs/simpl-knowledge/main/scripts/install-team.sh | bash
+# Usage (from clone, recommended):
+#   bash scripts/install-team.sh
+#
+# From anywhere (public repo):
+#   curl -fsSL https://raw.githubusercontent.com/simpl-techs/simpl_knowledge/main/scripts/install-team.sh | bash
 
 set -euo pipefail
 
-MARKETPLACE_REPO="simpl-techs/simpl-knowledge"
+MARKETPLACE_REPO="simpl-techs/simpl_knowledge"
 MARKETPLACE_URL="https://github.com/${MARKETPLACE_REPO}"
 MARKETPLACE_CACHE="${HOME}/.claude/plugins/cache/${MARKETPLACE_REPO##*/}"
 CURSOR_TAG="cursor-rules-rolling"
 
-echo "=== simpl-knowledge installer ==="
+echo "=== simpl_knowledge installer ==="
 echo
 
 if command -v claude >/dev/null 2>&1; then
@@ -77,7 +80,7 @@ fi
 cat <<EOF
 === Refresh behavior ===
 
-  Cursor: built-in sessionStart hook refreshes simpl-knowledge cache + org rules (simpl-*.mdc), throttled ~6h.
+  Cursor: built-in sessionStart hook refreshes simpl_knowledge cache + org rules (simpl-*.mdc), throttled ~6h.
   Claude Code: SessionStart in plugins runs the same shared session-refresh.js (after marketplace cache exists).
 
 Test: ask the agent how commit messages work (git-workflow).

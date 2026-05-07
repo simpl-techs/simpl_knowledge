@@ -15,7 +15,7 @@
     ]
   },
   "_comments": {
-    "SessionStart": "Silently refreshes the simpl-knowledge cache in background. Throttled to once per 6h. No user interaction.",
+    "SessionStart": "Silently refreshes the simpl_knowledge cache in background. Throttled to once per 6h. No user interaction.",
     "where_to_extend": "Add more hooks here: PostToolUse for auto-format, PreToolUse for guardrails, SessionStart for other per-repo bootstrapping."
   }
 }

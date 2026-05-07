@@ -1,6 +1,6 @@
 ---
 name: aggregate-team-instincts
-description: Operator-only — merge team-instincts/raw/*.jsonl into team-instincts/instincts.jsonl with hash dedup; update state.json; open PR on simpl-knowledge.
+description: Operator-only — merge team-instincts/raw/*.jsonl into team-instincts/instincts.jsonl with hash dedup; update state.json; open PR on simpl_knowledge.
 ---
 
 # /aggregate-team-instincts
@@ -11,17 +11,17 @@ description: Operator-only — merge team-instincts/raw/*.jsonl into team-instin
 
 **Requirements**
 
-- `gh` authenticated with rights to push branches and open PRs on `simpl-techs/simpl-knowledge`.
-- Clean or stashed working tree inside the simpl-knowledge clone you use (prefer the marketplace cache path below).
+- `gh` authenticated with rights to push branches and open PRs on `simpl-techs/simpl_knowledge`.
+- Clean or stashed working tree inside the simpl_knowledge clone you use (prefer the marketplace cache path below).
 
 ## Workflow
 
-### 1. Clone / update simpl-knowledge
+### 1. Clone / update simpl_knowledge
 
 ```bash
-CACHE="${HOME}/.claude/plugins/cache/simpl-knowledge"
+CACHE="${HOME}/.claude/plugins/cache/simpl_knowledge"
 if [ ! -d "$CACHE/.git" ]; then
-  git clone --depth 1 https://github.com/simpl-techs/simpl-knowledge.git "$CACHE"
+  git clone --depth 1 https://github.com/simpl-techs/simpl_knowledge.git "$CACHE"
 fi
 cd "$CACHE"
 git fetch origin
@@ -33,7 +33,7 @@ git pull origin main
 
 Read `team-instincts/state.json`.
 
-- Run `gh pr list --repo simpl-techs/simpl-knowledge --state open --search "chore(instincts): aggregate" --json number,title` (or equivalent). If any open PR matches that purpose, **stop** and tell the operator to finish or close it first.
+- Run `gh pr list --repo simpl-techs/simpl_knowledge --state open --search "chore(instincts): aggregate" --json number,title` (or equivalent). If any open PR matches that purpose, **stop** and tell the operator to finish or close it first.
 - If `last_aggregated_at` is set and is **less than 7 days ago**, ask the operator to confirm they really want another aggregation run (avoid noisy PRs).
 
 ### 3. Load all raw files
@@ -70,7 +70,7 @@ git checkout -b "$BRANCH"
 git add team-instincts/instincts.jsonl team-instincts/state.json
 git commit -m "chore(instincts): aggregate team patterns"
 git push -u origin "$BRANCH"
-gh pr create --repo simpl-techs/simpl-knowledge --title "chore(instincts): aggregate $(date +%Y-%m-%d)" --body "Automated aggregation from team-instincts/raw. Review diff carefully. Operator: $(gh api user -q .login)"
+gh pr create --repo simpl-techs/simpl_knowledge --title "chore(instincts): aggregate $(date +%Y-%m-%d)" --body "Automated aggregation from team-instincts/raw. Review diff carefully. Operator: $(gh api user -q .login)"
 ```
 
 ### 8. Human review

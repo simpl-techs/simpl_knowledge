@@ -5,7 +5,7 @@ Guida per usare gli agent del team. Per configurare il sistema da zero nell'org 
 ```mermaid
 flowchart LR
   maintainer[Maintainer libreria] --> skill[".agent/SKILL.md"]
-  skill --> hub[simpl-techs/simpl-knowledge]
+  skill --> hub["Repo simpl-techs/simpl_knowledge"]
   hub --> claude[Claude Code plugin]
   hub --> cursor[Cursor rules]
   claude --> dev[Agent del developer]
@@ -16,20 +16,62 @@ flowchart LR
 
 ## Passo 1 — Bootstrap
 
-Esegui:
+Stesso contenuto, **due modi**: install con **clone** da GitHub (consigliato) oppure **solo download** ed esecuzione di `team-bootstrap.sh`.
+
+### Nome del repository su GitHub
+
+Il valore ufficiale è in [config/simpl.json](../../config/simpl.json): `github_full_name` = `simpl-techs/simpl_knowledge`. Dopo `git clone`, la directory locale si chiama come il repo (`simpl_knowledge`). Se lavori in monorepo, la cartella `simpl_knowledge/` locale non è necessariamente il nome del remote.
+
+### A — Clone da GitHub + bootstrap (consigliato)
+
+Sostituisci `REPO` con `simpl_knowledge` (nome repo GitHub dell’org).
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/simpl-techs/simpl-knowledge/main/scripts/team-bootstrap.sh | bash
+git clone https://github.com/simpl-techs/REPO.git
+cd REPO
+bash scripts/team-bootstrap.sh
 ```
+
+Esempio con nome da config:
+
+```bash
+git clone https://github.com/simpl-techs/simpl_knowledge.git
+cd simpl_knowledge
+bash scripts/team-bootstrap.sh
+```
+
+### B — Solo download dello script (senza clone)
+
+**Repo pubblico** — raw da `main`:
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/simpl-techs/REPO/main/scripts/team-bootstrap.sh" | bash
+```
+
+(`REPO` = `simpl_knowledge`.)
+
+**Repo privato** — serve token (es. con GitHub CLI già autenticata):
+
+```bash
+curl -fsSL \
+  -H "Authorization: Bearer $(gh auth token)" \
+  -H "Accept: application/vnd.github.raw" \
+  "https://api.github.com/repos/simpl-techs/REPO/contents/scripts/team-bootstrap.sh?ref=main" \
+  | bash
+```
+
+Se ricevi **404** con il percorso pubblico `raw.githubusercontent.com`, è spesso repo privato o nome `REPO` errato: usa il blocco privato sopra oppure il percorso **A** dal clone.
+
+Verifica accesso: `gh repo view simpl-techs/REPO` (con `REPO` corretto).
 
 Lo script rileva da solo se hai Claude Code, Cursor o entrambi. È idempotente: rieseguilo per forzare un refresh.
 
 ## Passo 2 — Solo se hai Claude Code
 
-Apri una sessione Claude Code e incolla:
+Apri una sessione Claude Code e incolla (`owner/repo` = `simpl-techs/simpl_knowledge`):
 
 ```text
-/plugin marketplace add simpl-techs/simpl-knowledge
+/plugin marketplace add simpl-techs/simpl_knowledge
 /plugin install simpl-standards@simpl
 /plugin install simpl-memory@simpl
 /plugin install simpl-libraries@simpl
@@ -81,7 +123,7 @@ Cursor si aggiorna da solo all'apertura della sessione (throttle ~6h). Per forza
 1. `cd` nel tuo repo libreria.
 2. Esegui:
    ```bash
-   bash ~/.claude/plugins/cache/simpl-knowledge/library-repo-template/scripts/bootstrap.sh <repo-name>
+   bash ~/.claude/plugins/cache/simpl_knowledge/library-repo-template/scripts/bootstrap.sh <repo-name>
    ```
 3. Compila `.agent/SKILL.md` (rimuovi i placeholder `REPLACE-ME`), commit, push.
 4. Al merge in `main`, il workflow `sync-skill-to-marketplace` apre PR sul repo centrale. Dopo il merge della PR, gli altri dev ricevono l'update con `/plugin marketplace update`.

@@ -4,8 +4,8 @@
 
 | Domanda | Risposta breve |
 |---------|----------------|
-| Qual è la differenza tra `simpl-techs` e `@simpl`? | **`simpl-techs`** è l’**organizzazione GitHub** (`simpl-techs/simpl-knowledge`). **`simpl`** è l’**alias del marketplace** in Claude Code: aggiungi il repo con `/plugin marketplace add simpl-techs/simpl-knowledge`, poi installi con `/plugin install simpl-standards@simpl`. |
-| Cos’è `simpl-knowledge`? | È il bundle che distribuisce contesto agli agenti: plugin Claude Code, regole Cursor, catalogo librerie, template repo e hook condivisi. |
+| Qual è la differenza tra `simpl-techs` e `@simpl`? | **`simpl-techs`** è l’**organizzazione GitHub** (`simpl-techs/simpl_knowledge`). **`simpl`** è l’**alias del marketplace** in Claude Code: aggiungi il repo con `/plugin marketplace add simpl-techs/simpl_knowledge`, poi installi con `/plugin install simpl-standards@simpl`. |
+| Cos’è `simpl_knowledge`? | È il bundle che distribuisce contesto agli agenti: plugin Claude Code, regole Cursor, catalogo librerie, template repo e hook condivisi. |
 | È codice runtime della nostra app? | No. Non va importato dal backend o frontend. Serve agli strumenti agentici e ai workflow CI che pubblicano knowledge. |
 | Dove installo i plugin? | Claude Code usa `/plugin`. Cursor non usa plugin Claude: riceve regole `.mdc` tramite `team-bootstrap.sh` e release `cursor-rules-rolling`. |
 | Devo committare `cursor-rules/`? | No: sono nel **release asset**, non su `main` del bundle (salvo eccezioni di tooling). |
@@ -27,7 +27,7 @@
 | Cosa va in SKILL vs INTERNAL? | `SKILL.md` = come *usare* la lib da altri repo. `INTERNAL.md` = come *lavorare dentro* il repo. |
 | Come versionano i plugin `-context`? | SemVer da label PR sul repo libreria (`breaking` / `feature` / default patch). |
 | Quando devo usare `/update-skill`? | Prima del merge se hai cambiato API pubbliche, installazione, env var, esempi d’uso, vincoli o casi in cui la libreria va usata. |
-| Dove vedo chi ha sincronizzato cosa? | `provenance.jsonl` + `simpl-knowledge-system/references/CHANGES.md`. |
+| Dove vedo chi ha sincronizzato cosa? | `provenance.jsonl` + `simpl_knowledge_system/references/CHANGES.md`. |
 | Repo GitHub diverso o fork? | Override locale: `SIMPL_KNOWLEDGE_REPO` (es. fork) per clone/zip; l’alias `@simpl` dipende dal marketplace che hai aggiunto in Claude. |
 
 ## Aggiornamenti
@@ -36,4 +36,4 @@
 |---------|----------------|
 | Come ricevo update in Claude Code? | `/plugin marketplace update`, poi nuova sessione se vuoi essere sicuro che le skill vengano ricaricate. |
 | Come ricevo update in Cursor? | L’hook `session-refresh` aggiorna cache e regole `simpl-*.mdc` circa ogni 6 ore. Per forzare: riesegui `team-bootstrap.sh`. |
-| Dove sono i file locali? | Cache marketplace: `~/.claude/plugins/cache/simpl-knowledge`. Regole Cursor: `~/.cursor/rules/simpl-*.mdc`. Instinct locali: `~/.claude/simpl-memory/<repo>/`. |
+| Dove sono i file locali? | Cache marketplace: `~/.claude/plugins/cache/simpl_knowledge`. Regole Cursor: `~/.cursor/rules/simpl-*.mdc`. Instinct locali: `~/.claude/simpl-memory/<repo>/`. |

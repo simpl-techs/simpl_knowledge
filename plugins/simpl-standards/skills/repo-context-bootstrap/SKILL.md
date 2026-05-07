@@ -1,15 +1,15 @@
 ---
 name: repo-context-bootstrap
 description: |
-  Use when the current git repo should follow simpl-knowledge library-repo-template but is missing files, has placeholders, or org-owned files are outdated vs the template. Triggers when .claude/.simpl-repo-report.json shows drift, the user asks to "bootstrap agent context", "align this repo to simpl", "set up marketplace sync", or you see simpl-knowledge SessionStart drift hints. For repos with no .agent/ yet, run the check with --skip-gate after the user confirms they want this repo on simpl-knowledge. NEVER apply changes without explicit user confirmation.
+  Use when the current git repo should follow simpl_knowledge library-repo-template but is missing files, has placeholders, or org-owned files are outdated vs the template. Triggers when .claude/.simpl-repo-report.json shows drift, the user asks to "bootstrap agent context", "align this repo to simpl", "set up marketplace sync", or you see simpl_knowledge SessionStart drift hints. For repos with no .agent/ yet, run the check with --skip-gate after the user confirms they want this repo on simpl_knowledge. NEVER apply changes without explicit user confirmation.
 ---
 
 # repo-context-bootstrap
 
 ## Paths
 
-- Shared scripts: `~/.claude/plugins/cache/simpl-knowledge/scripts/shared-hooks/` (same tree under a cloned `simpl-knowledge` repo).
-- Template: `~/.claude/plugins/cache/simpl-knowledge/library-repo-template/`
+- Shared scripts: `~/.claude/plugins/cache/simpl_knowledge/scripts/shared-hooks/` (same tree under a cloned `simpl_knowledge` repo).
+- Template: `~/.claude/plugins/cache/simpl_knowledge/library-repo-template/`
 
 ## 1. Read drift signal
 
@@ -17,13 +17,13 @@ description: |
 2. If missing or stale, run (from repo root):
 
 ```bash
-node ~/.claude/plugins/cache/simpl-knowledge/scripts/shared-hooks/repo-context-check.js --print
+node ~/.claude/plugins/cache/simpl_knowledge/scripts/shared-hooks/repo-context-check.js --print
 ```
 
 3. To analyze a repo that is not yet opted in (no `.agent/` / `CLAUDE.md` / etc.), only after the user confirms:
 
 ```bash
-node ~/.claude/plugins/cache/simpl-knowledge/scripts/shared-hooks/repo-context-check.js --print --skip-gate
+node ~/.claude/plugins/cache/simpl_knowledge/scripts/shared-hooks/repo-context-check.js --print --skip-gate
 ```
 
 ## 2. Explain impact (no emojis)
@@ -38,11 +38,11 @@ Ask once: proceed with template apply? If no, stop.
 ## 4. Dry-run then apply
 
 ```bash
-node ~/.claude/plugins/cache/simpl-knowledge/scripts/shared-hooks/apply-repo-template.js
-node ~/.claude/plugins/cache/simpl-knowledge/scripts/shared-hooks/apply-repo-template.js --write
+node ~/.claude/plugins/cache/simpl_knowledge/scripts/shared-hooks/apply-repo-template.js
+node ~/.claude/plugins/cache/simpl_knowledge/scripts/shared-hooks/apply-repo-template.js --write
 ```
 
-After `--write`: show `git status` and `git diff --stat`, suggest commit message `chore(agent): bootstrap simpl-knowledge repo context`.
+After `--write`: show `git status` and `git diff --stat`, suggest commit message `chore(agent): bootstrap simpl_knowledge repo context`.
 
 ## 5. Fill remaining placeholders
 

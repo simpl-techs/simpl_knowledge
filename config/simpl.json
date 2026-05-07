@@ -1,34 +1,29 @@
 {
-  "$comment": "Single source of truth for org/repo naming. Keep scripts and docs in sync; curl-installed bootstrap reads the same values embedded at top of team-bootstrap.sh.",
-  "org": "simpl-techs",
-  "knowledge_repo": "simpl-knowledge",
-  "github_full_name": "simpl-techs/simpl-knowledge",
-  "marketplace_alias": "simpl",
-  "plugins": {
-    "standards": "simpl-standards",
-    "memory": "simpl-memory",
-    "libraries": "simpl-libraries"
+  "org_name": "simpl",
+  "github_org": "simpl-techs",
+  "knowledge_repo": "simpl_knowledge",
+  "github_full_name": "simpl-techs/simpl_knowledge",
+  "default_branch": "main",
+  "marketplace_manifest": ".claude-plugin/marketplace.json",
+
+  "rules_repo": {
+    "github_full_name": "simpl-techs/simpl_rules",
+    "default_branch": "main",
+    "relative_path_to_repo": "."
   },
-  "paths": {
-    "claude_plugin_cache_dir": "simpl-knowledge",
-    "memory_store_dir": ".claude/simpl-memory",
-    "shared_hooks_env": "SIMPL_SHARED_HOOKS"
+
+  "claude_plugin_cache_dir": "${HOME}/.claude/plugins/cache/simpl_knowledge",
+  "cursor_rules_script": "./scripts/generate-cursor-rules.sh",
+  "cursor_rules_output": "./.cursor/rules/simpl-standards.mdc",
+
+  "git_identity": {
+    "name": "simpl_knowledge-bot",
+    "email": "bot@simpl.farm"
   },
-  "secrets": {
-    "knowledge_pat": "SIMPL_KNOWLEDGE_PAT"
-  },
-  "instincts": {
-    "raw_dir": "team-instincts/raw",
-    "aggregate_file": "team-instincts/instincts.jsonl",
-    "state_file": "team-instincts/state.json"
-  },
-  "models": {
-    "auto_update_skill": "deepseek/deepseek-chat",
-    "extract_instincts": "session-default",
-    "$comment_models": "Remote agents (GitHub Actions) use DeepSeek via aider; local extract-instincts uses the developer session model from the Stop hook payload. Override extraction with SIMPL_MEMORY_EXTRACT_MODEL."
-  },
-  "bot": {
-    "git_name": "simpl-knowledge-bot",
-    "git_email": "bot@simpl.example"
+
+  "plugin_publish": {
+    "enabled": true,
+    "commit_prefix": "release:",
+    "dry_run_by_default": true
   }
 }

@@ -5,7 +5,7 @@ description: simpl-wide coding conventions and style rules that apply to all our
 
 # simpl coding standards
 
-> **Auto-distributed via simpl-knowledge. Propose edits with a PR on `simpl-techs/simpl-knowledge`.**
+> **Auto-distributed via simpl_knowledge. Propose edits with a PR on `simpl-techs/simpl_knowledge`.**
 
 ## Languages and stacks
 
