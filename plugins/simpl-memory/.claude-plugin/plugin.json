@@ -1,6 +1,6 @@
 {
   "name": "simpl-memory",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Team instinct layer: SessionStart injects local + merged team patterns. Owner-only slash commands capture and publish — no plugin API keys.",
   "author": {
     "name": "simpl Platform"

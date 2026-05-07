@@ -9,29 +9,29 @@
     {
       "name": "simpl-standards",
       "source": "./plugins/simpl-standards",
-      "description": "Cross-cutting standards for all simpl projects: coding conventions, git workflow, testing policy.",
-      "version": "1.0.1",
+      "description": "Cross-cutting standards for all simpl projects: coding conventions, git workflow, testing policy, Python environment toolchain, repo docs and env-var consistency.",
+      "version": "0.2.0",
       "keywords": ["standards", "conventions", "simpl"]
     },
     {
       "name": "simpl-memory",
       "source": "./plugins/simpl-memory",
       "description": "Continuous-learning layer: recurring session patterns surfaced for promotion to shared skills.",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "keywords": ["memory", "learning", "instincts", "patterns", "simpl"]
     },
     {
       "name": "simpl-libraries",
       "source": "./plugins/simpl-libraries",
       "description": "Auto-generated catalog of internal simpl libraries; consult before building new cross-cutting functionality.",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "keywords": ["catalog", "internal-libraries", "awareness", "simpl"]
     },
     {
       "name": "simpl_tracker-context",
       "source": "./plugins/simpl_tracker-context",
       "description": "Integration context for simpl-tracker (`simpl_tracker`). Auto-synced from simpl-techs/simpl_tracker.",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "keywords": ["simpl_tracker-context", "simpl-tracker", "simpl_tracker", "events", "tracking", "analytics", "integration", "simpl"]
     }
   ]

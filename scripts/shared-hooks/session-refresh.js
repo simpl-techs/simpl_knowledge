@@ -8,6 +8,7 @@
  * - Claude Code: session-start-refresh.sh (stdin often empty)
  *
  * Throttle: 6h via .last-refresh in cache or ~/.simpl_knowledge/.last-session-refresh.
+ * Bypassed when CWD is the simpl_knowledge repo itself, or SIMPL_KNOWLEDGE_FORCE_REFRESH=1.
  * Fail-open: never blocks the IDE; errors log with stack to stderr.
  */
 
@@ -47,6 +48,30 @@ function shouldThrottle(stampPath) {
   const now = Math.floor(Date.now() / 1000);
   const last = Math.floor(st.mtimeMs / 1000);
   return now - last < THROTTLE_SEC;
+}
+
+/** True when CWD (or any ancestor) is the simpl_knowledge repo itself.
+ * Skill-authors editing here want every sessionStart to refresh, ignoring throttle. */
+function isInSimplKnowledgeRepo(cwd) {
+  let dir = cwd;
+  for (let i = 0; i < 8 && dir && dir !== path.dirname(dir); i++) {
+    const mp = path.join(dir, '.claude-plugin', 'marketplace.json');
+    if (fs.existsSync(mp)) {
+      try {
+        const j = JSON.parse(fs.readFileSync(mp, 'utf8'));
+        if (j && j.name === 'simpl') return true;
+      } catch {
+        /* ignore */
+      }
+    }
+    dir = path.dirname(dir);
+  }
+  return false;
+}
+
+function throttleBypassed(cwd) {
+  if (process.env.SIMPL_KNOWLEDGE_FORCE_REFRESH === '1') return true;
+  return isInSimplKnowledgeRepo(cwd);
 }
 
 function touchStamp(stampPath) {
@@ -290,12 +315,13 @@ async function main() {
 
     if (!cacheDir && !needMdc) return process.exit(0);
 
+    const cwd = process.cwd();
     const stampPath = throttleFilePath(cacheDir);
-    if (shouldThrottle(stampPath)) return process.exit(0);
+    if (shouldThrottle(stampPath) && !throttleBypassed(cwd)) return process.exit(0);
 
     const job = {
       cacheDir: cacheDir || null,
-      cwd: process.cwd(),
+      cwd,
       needMdc,
       skipRepoCheck: false,
     };

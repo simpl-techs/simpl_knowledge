@@ -79,6 +79,16 @@ Examples:
 - Squash merge only. No rebase-merge, no merge-commit.
 - PRs under ~400 lines get reviewed same-day. Split bigger PRs.
 
+## Agents — commit/push authority
+
+By default the agent edits files and **stops there**. Do not run `git commit` or `git push` autonomously, even for one-line fixes — the user reviews and commits themselves.
+
+Exception: when the user says explicitly "committa", "pusha", "fai il commit", "commit this", "push it" in the current turn. A previous approval does not extend to later edits.
+
+**Why:** working trees often hold concurrent in-progress work (untracked files, half-finished skills, edits the user is mid-review). Agent-driven commits risk bundling unrelated changes into one commit, which is hard to untangle and breaks the version-bump discipline below.
+
+What to do instead: after editing, summarize what changed and which files, then stop. Let the user drive `git add` / `git commit` / `git push`.
+
 ## Plugin / skill changes — version bump is MANDATORY
 
 If the commit touches anything under `plugins/<plugin-name>/` (skills, commands, hooks, agents, manifests), you MUST bump the version in BOTH:
@@ -86,14 +96,37 @@ If the commit touches anything under `plugins/<plugin-name>/` (skills, commands,
 1. `plugins/<plugin-name>/.claude-plugin/plugin.json` — `version` field.
 2. `.claude-plugin/marketplace.json` — the entry for that plugin's `version` field.
 
-Use semver: patch bump for content edits (`1.0.0` → `1.0.1`), minor for new skills/commands (`1.0.1` → `1.1.0`), major for breaking changes.
+### Versioning policy (semver, strict)
+
+We follow [SemVer](https://semver.org/) `MAJOR.MINOR.PATCH`. **Pick the bump level by the size and impact of the change**, not by gut feel:
+
+| Bump        | When to use                                                                                       | Examples                                                                                |
+| ----------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| **PATCH** (`0.1.0` → `0.1.1`) | Small fixes: typo, wording tweak, clarifying example, broken link, formatting, minor rule refinement. | Fix a sentence in a SKILL.md; correct a code-block language tag.                        |
+| **MINOR** (`0.1.1` → `0.2.0`) | Larger changes that add or substantially restructure content: new skill, new command, new hook, new section, new rule, removed obsolete rule. | Add a `python-environment` skill; add an entire new section to `coding-standards`.      |
+| **MAJOR** (`0.x.y` → `1.0.0`, or later `1.x.y` → `2.0.0`) | Breaking changes: rename or remove a skill/command, rename a public hook, change skill behavior in a way that breaks dependent repos, drop a supported flow. | Rename `git-workflow` to `git-conventions`; remove a long-standing skill consumers cite. |
+
+If you're unsure between two levels, **bump to the higher one**. Under-bumping is the failure mode (cache stays warm, stale content); over-bumping is harmless.
+
+### Pre-stable: stay in `0.x.y`
+
+**All plugins start at `0.1.0` and remain in the `0.x.y` range until they're declared stable.** We are not stable yet — none of the plugins ships to a frozen public API, and we still revise structure week-to-week.
+
+While in `0.x.y`:
+- The MINOR digit (`0.1.0` → `0.2.0`) is what we use for "real" releases with new content.
+- The PATCH digit covers small fixes (`0.1.0` → `0.1.1`).
+- "Breaking changes" within `0.x.y` still bump MINOR — we do **not** go to `1.0.0` for them. Promotion to `1.0.0` is a deliberate, separate decision (dedicated PR, team sign-off) that declares the plugin stable.
+
+Only after a plugin reaches `1.0.0` do MAJOR bumps become meaningful (and required for any breaking change).
 
 **Why this is non-negotiable**: Claude Code caches installed plugins under `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`. If the version doesn't change, `/plugin update` sees "same version" and serves the stale cache — your edit never reaches users. This has bitten us multiple times. No exceptions, even for typo fixes.
 
 Pre-commit checklist when editing a plugin:
-- [ ] Bumped `plugins/<name>/.claude-plugin/plugin.json` version
-- [ ] Bumped matching entry in `.claude-plugin/marketplace.json`
-- [ ] Versions match between the two files
+- [ ] Picked the right bump level (PATCH / MINOR / MAJOR) per the table above.
+- [ ] Stayed inside `0.x.y` unless explicitly promoting to stable.
+- [ ] Bumped `plugins/<name>/.claude-plugin/plugin.json` version.
+- [ ] Bumped matching entry in `.claude-plugin/marketplace.json`.
+- [ ] Versions match between the two files.
 
 ## Don't
 

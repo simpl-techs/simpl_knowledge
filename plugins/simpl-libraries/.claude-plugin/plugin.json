@@ -1,6 +1,6 @@
 {
   "name": "simpl-libraries",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Catalog of internal simpl libraries (auto-generated catalog.md). Consult before implementing new integrations or cross-cutting utilities.",
   "author": {
     "name": "simpl Platform"
