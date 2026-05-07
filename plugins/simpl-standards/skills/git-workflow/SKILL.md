@@ -79,9 +79,26 @@ Examples:
 - Squash merge only. No rebase-merge, no merge-commit.
 - PRs under ~400 lines get reviewed same-day. Split bigger PRs.
 
+## Plugin / skill changes — version bump is MANDATORY
+
+If the commit touches anything under `plugins/<plugin-name>/` (skills, commands, hooks, agents, manifests), you MUST bump the version in BOTH:
+
+1. `plugins/<plugin-name>/.claude-plugin/plugin.json` — `version` field.
+2. `.claude-plugin/marketplace.json` — the entry for that plugin's `version` field.
+
+Use semver: patch bump for content edits (`1.0.0` → `1.0.1`), minor for new skills/commands (`1.0.1` → `1.1.0`), major for breaking changes.
+
+**Why this is non-negotiable**: Claude Code caches installed plugins under `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`. If the version doesn't change, `/plugin update` sees "same version" and serves the stale cache — your edit never reaches users. This has bitten us multiple times. No exceptions, even for typo fixes.
+
+Pre-commit checklist when editing a plugin:
+- [ ] Bumped `plugins/<name>/.claude-plugin/plugin.json` version
+- [ ] Bumped matching entry in `.claude-plugin/marketplace.json`
+- [ ] Versions match between the two files
+
 ## Don't
 
 - Don't force-push to shared branches (`main`, `dev`, `staging`, release branches).
 - Don't commit directly to `main`, `dev`, or `staging`; always via PR.
 - Don't branch work directly off `main` (except `hotfix/`).
 - Don't amend a commit that's already been pushed to a shared branch without flagging to reviewers.
+- Don't edit a plugin without bumping its version (see section above).

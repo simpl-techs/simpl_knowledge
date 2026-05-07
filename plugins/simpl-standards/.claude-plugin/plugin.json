@@ -1,6 +1,6 @@
 {
   "name": "simpl-standards",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Cross-cutting standards for all simpl projects: coding conventions, git workflow, testing policy.",
   "author": {
     "name": "simpl Platform"

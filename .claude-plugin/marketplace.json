@@ -10,7 +10,7 @@
       "name": "simpl-standards",
       "source": "./plugins/simpl-standards",
       "description": "Cross-cutting standards for all simpl projects: coding conventions, git workflow, testing policy.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "keywords": ["standards", "conventions", "simpl"]
     },
     {
