@@ -7,11 +7,34 @@ description: Our team's conventions for branches, commits, and pull requests. Us
 
 ## Branches
 
-- Branch off `main`, never off a feature branch (merge conflicts multiply otherwise).
-- Branch naming: `<type>/<short-slug>` where type is one of `feat`, `fix`, `chore`, `docs`, `refactor`, `test`.
-  - ✅ `feat/event-batching`
-  - ✅ `fix/null-user-id-crash`
-  - ❌ `alice-work`, `branch2`
+Long-lived branches:
+- `main` — production. Protected.
+- `dev` — integration branch for in-flight work. Cut from `main`.
+- `staging` — pre-prod testing branch (used in repos with a more involved release flow). Cut from `dev`.
+
+Short-lived work branches are always cut from `dev`, never from `main` or from another work branch.
+
+Branch naming: `<type>/<short-slug>`. Valid prefixes:
+- `feature/` — new functionality
+- `bug/` — non-urgent bug fix
+- `hotfix/` — urgent production fix (may branch from `main` and merge back into both `main` and `dev`)
+- `chore/`, `docs/`, `refactor/`, `test/` — supporting work
+
+Examples:
+- ✅ `feature/event-batching`
+- ✅ `bug/null-user-id-crash`
+- ✅ `hotfix/payment-webhook-500`
+- ❌ `alice-work`, `branch2`, `feat/foo` (use full `feature/` prefix)
+
+## Flow
+
+1. `git checkout dev && git pull`
+2. `git checkout -b feature/<slug>` — do the work, commit.
+3. Open PR `feature/<slug>` → `dev`. Merge when reviewed.
+4. Promote `dev` onward depending on the repo:
+   - Simple repos: PR `dev` → `main` directly.
+   - Complex repos: PR `dev` → `staging`, validate there, then PR `staging` → `main`.
+5. `hotfix/<slug>` may branch from `main` directly; after merge into `main`, also merge back into `dev` (and `staging` if it exists) to keep history aligned.
 
 ## Commits
 
@@ -58,6 +81,7 @@ Examples:
 
 ## Don't
 
-- Don't force-push to shared branches (`main`, release branches).
-- Don't commit directly to `main`; always via PR.
+- Don't force-push to shared branches (`main`, `dev`, `staging`, release branches).
+- Don't commit directly to `main`, `dev`, or `staging`; always via PR.
+- Don't branch work directly off `main` (except `hotfix/`).
 - Don't amend a commit that's already been pushed to a shared branch without flagging to reviewers.
