@@ -82,7 +82,7 @@ L'agent deve citare lo skill `git-workflow`. Se non lo cita → [TROUBLESHOOTING
 | Strumento | Cosa si aggiorna “in automatico” | Cosa fai tu, quando, perché |
 |-----------|-----------------------------------|-----------------------------|
 | **Cursor** | Con l’hook globale `session-refresh` (installato dal bootstrap), ad avvio sessione viene aggiornata circa **ogni ~6h** la **cache git** del bundle in `~/.claude/plugins/cache/simpl_knowledge` e copiate le regole org **`simpl-*.mdc`** in `~/.cursor/rules/`. Così resti allineato alle release / `main` senza rifare tutto ogni giorno. | Se serve **subito** (appena mergiato qualcosa sul hub): riesegui `team-bootstrap.sh` dal clone o elimina `.last-refresh` nella cache e riapri Cursor; vedi anche [TROUBLESHOOTING.md](TROUBLESHOOTING.md). |
-| **Claude Code** | *Non* c’è lo stesso refresh automatico dei **plugin marketplace**: le skill vivono nei pacchetti che installi con `/plugin`. | Dopo che il team ha mergiato sull’hub (o vuoi solo allinearti): esegui **`/plugin marketplace update`** (e se serve una **nuova sessione** perché le skill si ricarichino). **Perché** così Claude scarica le versioni aggiornate dei plugin da `simpl-techs/simpl_knowledge`. |
+| **Claude Code** | [Inference] Claude Code **può** aggiornare la cache del marketplace da solo (comportamento non controllato da noi, dipende dalla versione del client). | Per **essere sicuro** di vedere subito le ultime versioni dei plugin (`simpl-standards`, `simpl-memory`, `simpl-libraries`, `*-context`): esegui **`/plugin marketplace update`** e, se serve, riapri la sessione perché le skill si ricarichino. **Perché**: dopo un merge sull’hub solo il comando garantisce che Claude scarichi davvero le versioni aggiornate. |
 
 Comando di riferimento in sessione Claude Code:
 
@@ -90,7 +90,7 @@ Comando di riferimento in sessione Claude Code:
 /plugin marketplace update
 ```
 
-**In sintesi:** Cursor → cache + `.mdc` con throttle ~6h; Claude Code → aggiornamento plugin **a mano** con `/plugin marketplace update` quando il marketplace è cambiato.
+**In sintesi:** Cursor → cache + `.mdc` con throttle ~6h; Claude Code → l’auto-update *può* esserci ma non è garantito, quindi per certezza esegui **`/plugin marketplace update`** quando l’hub è stato aggiornato.
 
 ---
 
