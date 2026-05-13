@@ -1,7 +1,9 @@
 ---
-name: coding-standards
-description: simpl-wide coding conventions, style rules, and the engineering-principles HUB. ALWAYS consult this skill when writing, refactoring, or reviewing any code in our codebase, even if the user doesn't explicitly mention standards. Covers naming, formatting, project structure, imports, error handling, type hints, comments, documentation style, and "how do we write X at simpl". Also acts as the routing hub pointing to deeper standards skills (architecture-discipline, state-and-persistence, data-flow-discipline, testing-policy).
+description: "simpl-wide coding conventions, style rules, and the engineering-principles HUB. ALWAYS consult this skill when writing, refactoring, or reviewing any code in our codebase, even if the user doesn't exp"
+globs: "**/*"
+alwaysApply: true
 ---
+
 
 # simpl coding standards
 

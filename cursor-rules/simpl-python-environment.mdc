@@ -1,0 +1,153 @@
+---
+description: "Standard for Python environments at simpl — environments are CREATED with Conda (from `environment.yml`) and dependencies are MANAGED with Poetry. ALWAYS consult this skill before creating a new Pytho"
+globs: "**/*.py,**/*.ts,**/*.tsx,**/*.js"
+alwaysApply: false
+---
+
+
+# Python Environment Standard
+
+> **Auto-distributed via simpl_knowledge. Propose edits with a PR on `simpl-techs/simpl_knowledge`.**
+
+This standard applies to every Python repo at simpl (services, libraries, scripts).
+
+## The rule
+
+- **Create** the Python environment with **Conda** (from a checked-in `environment.yml`).
+- **Manage** dependencies inside that environment with **Poetry** (`pyproject.toml` + `poetry.lock`).
+- **Run** anything (tests, lint, scripts, the app) via the **local Poetry virtualenv** that `poetry install` creates inside the activated Conda env. Never use a globally installed Python or a one-off `pip install`.
+
+Conda owns the interpreter and system-level toolchain (e.g. Poetry itself, sometimes native deps). Poetry owns the Python package graph. Don't mix the two.
+
+## Required files in every Python repo
+
+- `environment.yml` — Conda env spec. Pins Python version and installs Poetry. The Conda env name should match the repo name (e.g. `simpl_api`).
+- `pyproject.toml` — Poetry project + dependencies.
+- `poetry.lock` — committed. The lockfile is the source of truth for reproducible installs.
+- `README.md` — must include the setup section shown below so a new contributor (human or agent) can bootstrap correctly.
+
+## Canonical README setup section
+
+Every Python repo's `README.md` must include a section equivalent to this (adjust the env name and project name):
+
+````markdown
+## Installation
+
+### Prerequisites
+
+- [Conda](https://docs.conda.io/en/latest/miniconda.html) or [Anaconda](https://www.anaconda.com/)
+- [Poetry](https://python-poetry.org/) (will be installed via Conda)
+
+### Setup
+
+1. **Create Conda environment:**
+   ```bash
+   conda env create -f environment.yml
+   conda activate <repo_name>
+   ```
+
+2. **Install Poetry dependencies:**
+   ```bash
+   poetry install
+   ```
+
+3. **Set up environment variables:**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your values
+   ```
+
+## Development Workflow
+
+### Activate Environment
+
+Always activate the Conda environment before working:
+```bash
+conda activate <repo_name>
+```
+
+### Running Tests
+
+```bash
+poetry run pytest
+```
+
+With coverage report:
+```bash
+poetry run pytest --cov=src --cov-report=html
+```
+
+## Linting and Formatting
+
+Check code quality:
+```bash
+poetry run ruff check .
+```
+
+Auto-fix issues:
+```bash
+poetry run ruff check --fix .
+```
+
+Format code:
+```bash
+poetry run ruff format .
+```
+````
+
+If a repo deviates from this layout, flag it to the human before adding more drift.
+
+## Rules for agents
+
+These are **non-negotiable** when an agent works in a Python repo at simpl.
+
+### 1. Always use the local Poetry virtualenv
+
+When running tests, linters, type-checkers, the app, or any Python tool:
+
+- ✅ `poetry run pytest`
+- ✅ `poetry run ruff check .`
+- ✅ `poetry run python -m <module>`
+- ❌ `pytest` (uses whatever Python is on PATH — wrong env, missing deps)
+- ❌ `python -m pytest` (same problem)
+- ❌ `pip install <anything>` (bypasses Poetry; corrupts the lockfile relationship)
+
+If `poetry run ...` fails because the env isn't installed yet, run `poetry install` first (inside the activated Conda env). Never fall back to a global Python.
+
+### 2. Never edit `pyproject.toml` or `poetry.lock` by hand to change dependencies
+
+To add, remove, or update packages, **always** go through Poetry's CLI so the lockfile stays consistent:
+
+| Goal                          | Command                                |
+| ----------------------------- | -------------------------------------- |
+| Add a runtime dependency      | `poetry add <pkg>`                     |
+| Add a dev-only dependency     | `poetry add --group dev <pkg>`         |
+| Add with version constraint   | `poetry add "<pkg>>=1.2,<2"`           |
+| Remove a dependency           | `poetry remove <pkg>`                  |
+| Update a single dependency    | `poetry update <pkg>`                  |
+| Update everything in lockfile | `poetry update`                        |
+| Install from lockfile         | `poetry install`                       |
+| Re-lock after manual edits    | `poetry lock --no-update`              |
+
+The only times it's acceptable to hand-edit `pyproject.toml` are for non-dependency metadata (project name, scripts, tool config like `[tool.ruff]`, `[tool.pytest.ini_options]`). Even then, never touch `[tool.poetry.dependencies]` or `[tool.poetry.group.*.dependencies]` manually.
+
+`poetry.lock` is **never** hand-edited — let Poetry regenerate it.
+
+### 3. Confirm before adding a new runtime dependency
+
+Adding a new runtime dependency requires human approval first (see `coding-standards` → "Never add a new runtime dependency without asking"). Dev-only tools (linters, test helpers) generally don't need approval, but match what the repo already uses before pulling in a new one.
+
+### 4. Don't change the Python version casually
+
+The Python version is pinned in `environment.yml` and reflected in `pyproject.toml`'s `[tool.poetry.dependencies] python = "..."`. Bumping it is a coordinated change — propose it to the human, don't just edit the file.
+
+## Quick troubleshooting
+
+- **`poetry: command not found`** → Conda env isn't activated. `conda activate <repo_name>`.
+- **`ModuleNotFoundError` for a dep that's in `pyproject.toml`** → run `poetry install` (lockfile and env out of sync).
+- **`poetry install` reports lock is out of date** → someone hand-edited `pyproject.toml`. Run `poetry lock --no-update` to regenerate, then `poetry install`. Flag the manual edit to the human.
+- **Tests pass locally but fail in CI** → first check whether CI activates the Conda env and runs via `poetry run`. Most simpl-side breakage is "wrong interpreter".
+
+## When in doubt
+
+Ask the human before deviating. A misconfigured environment is the single most common source of "works on my machine" bugs we hit.

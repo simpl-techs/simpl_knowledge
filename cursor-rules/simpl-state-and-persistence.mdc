@@ -1,0 +1,76 @@
+---
+description: "simpl-wide rules for state machines, idempotency, database sessions/transactions/locking, async/IO discipline, bounded execution, and observability. ALWAYS consult when touching status/state fields, w"
+globs: "**/*"
+alwaysApply: true
+---
+
+
+# State and persistence discipline
+
+> **Auto-distributed via simpl_knowledge. Propose edits with a PR on `simpl-techs/simpl_knowledge`.**
+
+This skill is **always-on**. It governs the runtime behavior of any code that owns state or talks to slow IO at simpl: state machines, DB sessions/transactions/locking, async/IO patterns, bounded execution, and the observability we attach to commands.
+
+For *where* code lives (services vs repositories, packaging, dependency direction): open `architecture-discipline`. For *how data threads through layers* and DTO invariants: open `data-flow-discipline`.
+
+## State, status, idempotency
+
+- **Status fields are typed enums, not free-form strings.** Allowed values live in code; any new state requires a code change.
+- **Document the state machine.** Allowed transitions are explicit; the repository (or a guard at the write seam) rejects illegal transitions.
+- **Transition statuses need a grace period.** Any "in-progress" / "claimed" / "locked" state must be paired with a timestamp and a reclaim window so a crashed worker cannot pin the row forever.
+- **Terminal states are terminal.** A completed/failed/canceled row does not get resurrected by a retry path; create a new attempt instead.
+- **Reclamation is timestamp-based, not heartbeat-based in-process.** A second worker can take over a stale claim purely from row data, without coordinating with the first worker's memory.
+- **Idempotency keys outlive the request.** Persist them so a retry from a different process still deduplicates.
+
+## Database access, transactions, locking
+
+- **Sessions via an explicit unit-of-work boundary.** No long-lived session refs leaking across requests, jobs, or background tasks.
+- **Transactions are short and atomic.** Open, do the SQL, commit. **No LLM calls, no HTTP fetches, no long compute inside a transaction.**
+- **Acquire one connection per logical step, not per "process this entity".** Releasing between steps prevents pool starvation under concurrency.
+- **Use `SELECT ... FOR UPDATE SKIP LOCKED` for queue-style claims.** Multiple workers must not race on the same row; `SKIP LOCKED` guarantees forward progress.
+- **Pair every claim with `claimed_at` and a reclaim window.** Stale claims older than the window are eligible to be re-claimed by another worker.
+- **Per-statement timeouts on hot queries.** Slow queries must fail fast, not pin a connection for minutes.
+- **Prefer ORM/Core constructs over raw text queries.** Raw SQL only when needed (CTEs, RPCs, features the ORM cannot express).
+- **No raw driver calls in business code when a repository exists.**
+- **Schema-side concerns stay in migrations.** Triggers, RLS, partial indexes, view and function definitions live in versioned migration files, not constructed at runtime.
+- **Repositories return ORM objects or typed records; services translate to DTOs.** Don't pass raw row proxies up the stack.
+
+## Async and IO
+
+- **Never hold a DB session across an LLM, HTTP, or other slow await.** Worst case it pins a connection inside an open transaction and starves the pool; best case it wastes wallclock the event loop could spend on other work.
+- **Pattern: fetch → compute → mutate.** Acquire the session, do the SQL, release; then call the slow IO; then re-acquire if you need to write. Do not "fetch → wait → mutate inside the same session".
+- **Transactions never wrap external IO.** No LLM call, HTTP request, queue publish, or arbitrary user code inside an open transaction.
+- **No blocking/sync calls on the event loop.** No `requests`, no sync DB drivers, no CPU-heavy synchronous work in an async path; offload to a thread pool with explicit bounds.
+- **Independent IO runs concurrently.** When two awaits don't depend on each other, use structured concurrency (`asyncio.gather` or equivalent) — serial awaits on independent IO is wasted wallclock.
+- **Concurrent fan-out is bounded.** Use a semaphore or worker pool; don't `gather` an unknown-sized list of LLM/HTTP calls.
+- **Cancellation is honored.** Long-running coroutines check for cancellation at await boundaries; they do not swallow `CancelledError` to "finish cleanly" through a shutdown.
+- **Backpressure over buffering.** When a downstream is slow, slow the producer; do not accumulate an unbounded in-memory queue.
+- **One request, one logical session lifecycle.** Don't reuse a single async session across unrelated operations or background tasks; scope it to a unit of work.
+
+## Bounded execution
+
+- **No unbounded `while True`.** Every loop has a max-iteration cap, a max-wallclock cap, or both; emit a structured log on cap-reached.
+- **Retries are bounded and budgeted.** Per-operation retry counts, per-window retry caps, and a final "give up + surface" path. No silent forever-retry. (Surfacing rules: see `data-flow-discipline` → *Failure surfacing*.)
+- **Timeouts on every external call.** No HTTP, LLM, or RPC call goes out without an explicit timeout.
+- **Concurrency has an explicit limit.** Worker pools, fan-out, and parallel maps declare the bound; no "as many as the system allows".
+- **Stale-detection has a tolerance.** Time-based staleness checks (e.g. "is this trigger past its planned window?") use an explicit tolerance constant, not an implicit boundary.
+- **Cap intermediate growth.** Logs, JSONB blobs, and in-memory aggregates that can grow with retries get bounded — keep the most recent N, the top-K by count, etc.
+
+## Observability
+
+- **Every command emits a structured log with a correlation id.** Free-text logs without identifiers are write-only noise.
+- **Persist progress, don't hold it in memory.** State a downstream operator might want to inspect lives in the DB or an event bus, not in a process variable.
+- **Bounded retries log on cap-reached.** When a budget is exhausted, surface it explicitly with the entity id and the reason.
+
+## Does NOT do
+
+- This skill does not cover where code lives or how it composes — that's `architecture-discipline`.
+- This skill does not cover DTO field invariants or output validation — that's `data-flow-discipline`.
+- This skill does not cover testing of state machines and idempotency — that's `testing-policy` (which includes command/query testing rules).
+
+## Pointers
+
+- `coding-standards` — the hub: universal principles + routing table.
+- `architecture-discipline` — code organization, command/query separation at the design level.
+- `data-flow-discipline` — failure surfacing vs silent no-op; output invariants.
+- `testing-policy` — testing command idempotency and concurrent-claim safety against a real Postgres.

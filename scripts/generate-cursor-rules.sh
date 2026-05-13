@@ -21,6 +21,9 @@ ALWAYS_APPLY = {
     "simpl_knowledge_system",
     "internal-libraries-awareness",
     "agent-disclosure",
+    "architecture-discipline",
+    "state-and-persistence",
+    "data-flow-discipline",
 }
 
 for skill in pathlib.Path("plugins").rglob("SKILL.md"):

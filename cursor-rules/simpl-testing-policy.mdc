@@ -1,7 +1,9 @@
 ---
-name: testing-policy
-description: Our testing philosophy, coverage targets, and conventions for writing tests. Use whenever adding, modifying, or reviewing tests; when generating tests from a spec; or when the user asks "how do we test X here". ALWAYS consult before writing tests, even simple unit tests, so test names, structure, and assertions match our patterns.
+description: "Our testing philosophy, coverage targets, and conventions for writing tests. Use whenever adding, modifying, or reviewing tests; when generating tests from a spec; or when the user asks "how do we tes"
+globs: "**/*"
+alwaysApply: true
 ---
+
 
 # Testing Policy
 
