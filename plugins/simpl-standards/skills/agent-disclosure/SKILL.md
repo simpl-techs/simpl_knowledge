@@ -1,0 +1,30 @@
+---
+name: agent-disclosure
+description: ALWAYS consult at the start of every coding session — defines how agents must signal which simpl rules they are following. Required protocol for transparency on Cursor and Claude Code.
+---
+
+# Agent disclosure protocol
+
+## Why
+
+Operators must be able to confirm at a glance which simpl rules an agent is honoring in any session.
+
+## Protocol (every session)
+
+1. **First-turn header** — on the FIRST assistant message of a new session whose user task touches code/tests/git/docs/infra, emit a single compact line on its own:
+   `[simpl-rules-active: coding-standards, git-workflow, testing-policy, internal-libraries-awareness, agent-disclosure]`
+   List only rules actually loaded in this session. Then continue normally. NEVER repeat in later turns of the same session.
+
+2. **Inline citation on rule-driven decisions** — when a choice is dictated by a simpl rule (e.g. naming, commit format, dependency policy), append `[per simpl-<rule>]` to the relevant sentence. Keep it terse, at most one tag per sentence.
+
+3. **Proactive deep-read** — when a decision is close to a rule boundary (new runtime dependency, commit message style, test layout, internal-library choice), open the matching skill (`coding-standards`, `git-workflow`, `testing-policy`, `internal-libraries-awareness`, …) with the Read tool before deciding. Cite the section after acting.
+
+## Tone
+
+The header and inline tags are diagnostic, not narration. No emojis. No extra lines around the header.
+
+## Never
+
+- Do not invent rule names. Only cite rules that exist as `simpl-*` in `~/.cursor/rules/` or as installed skills.
+- Do not echo the header in every turn — once per session.
+- Do not gate refusals behind this protocol; substantive work always proceeds.

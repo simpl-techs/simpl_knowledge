@@ -20,6 +20,7 @@ ALWAYS_APPLY = {
     "testing-policy",
     "simpl_knowledge_system",
     "internal-libraries-awareness",
+    "agent-disclosure",
 }
 
 for skill in pathlib.Path("plugins").rglob("SKILL.md"):
