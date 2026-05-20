@@ -33,6 +33,13 @@
       "description": "Integration context for simpl-tracker (`simpl_tracker`). Auto-synced from simpl-techs/simpl_tracker.",
       "version": "0.1.0",
       "keywords": ["simpl_tracker-context", "simpl-tracker", "simpl_tracker", "events", "tracking", "analytics", "integration", "simpl"]
+    },
+    {
+      "name": "simpl_sales-context",
+      "source": "./plugins/simpl_sales-context",
+      "description": "Integration context for SimpL Sales (`simpl_sales`): sales schema, Supabase patterns, safe DB migrations. Auto-synced from simpl-techs/simpl_sales.",
+      "version": "1.0.0",
+      "keywords": ["simpl_sales-context", "simpl-sales", "simpl_sales", "sales", "supabase", "nextjs", "integration", "simpl"]
     }
   ]
 }

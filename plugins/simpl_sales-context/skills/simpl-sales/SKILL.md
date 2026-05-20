@@ -1,0 +1,133 @@
+---
+name: simpl-sales
+description: |
+  Use this skill whenever working on the SimpL Sales Next.js app (`simpl_sales`):
+  Supabase `sales` schema queries, lead/company/ICP workflows, views in `sales_view`,
+  or database migrations. ALWAYS consult before writing sales-schema SQL, RPC calls,
+  or DROP/CREATE VIEW statements — even when the user does not mention the schema.
+  Triggers on "sales schema", "user_lead_connection", "ULC", "fe_lead_management",
+  "company_cards_live", "pending_actions", "ICP", "workflow_status", "no cascade".
+summary: Next.js 14 sales frontend; tenant-scoped Supabase `sales` schema; never CASCADE-drop views that power API routes.
+when_to_use: Tasks touching SimpL Sales UI, API routes under `app/api/`, Supabase `sales` or `sales_view` objects, or CRM/outreach data models.
+required_when: Any migration or SQL that DROPs or replaces objects in `sales` / `sales_view` must follow the no-cascade checklist in this skill before merging.
+cursor_globs: "**/app/api/**,**/lib/**,**/utils/supabase/**,**/*.sql"
+---
+
+# SimpL Sales integration guide
+
+> **Maintained by**: `simpl-techs/simpl_sales` (this repo). Synced to simpl_knowledge as `simpl_sales-context`.
+> **Validated**: 2026-05-20 against repo at flat root (post-migration from `client/`).
+
+## Repository layout
+
+- Next.js 14 App Router app at repo root (`app/`, `components/`, `lib/`).
+- Run commands from repo root: `npm install`, `npm run dev`, `npm run lint`, `npm run build`.
+- Env template: `.env.example` (never commit `.env.local`).
+
+## Supabase client usage
+
+Always scope queries to the `sales` schema:
+
+```ts
+const { data, error } = await supabase
+  .schema('sales')
+  .from('user_lead_connection')
+  .select('id, status_id, lead:lead_id(full_name, job_title)')
+  .eq('user_id', userId);
+```
+
+Heavily used entities: `company`, `lead`, `user`, `user_lead_connection` (ULC), `workflow`, `workflow_status`, `icp`, `signal`, `job_offer`.
+
+Large tables: `lead` (~19M), `lead_experience` (~23.7M), `company` (~5.7M). Avoid full scans; filter on indexed keys (`id`, FKs, `linkedin_url`).
+
+## Core entities (sales schema)
+
+| Table | Role |
+|-------|------|
+| `sales.user` | Product user; `customer_id`, `outreach_prefs`, `is_admin` |
+| `sales.customer` | Tenant; billing via `customer_subscription` |
+| `sales.company` | Target accounts; enriched via `company_crustdata` + `company_*` |
+| `sales.lead` | People; LinkedIn URL uniqueness; link via ULC not direct status on `lead` |
+| `sales.user_lead_connection` | Lead assignment + `workflow_status`; triggers journeys/AI |
+| `sales.workflow` / `workflow_status` | Per-customer pipeline stages |
+| `sales.icp` (+ `icp_*`) | ICP definitions, filters, signals |
+| `sales.signal` | Company events tied to ICP |
+| `sales.job_offer` | Hiring intent source |
+
+Views in **`sales_view`** (not `sales`): `fe_lead_management`, `company_cards_live`, `pending_actions`, `pending_actions_company_list`.
+
+## API routes that depend on sales_view
+
+Before changing these views, check dependents and update routes:
+
+| Route | View |
+|-------|------|
+| `app/api/lead-management/route.ts` (+ export/team/all) | `sales_view.fe_lead_management` |
+| `app/api/company-cards-feed/route.ts` | `sales_view.company_cards_live` |
+| `app/api/pending-action-details/[actionId]/route.ts` | `sales_view.pending_actions` |
+
+Also referenced in `integrations/adapters/native/company-service.ts` (`fe_lead_management`).
+
+## Common join pattern
+
+```sql
+SELECT ulc.id, ws.name AS status, l.full_name, c.name AS company
+FROM sales.user_lead_connection ulc
+JOIN sales.workflow_status ws ON ws.id = ulc.status_id
+JOIN sales.lead l ON l.id = ulc.lead_id
+LEFT JOIN sales.company c ON c.id = l.company_id
+WHERE ulc.user_id = auth.uid();
+```
+
+## RLS patterns (high level)
+
+- Per-user: `auth.uid()` ↔ `user_id` (`ai_context_cache`, `composio_connected_accounts`, ULC notes).
+- Per-tenant: `user.customer_id` for `workflow`, `composio_toolkit_configs`.
+- `lead_contact.scope`: `user` (owned) vs `global` (readable by all).
+
+## NO CASCADE DELETES (critical)
+
+PostgreSQL `DROP ... CASCADE` silently removes dependent views and breaks production API routes.
+
+### Never
+
+```sql
+DROP VIEW sales_view.fe_lead_management CASCADE;
+DROP TABLE sales.lead CASCADE;
+```
+
+### Always
+
+1. Query `pg_depend` before any DROP.
+2. Document dependents.
+3. Prefer `DROP ... RESTRICT` or `CREATE OR REPLACE VIEW`.
+
+```sql
+CREATE OR REPLACE VIEW sales_view.fe_lead_management AS
+  SELECT ... ;
+```
+
+### Checklist before DROP
+
+- [ ] Query `pg_depend` for dependents
+- [ ] Verify API routes / adapters updated
+- [ ] Use `RESTRICT` or `CREATE OR REPLACE VIEW`
+- [ ] Comment why the change is needed
+
+`CASCADE` is only acceptable when intentionally removing an entire schema, with explicit comment and code audit.
+
+## Performance
+
+- Prefer selective filters on FKs and uniqueness columns.
+- Avoid scanning vendor `company_*` tables without `company_id` filter.
+- Use server RPCs/views for heavy aggregations on `lead` / `lead_experience`.
+
+## What this repo is NOT
+
+- Backend agent/API implementation lives in `simpl_api` (separate repo).
+- DB migrations already applied in production are archived in the old `nfugallo/simpl_sales` repo root — do not re-run ad-hoc SQL from legacy dumps.
+
+## If stuck
+
+- Schema migrations: `utils/supabase/migrations/`
+- Owner: simpl-sales maintainers on GitHub `simpl-techs/simpl_sales`

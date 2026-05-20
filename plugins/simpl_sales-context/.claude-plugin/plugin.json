@@ -1,0 +1,17 @@
+{
+  "name": "simpl_sales-context",
+  "version": "1.0.0",
+  "description": "Integration context for the SimpL Sales Next.js app: sales schema, Supabase patterns, and safe DB migration rules.",
+  "author": {
+    "name": "simpl-sales maintainers"
+  },
+  "keywords": [
+    "simpl_sales-context",
+    "simpl-sales",
+    "simpl_sales",
+    "sales",
+    "supabase",
+    "nextjs",
+    "integration"
+  ]
+}

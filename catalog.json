@@ -1,7 +1,15 @@
 {
-  "generated_at": "2026-04-24T17:39:47.480Z",
+  "generated_at": "2026-05-20T10:48:39.591Z",
   "marketplace_alias": "simpl",
   "libraries": [
+    {
+      "plugin": "simpl_sales-context",
+      "skill_name": "simpl-sales",
+      "summary": "Next.js 14 sales frontend; tenant-scoped Supabase `sales` schema; never CASCADE-drop views that power API routes.",
+      "when_to_use": "Tasks touching SimpL Sales UI, API routes under `app/api/`, Supabase `sales` or `sales_view` objects, or CRM/outreach data models.",
+      "required_when": "Any migration or SQL that DROPs or replaces objects in `sales` / `sales_view` must follow the no-cascade checklist in this skill before merging.",
+      "plugin_install_command": "/plugin install simpl_sales-context@simpl"
+    },
     {
       "plugin": "simpl_tracker-context",
       "skill_name": "simpl-tracker",
