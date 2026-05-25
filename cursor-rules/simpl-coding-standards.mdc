@@ -82,6 +82,24 @@ Every service/library follows this layout:
 - **TypeScript**: use path aliases (`@/components/...`), never deep `../../../`.
 - Deeper rules (no re-export shims, canonical-module imports, `TYPE_CHECKING` policy) live in `architecture-discipline` → *Imports and module hygiene*.
 
+## Build verification (TS/JS)
+
+A TS/JS implementation is **not done** until the build succeeds. Before declaring a task complete, the agent MUST run, in any repo whose `package.json` defines them:
+
+- `npm run build` — must exit 0. A failing build is a failing implementation, full stop.
+- `npm run typecheck` (or `tsc --noEmit` if no typecheck script) — must exit 0 when the repo is TypeScript.
+- `npm run lint` — must exit 0 if the script exists.
+
+Rules:
+
+- Run from the package root the change touches (monorepo: the affected workspace, not just the repo root).
+- Use the repo's package manager (`pnpm`, `yarn`, or `npm`) — don't switch.
+- Do not "fix" failures by deleting/silencing checks (`// @ts-ignore`, disabling rules, removing tests). Fix the underlying issue or stop and flag it to the human.
+- If a script is missing in a repo where it should exist, flag it instead of silently skipping verification.
+- Errors and warnings that the build surfaces are part of the implementation; treat them like a failed test.
+
+Pure-Python repos and repos without `package.json` are unaffected.
+
 ## Comments
 
 - Comments explain **why**, not **what**. The code shows what.
