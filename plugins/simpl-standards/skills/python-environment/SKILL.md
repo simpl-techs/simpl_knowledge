@@ -101,6 +101,8 @@ These are **non-negotiable** when an agent works in a Python repo at simpl.
 
 ### 1. Always use the local Poetry virtualenv
 
+The project's Python environment is the **Conda env whose name matches the repo** (e.g. `simpl_outreach` repo → `simpl_outreach` env, `simpl_tracker` → `simpl_tracker`). Activate it with `conda activate <repo_name>` before any Python work. Never run Python tools against the **base** Conda env, the system Python, or any other repo's env — wrong interpreter and wrong package set are the single most common source of breakage.
+
 When running tests, linters, type-checkers, the app, or any Python tool:
 
 - ✅ `poetry run pytest`
@@ -131,9 +133,29 @@ The only times it's acceptable to hand-edit `pyproject.toml` are for non-depende
 
 `poetry.lock` is **never** hand-edited — let Poetry regenerate it.
 
-### 3. Confirm before adding a new runtime dependency
+### 3. Confirm with the user before installing anything into the project env
 
-Adding a new runtime dependency requires human approval first (see `coding-standards` → "Never add a new runtime dependency without asking"). Dev-only tools (linters, test helpers) generally don't need approval, but match what the repo already uses before pulling in a new one.
+Any change to the project's Python packages requires explicit human approval first — runtime deps, dev/test deps, type stubs, anything. Specifically the agent MUST stop and ask before running:
+
+- `poetry add ...` / `poetry add --group dev ...`
+- `poetry update` / `poetry update <pkg>`
+- `poetry remove ...`
+- `pip install ...` (which is already forbidden — see section 1)
+
+The agent does not silently mutate `pyproject.toml`, `poetry.lock`, or the installed env. "It's just a small dev tool" is not a reason to skip the ask — installs that look harmless still touch the lockfile and force a re-resolve.
+
+#### Carve-out: throwaway sandbox env
+
+If the agent needs to try a package, reproduce a behavior, or smoke-test something **without** modifying the project's env, it MAY create a **separate, temporary** Python env outside the project (e.g. `python -m venv /tmp/simpl-sandbox-<short-name>` or a fresh Conda env with a clearly temporary name), install whatever it needs there, do its work, and **delete the env when done**.
+
+Rules for the carve-out:
+
+- The temp env is **never** the project's env. It is created outside the repo and never named after the repo.
+- The agent **announces it explicitly** to the user before creating it ("I'm spinning up a throwaway sandbox at `<path>` to test X; I'll delete it after").
+- Nothing the agent does in the sandbox touches `pyproject.toml`, `poetry.lock`, the project's Conda env, or `~/.conda/envs/<repo_name>`.
+- The agent deletes the sandbox before reporting the task as done.
+
+This is the **only** way the agent installs a Python package without first getting human approval.
 
 ### 4. Don't change the Python version casually
 
