@@ -73,6 +73,13 @@ for f in "sanitize-commit-digest.py"; do
   fi
 done
 
+if [ -f "requirements-agent-ci.txt" ]; then
+  echo "  ⚠ requirements-agent-ci.txt already exists — skipping"
+else
+  cp "$TEMPLATE_DIR/requirements-agent-ci.txt" "requirements-agent-ci.txt"
+  echo "  ✓ created requirements-agent-ci.txt"
+fi
+
 # --- .cursor/ ---
 mkdir -p .cursor/rules
 for f in "rules/repo-internal.mdc"; do
@@ -113,9 +120,11 @@ echo
 echo "Next steps:"
 echo "  1. Edit .agent/SKILL.md — fill in the placeholders with YOUR library's reality."
 echo "  2. Edit .agent/INTERNAL.md — document the internal conventions for this repo."
-echo "  3. Make sure the org-level secrets DEEPSEEK_API_KEY and SIMPL_KNOWLEDGE_PAT are set."
+echo "  3. Set Actions secrets (org-wide if you have org secrets; otherwise per repo):"
+echo "       DEEPSEEK_API_KEY — auto-update-skill (aider + DeepSeek)"
+echo "       SIMPL_KNOWLEDGE_PAT — sync-skill-to-marketplace (PRs to simpl_knowledge)"
 echo "  4. Commit and push:"
-echo "       git add .agent/ .claude/ .cursor/ .github/ scripts/ CLAUDE.md"
+echo "       git add .agent/ .claude/ .cursor/ .github/ scripts/ requirements-agent-ci.txt CLAUDE.md"
 echo "       git commit -m 'chore(agent): bootstrap agent context'"
 echo "       git push"
 echo "  5. On merge to main, the sync workflow will open a PR in the marketplace."
