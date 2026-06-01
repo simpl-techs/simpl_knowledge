@@ -111,6 +111,7 @@ jobs:
           .venv/bin/aider \
             --model "$MODEL" \
             --no-auto-commits \
+            --no-gitignore \
             --yes-always \
             --no-pretty \
             --no-stream \
