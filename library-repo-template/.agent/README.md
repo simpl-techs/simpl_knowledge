@@ -34,8 +34,12 @@ Someone on the team reviews it — usually takes 5-10 minutes — and merges or 
 
 ## Secrets required in this repo
 
-- `DEEPSEEK_API_KEY` — for the `auto-update-skill` workflow (aider + DeepSeek). Set at org level, inherited here.
-- `SIMPL_KNOWLEDGE_PAT` — Personal Access Token with `repo` scope on `simpl_knowledge`. Also org-level.
+Configure under **Settings → Secrets and variables → Actions** (org secrets if available, otherwise **repository secrets** on each library repo):
+
+- `DEEPSEEK_API_KEY` — for `auto-update-skill` (aider + DeepSeek).
+- `SIMPL_KNOWLEDGE_PAT` — fine-grained PAT with write access to `simpl-techs/simpl_knowledge` (for `sync-skill-to-marketplace`).
+
+Optional **repository variable**: `SKILL_AGENT_MODEL` (default `deepseek/deepseek-chat`).
 
 ## Extending
 

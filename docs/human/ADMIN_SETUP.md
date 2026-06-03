@@ -46,14 +46,31 @@ GitHub → Settings → Developer settings → Personal access tokens → **Fine
 
 Salva il token, ti serve al passo 5.
 
-## Passo 5 — Org secrets
+## Passo 5 — Actions secrets (`SIMPL_KNOWLEDGE_PAT`, `DEEPSEEK_API_KEY`)
 
-Settings → Secrets and variables → Actions → **Organization secrets** → New organization secret. Imposta:
+| Secret | Usato da | Valore |
+|--------|----------|--------|
+| `SIMPL_KNOWLEDGE_PAT` | `sync-skill-to-marketplace.yml` | PAT del passo 4 |
+| `DEEPSEEK_API_KEY` | `auto-update-skill.yml` | API key da [DeepSeek](https://platform.deepseek.com/api_keys) |
 
-- `SIMPL_KNOWLEDGE_PAT` = token creato al passo 4. Usato da `sync-skill-to-marketplace.yml` nei repo libreria per aprire PR sul marketplace.
-- `DEEPSEEK_API_KEY` = API key DeepSeek. Usata da `auto-update-skill.yml` nei repo libreria (aider propone aggiornamenti a `.agent/SKILL.md`).
+### Con org secrets (piano GitHub Team/Enterprise)
 
-Esposizione: a tutti i repo della org, oppure restringi ai repo libreria.
+Settings (org `simpl-techs`) → Secrets and variables → Actions → **Organization secrets** → New organization secret. Imposta i due secret sopra ed esponili ai repo libreria (tutti o solo quelli elencati).
+
+### Senza org secrets (repository secrets)
+
+Su **ogni** repo libreria che esegue i workflow agent (`simpl_core`, `simpl_api`, …):
+
+1. Apri il repo su GitHub → **Settings** → **Secrets and variables** → **Actions**.
+2. Tab **Secrets** → **New repository secret**:
+   - Name: `DEEPSEEK_API_KEY` — Value: la chiave DeepSeek.
+   - Name: `SIMPL_KNOWLEDGE_PAT` — Value: il PAT del passo 4 (stessi permessi: scrittura su `simpl_knowledge`).
+3. Tab **Variables** (opzionale) → **New repository variable**:
+   - Name: `SKILL_AGENT_MODEL` — Value: es. `deepseek/deepseek-chat` (default se omesso).
+
+`auto-update-skill.yml` fallisce subito con errore esplicito se `DEEPSEEK_API_KEY` manca (non tenta più aider con `Bearer` vuoto).
+
+**Nota:** i secret Actions non vanno nelle *Variables* — solo chiavi e token vanno in **Secrets**; le Variables sono per valori non sensibili come il nome modello.
 
 **Team instincts (simpl-memory):** designa 2–3 dev volontari come operatori di `/aggregate-team-instincts`. Servono: subscription Claude/Cursor adeguata per la sessione in cui mergiano ([Inference]), `gh` autenticata, permesso di aprire PR su `simpl-techs/simpl_knowledge`. Nessun secret org dedicato: i dev pubblicano i raw con `/share-instincts` sotto la propria identità GitHub.
 
