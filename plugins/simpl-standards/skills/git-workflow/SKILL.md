@@ -36,6 +36,8 @@ Examples:
    - Complex repos: PR `dev` → `staging`, validate there, then PR `staging` → `main`.
 5. `hotfix/<slug>` may branch from `main` directly; after merge into `main`, also merge back into `dev` (and `staging` if it exists) to keep history aligned.
 
+Steps 1–2 are the **human/team** flow when someone wants a new branch. **Agents** follow *Agents — branch authority* below — they do not run `git checkout -b` on their own.
+
 ## Commits
 
 We use Conventional Commits. Format:
@@ -45,15 +47,19 @@ We use Conventional Commits. Format:
 
 <optional body explaining why, wrapped at 72 chars>
 
-<optional footer with BREAKING CHANGE: or Closes #123>
+<optional footer with BREAKING CHANGE:, Closes ENG-123, or Refs ENG-123>
 ```
 
 Valid types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`, `build`, `ci`.
 
 Examples:
 - `feat(tracker): add batching for high-volume events`
-- `fix(api): handle null user_id in login endpoint`
+- `fix(api): handle null user_id in login endpoint (ENG-557)`
 - `docs(agent): update SKILL.md with new batch API`
+
+Footer examples (Linear):
+- `Closes ENG-123` — change resolves the issue
+- `Refs ENG-123` — related work, issue stays open
 
 **For agents**: when committing, NEVER add `🤖 Generated with Claude Code` or similar tags. Our commit log stays human.
 
@@ -78,6 +84,43 @@ Examples:
 
 - Squash merge only. No rebase-merge, no merge-commit.
 - PRs under ~400 lines get reviewed same-day. Split bigger PRs.
+
+## Agents — branch authority
+
+**This section overrides** the `git checkout -b …` step in Flow above, any plan step that says "create a branch", and any other skill that suggests branching without explicit user approval.
+
+Default: work on the branch already checked out (`git branch --show-current`). Do not run `git checkout -b`, do not switch to another branch, do not push a newly created branch.
+
+If a dedicated branch would help:
+1. Propose the branch name and base (e.g. `feature/<slug>` from `dev`) in chat.
+2. Wait for **explicit approval in the current turn** before running any git checkout/switch/create.
+3. "Implement the plan" or plan approval that mentions a branch **does not** count as branch approval unless the user explicitly ok'd that branch.
+
+If the user declines or does not answer, stay on the current branch and do the work there.
+
+**Why:** working trees often hold concurrent in-progress work on the current branch. Agent-created branches pile up, confuse context, and make it impossible to follow what the user is actually doing.
+
+What to do instead: edit files on the current branch, summarize changes, and let the user drive branch creation, PRs, and merge when they want a separate branch.
+
+## Agents — Linear / issue linkage
+
+Before implementing (or at least before proposing a commit message), look for a matching Linear issue:
+- Search open issues by meaning against the user's request and prompt (title, description, identifier like `ENG-123`).
+- Use Linear MCP (`user-linear`) or CLI when available.
+
+When there is a clear match:
+- Include the identifier in the proposed commit message.
+- Summary (when natural): `fix(scope): … (ENG-123)`
+- Footer: `Closes ENG-123` if the change resolves the issue; otherwise `Refs ENG-123`
+- Do not invent identifiers. If Linear is unreachable or nothing matches, proceed without a ticket reference.
+
+When there is a clear match, **keep the issue updated with a comment** in the same turn you finish substantive work or hand off to the user. Structure it as:
+- **What** — files/areas touched, resulting behavior.
+- **How** — brief approach (pin, refactor, fix path, etc.).
+- **Why** — root cause or rationale for the choice.
+- Links (PR URL, commit SHA) only when they already exist — never invent them.
+
+One structured comment per milestone or handoff is enough; do not spam on every micro-edit. Do not change issue status or assignee unless the user asks explicitly. If Linear is unavailable, say so in chat — do not claim you commented.
 
 ## Agents — commit/push authority
 
@@ -133,5 +176,8 @@ Pre-commit checklist when editing a plugin:
 - Don't force-push to shared branches (`main`, `dev`, `staging`, release branches).
 - Don't commit directly to `main`, `dev`, or `staging`; always via PR.
 - Don't branch work directly off `main` (except `hotfix/`).
+- Don't create or switch git branches without explicit user approval in the current turn (agents: see *Agents — branch authority*).
+- Don't invent Linear or GitHub issue ids in commit messages or PR bodies.
+- Don't leave a matched Linear issue silent after substantive work — comment what/how/why, or say Linear was unreachable.
 - Don't amend a commit that's already been pushed to a shared branch without flagging to reviewers.
 - Don't edit a plugin without bumping its version (see section above).

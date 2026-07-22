@@ -1,6 +1,6 @@
 {
   "name": "simpl-standards",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Cross-cutting standards for all simpl projects: coding conventions, git workflow, testing policy, Python environment toolchain, repo docs and env-var consistency, architecture discipline, state/persistence discipline, data-flow discipline.",
   "author": {
     "name": "simpl Platform"
