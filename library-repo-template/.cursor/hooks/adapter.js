@@ -9,11 +9,17 @@
  * Claude Code's format so we can share one set of hook scripts
  * (in simpl_knowledge/scripts/shared-hooks/) across both tools.
  *
- * Usage (called by Cursor via .cursor/hooks.json):
+ * Usage (called by Cursor via .cursor/hooks.json — events under hooks as arrays):
  *
  *   {
- *     "beforeShellExecution": {
- *       "command": "node .cursor/hooks/adapter.js secret-scan"
+ *     "version": 1,
+ *     "hooks": {
+ *       "beforeShellExecution": [
+ *         { "command": "node .cursor/hooks/adapter.js secret-scan" }
+ *       ],
+ *       "sessionStart": [
+ *         { "command": "node ~/.cursor/hooks/adapter.js session-refresh" }
+ *       ]
  *     }
  *   }
  *

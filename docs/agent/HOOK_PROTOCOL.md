@@ -15,9 +15,10 @@ description: Normalized hook payload between Cursor and Claude Code for simpl_kn
 
 | Script | Role |
 |--------|------|
-| `secret-scan.js` | `beforeShellExecution`, `beforeFileEdit`, `beforeSubmitPrompt` → block obvious secrets (exit 2). |
-| `session-refresh.js` | `sessionStart` / SessionStart → background git pull of simpl_knowledge cache + sync org `simpl-*.mdc` into `~/.cursor/rules/` + optional `sync-cursor-internal.sh` in repo cwd. |
-| `repo-context-check.js` | After refresh (worker) or sync hook path (`--claude-session-hook`): compare repo to `library-repo-template/` when opted-in; write `.claude/.simpl-repo-report.json` on drift; emit SessionStart `additionalContext` on Claude when needed. |
+| `secret-scan.js` | `beforeShellExecution`, `afterFileEdit`, `beforeSubmitPrompt` → block obvious secrets (exit 2). |
+| `session-refresh.js` | `sessionStart` / SessionStart → fetch + `reset --hard` of simpl_knowledge cache, sync org `simpl-*.mdc`, write `~/.simpl_knowledge/state.json`, emit Cursor `additional_context` / Claude `additionalContext` with sha (or failure warning). |
+| `plugin-refresh.js` | Claude `simpl-standards` SessionStart → heal marketplace clone; warn when installed plugin versions lag. |
+| `repo-context-check.js` | After refresh (worker) or sync hook path (`--claude-session-hook`): compare repo to `library-repo-template/` when opted-in; write `.claude/.simpl-repo-report.json` on drift. |
 
 ## Adding a hook (DRY)
 

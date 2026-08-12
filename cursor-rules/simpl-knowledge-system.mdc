@@ -26,13 +26,16 @@ alwaysApply: true
 /plugin install simpl-memory@simpl
 /plugin install simpl-libraries@simpl
 /plugin install <lib>-context@simpl   # when task needs full integration SKILL
-/plugin marketplace update           # weekly
+/plugin marketplace update           # when prompted, or weekly
 ```
+
+- **Auto-heal**: `simpl-standards` SessionStart runs `plugin-refresh.js` — `fetch` + `reset --hard` on `~/.claude/plugins/marketplaces/simpl`, then warns in-session if installed plugin versions lag `marketplace.json` (human still runs `/plugin install …`).
 
 ## Cursor
 
-- Rules ship as **`cursor-rules-rolling`** release zip (built from SKILL.md). Install via `scripts/team-bootstrap.sh` or `scripts/install-team.sh`.
-- **Hooks (DRY with Claude Code)**: add new logic once under `simpl_knowledge/scripts/shared-hooks/<name>.js`. Register Cursor events in `.cursor/hooks.json` as `node …/adapter.js <name>`; register Claude hooks to call the same script. `session-refresh` + global `~/.cursor/hooks.json` merge is installed by those scripts so `sessionStart` stays in parity with Claude `SessionStart`.
+- Rules ship as **`cursor-rules-rolling`** release zip (built from SKILL.md; includes `.version` stamp). Install via `scripts/team-bootstrap.sh` or `scripts/install-team.sh`.
+- **Hooks (DRY with Claude Code)**: add new logic once under `simpl_knowledge/scripts/shared-hooks/<name>.js`. Register Cursor events in `.cursor/hooks.json` **under `hooks` as arrays** (`node …/adapter.js <name>`). Global `sessionStart` → `session-refresh` is merged by `install-cursor-global-hooks.sh` (also copies `shared-hooks` to `~/.cursor/hooks/shared-hooks/`).
+- **Auto-refresh**: each new Cursor chat runs `session-refresh` (fetch + `reset --hard` on the git cache, sync `simpl-*.mdc`, write `~/.simpl_knowledge/state.json`, inject `additional_context` with the active sha). Diagnose with `bash scripts/doctor.sh`.
 
 ## Update loop (library)
 

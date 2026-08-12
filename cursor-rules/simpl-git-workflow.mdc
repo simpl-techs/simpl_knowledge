@@ -1,5 +1,5 @@
 ---
-description: "Our team's conventions for branches, commits, and pull requests. Use whenever creating branches, writing commit messages, opening PRs, or doing any git operation on behalf of the user. ALWAYS consult "
+description: "Our team's conventions for branches, commits, and pull requests. ALWAYS consult before any git branch create/switch, commit, or PR. Agents must stay on the already-checked-out branch unless the user e"
 globs: "**/*"
 alwaysApply: true
 ---
@@ -7,7 +7,28 @@ alwaysApply: true
 
 # Git Workflow
 
-## Branches
+## Agents — branch authority (read this first)
+
+**HARD RULE for agents.** This section overrides the human Flow below, any plan step that says "create a branch" / `git checkout -b`, and any other skill that suggests branching.
+
+Default: work on the branch already checked out (`git branch --show-current`). Edit files there. Do **not**:
+- run `git checkout -b` / `git switch -c` / create a branch
+- switch to another branch
+- put "create a feature branch" (or equivalent) in a plan as something the agent will do
+- push a newly created branch
+
+If a dedicated branch would help:
+1. Propose the branch name and base (e.g. `feature/<slug>` from `dev`) in chat.
+2. Wait for **explicit approval in the current turn** (e.g. "ok create it", "fai il branch") before any checkout/switch/create.
+3. Approving a plan, saying "implement the plan", or a plan that merely *mentions* a branch name **does not** count as branch approval.
+
+If the user declines or does not answer, stay on the current branch and do the work there.
+
+**Why:** working trees often hold concurrent in-progress work on the current branch. Agent-created branches pile up, confuse context, and make it impossible to follow what the user is actually doing.
+
+What to do instead: edit files on the current branch, summarize changes, and let the user drive branch creation, PRs, and merge when they want a separate branch.
+
+## Branches (human / team naming)
 
 Long-lived branches:
 - `main` — production. Protected.
@@ -28,7 +49,9 @@ Examples:
 - ✅ `hotfix/payment-webhook-500`
 - ❌ `alice-work`, `branch2`, `feat/foo` (use full `feature/` prefix)
 
-## Flow
+## Flow (humans only — agents: see branch authority above)
+
+When a **human** wants a new branch:
 
 1. `git checkout dev && git pull`
 2. `git checkout -b feature/<slug>` — do the work, commit.
@@ -38,7 +61,7 @@ Examples:
    - Complex repos: PR `dev` → `staging`, validate there, then PR `staging` → `main`.
 5. `hotfix/<slug>` may branch from `main` directly; after merge into `main`, also merge back into `dev` (and `staging` if it exists) to keep history aligned.
 
-Steps 1–2 are the **human/team** flow when someone wants a new branch. **Agents** follow *Agents — branch authority* below — they do not run `git checkout -b` on their own.
+**Agents do not run steps 1–2 on their own.** Stay on the active branch unless the user explicitly approved a new branch in the current turn.
 
 ## Commits
 
@@ -86,23 +109,6 @@ Footer examples (Linear):
 
 - Squash merge only. No rebase-merge, no merge-commit.
 - PRs under ~400 lines get reviewed same-day. Split bigger PRs.
-
-## Agents — branch authority
-
-**This section overrides** the `git checkout -b …` step in Flow above, any plan step that says "create a branch", and any other skill that suggests branching without explicit user approval.
-
-Default: work on the branch already checked out (`git branch --show-current`). Do not run `git checkout -b`, do not switch to another branch, do not push a newly created branch.
-
-If a dedicated branch would help:
-1. Propose the branch name and base (e.g. `feature/<slug>` from `dev`) in chat.
-2. Wait for **explicit approval in the current turn** before running any git checkout/switch/create.
-3. "Implement the plan" or plan approval that mentions a branch **does not** count as branch approval unless the user explicitly ok'd that branch.
-
-If the user declines or does not answer, stay on the current branch and do the work there.
-
-**Why:** working trees often hold concurrent in-progress work on the current branch. Agent-created branches pile up, confuse context, and make it impossible to follow what the user is actually doing.
-
-What to do instead: edit files on the current branch, summarize changes, and let the user drive branch creation, PRs, and merge when they want a separate branch.
 
 ## Agents — Linear / issue linkage
 
@@ -178,7 +184,7 @@ Pre-commit checklist when editing a plugin:
 - Don't force-push to shared branches (`main`, `dev`, `staging`, release branches).
 - Don't commit directly to `main`, `dev`, or `staging`; always via PR.
 - Don't branch work directly off `main` (except `hotfix/`).
-- Don't create or switch git branches without explicit user approval in the current turn (agents: see *Agents — branch authority*).
+- Don't create or switch git branches without explicit user approval in the current turn (agents: see *Agents — branch authority* at the top — never invent branches in plans either).
 - Don't invent Linear or GitHub issue ids in commit messages or PR bodies.
 - Don't leave a matched Linear issue silent after substantive work — comment what/how/why, or say Linear was unreachable.
 - Don't amend a commit that's already been pushed to a shared branch without flagging to reviewers.

@@ -1,0 +1,37 @@
+# Validate agent infra: hooks.json schema, plugin/marketplace versions, PR bumps.
+
+name: Validate agent infra
+
+on:
+  pull_request:
+    paths:
+      - "plugins/**"
+      - "library-repo-template/.cursor/hooks.json"
+      - "scripts/install-cursor-global-hooks.sh"
+      - "scripts/ci/validate-agent-infra.sh"
+      - ".claude-plugin/marketplace.json"
+      - ".github/workflows/validate-agent-infra.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "plugins/**"
+      - "library-repo-template/.cursor/hooks.json"
+      - "scripts/install-cursor-global-hooks.sh"
+      - "scripts/ci/validate-agent-infra.sh"
+      - ".claude-plugin/marketplace.json"
+      - ".github/workflows/validate-agent-infra.yml"
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate hooks + versions
+        env:
+          VALIDATE_BASE_REF: ${{ github.event.pull_request.base.ref || '' }}
+        run: bash scripts/ci/validate-agent-infra.sh

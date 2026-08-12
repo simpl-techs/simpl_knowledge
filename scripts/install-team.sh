@@ -80,8 +80,9 @@ fi
 cat <<EOF
 === Refresh behavior ===
 
-  Cursor: built-in sessionStart hook refreshes simpl_knowledge cache + org rules (simpl-*.mdc), throttled ~6h.
-  Claude Code: SessionStart in plugins runs the same shared session-refresh.js (after marketplace cache exists).
+  Cursor: global sessionStart → session-refresh (sha-based; hooks.sessionStart must be an array under hooks).
+  Claude Code: SessionStart plugin-refresh self-heals the marketplace clone and warns if plugin versions lag.
+  Diagnose: bash scripts/doctor.sh (from a simpl_knowledge clone).
 
 Test: ask the agent how commit messages work (git-workflow).
 EOF

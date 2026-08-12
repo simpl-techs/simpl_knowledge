@@ -1,16 +1,27 @@
 {
   "$schema": "https://cursor.com/schemas/hooks.json",
-  "_comment": "Hooks for Cursor IDE. All events delegate to .cursor/hooks/adapter.js which translates the payload and calls a shared script in the simpl_knowledge scripts/shared-hooks/ directory.",
-  "beforeShellExecution": {
-    "command": "node .cursor/hooks/adapter.js secret-scan"
-  },
-  "beforeFileEdit": {
-    "command": "node .cursor/hooks/adapter.js secret-scan"
-  },
-  "beforeSubmitPrompt": {
-    "command": "node .cursor/hooks/adapter.js secret-scan"
-  },
-  "sessionStart": {
-    "command": "node .cursor/hooks/adapter.js session-refresh"
+  "version": 1,
+  "_comment": "Hooks for Cursor IDE. Events must live under hooks as arrays. All events delegate to .cursor/hooks/adapter.js which translates the payload and calls a shared script in simpl_knowledge scripts/shared-hooks/ (or ~/.cursor/hooks/shared-hooks/).",
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": "node .cursor/hooks/adapter.js secret-scan"
+      }
+    ],
+    "afterFileEdit": [
+      {
+        "command": "node .cursor/hooks/adapter.js secret-scan"
+      }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "node .cursor/hooks/adapter.js secret-scan"
+      }
+    ],
+    "sessionStart": [
+      {
+        "command": "node .cursor/hooks/adapter.js session-refresh"
+      }
+    ]
   }
 }

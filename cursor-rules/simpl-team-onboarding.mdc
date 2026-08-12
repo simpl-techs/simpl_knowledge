@@ -24,9 +24,12 @@ command -v node && node --version || echo "Node NOT installed"
 
 # Any Cursor rules already installed?
 ls ~/.cursor/rules/*.mdc 2>/dev/null | wc -l
+
+# Full health check (preferred when a simpl_knowledge clone is available):
+# bash /path/to/simpl_knowledge/scripts/doctor.sh
 ```
 
-Report what you find in 3-4 lines. Then proceed based on the gaps.
+Report what you find in 3-4 lines. Then proceed based on the gaps. Prefer `scripts/doctor.sh` when diagnosing staleness.
 
 ## 2. Decide the path
 
@@ -109,7 +112,7 @@ End with:
 
 > "You're set up. Test it: in any project, ask your agent 'how do we write commit messages here?' — it should reference our git-workflow skill. If it doesn't, ping me (the onboarder) and we'll diagnose.
 >
-> Weekly, run `/plugin marketplace update` to pick up the latest team changes."
+> Cursor refreshes org rules on each new chat via `sessionStart`. Claude SessionStart self-heals the marketplace clone and warns if plugins are stale — then run `/plugin marketplace update` and reinstall the named plugins. Diagnose anytime with `bash scripts/doctor.sh`."
 
 ## Rules
 

@@ -14,7 +14,7 @@
 #   2. Points Claude Code at the simpl marketplace
 #   3. Installs recommended plugins (simpl-standards, simpl-memory, simpl-libraries)
 #   4. Copies the generated Cursor rules to ~/.cursor/rules/
-#   5. Installs global Cursor sessionStart → session-refresh (adapter + hooks.json merge)
+#   5. Installs global Cursor sessionStart → session-refresh (adapter + hooks.json merge + shared-hooks copy)
 #   6. Verifies AgentShield is callable (`npx ecc-agentshield --version`)
 #
 # Idempotent: re-run anytime; only missing pieces get installed.
@@ -215,6 +215,7 @@ Next steps:
         bash ~/.claude/plugins/cache/simpl_knowledge/library-repo-template/scripts/bootstrap.sh <repo-name>
      Or ask the agent: /bootstrap-repo-context
 
-Weekly: /plugin marketplace update (Claude Code auto-updates cache; this forces refresh)
-Cursor: sessionStart runs session-refresh (~6h throttle) to pull simpl_knowledge + sync simpl-*.mdc; re-run bootstrap if you need a forced refresh.
+Weekly: /plugin marketplace update (Claude Code; SessionStart also self-heals the marketplace clone and warns if plugins are stale)
+Cursor: sessionStart runs session-refresh (sha-based; emits rule version into context). Diagnose with: bash scripts/doctor.sh
+Force: SIMPL_KNOWLEDGE_FORCE_REFRESH=1 or re-run this bootstrap.
 EOF

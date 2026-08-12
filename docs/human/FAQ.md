@@ -35,5 +35,5 @@
 | Domanda | Risposta breve |
 |---------|----------------|
 | Come ricevo update in Claude Code? | `/plugin marketplace update`, poi nuova sessione se vuoi essere sicuro che le skill vengano ricaricate. |
-| Come ricevo update in Cursor? | L’hook `session-refresh` aggiorna cache e regole `simpl-*.mdc` circa ogni 6 ore. Per forzare: riesegui `team-bootstrap.sh`. |
+| Come ricevo update in Cursor? | L’hook `session-refresh` aggiorna cache e regole `simpl-*.mdc` a ogni nuova chat (skip se lo sha non è cambiato). Per forzare: `SIMPL_KNOWLEDGE_FORCE_REFRESH=1` o `bash scripts/doctor.sh` / `team-bootstrap.sh`. |
 | Dove sono i file locali? | Cache marketplace: `~/.claude/plugins/cache/simpl_knowledge`. Regole Cursor: `~/.cursor/rules/simpl-*.mdc`. Instinct locali: `~/.claude/simpl-memory/<repo>/`. |

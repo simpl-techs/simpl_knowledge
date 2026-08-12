@@ -12,7 +12,7 @@ Questa pagina parte dai sintomi più comuni. Prima di debuggare, ricorda la dist
 | L’agent non cita `git-workflow` | Hai aggiunto `/plugin marketplace add simpl-techs/simpl_knowledge`? Hai installato i tre plugin con **`@simpl`** (non `@simpl-techs`)? Prova `/plugin marketplace update` e riavvia la sessione Claude. |
 | “Marketplace not found” o clone fallisce | Connettività GitHub; per fork/staging imposta `SIMPL_KNOWLEDGE_REPO` (e opzionale `SIMPL_KNOWLEDGE_CACHE`) coerenti con quel remote e riesegui `team-bootstrap.sh`. |
 | Cursor senza regole `.mdc` | Esiste sul remoto la release **`cursor-rules-rolling`** / `cursor-rules.zip`? Altrimenti riesegui `team-bootstrap.sh` (fallback clone + `generate-cursor-rules.sh`; serve **PyYAML**). |
-| Cursor: regole ferme da giorni | Hook globale: `~/.cursor/hooks.json` deve invocare `session-refresh` (~6h throttle). Forza: riesegui bootstrap o elimina lo stamp `.last-refresh` nella cache (vedi `session-refresh.js`). Cache git tipica: `~/.claude/plugins/cache/simpl_knowledge`. Solo file **`simpl-*.mdc`** sono gestiti dall’org; altri `.mdc` restano intatti. |
+| Cursor: regole ferme da giorni | Hook globale: `~/.cursor/hooks.json` deve avere `hooks.sessionStart` come **array** con `session-refresh` (eventi fuori da `hooks` sono ignorati). Forza: `SIMPL_KNOWLEDGE_FORCE_REFRESH=1` o `bash scripts/doctor.sh` / `team-bootstrap.sh`. Cache git: `~/.claude/plugins/cache/simpl_knowledge`. Solo **`simpl-*.mdc`** sono gestiti dall’org. |
 | Sync PR non si apre dal repo libreria | Secret **`SIMPL_KNOWLEDGE_PAT`** presente sul repo? Permessi su `simpl-techs/simpl_knowledge`? Il workflow fa checkout di `simpl-techs/simpl_knowledge` — il nome org nel YAML deve combaciare col remoto. |
 | `auto-update-skill` fallisce (o prima era verde con errori aider) | `requirements-agent-ci.txt` in root. Secret **`DEEPSEEK_API_KEY`** come **repository secret** se non avete org secrets (Settings → Secrets and variables → Actions → Secrets — non Variables). Il workflow fallisce subito se il secret manca; se c’è ma è invalido, lo step aider fallisce con `Illegal header value` / `litellm.*`. Opzionale **variable** `SKILL_AGENT_MODEL`. Vedi [ADMIN_SETUP](ADMIN_SETUP.md) passo 5. |
 | Instinct locali vuoti | Solo i tre **instinct owner** (`config/simpl.json`) possono popolare righe via `/extract-instincts` (serve `gh auth login` e path al transcript). Gli altri dev consumano `team-instincts/instincts.jsonl` dopo merge. Store locale: `~/.claude/simpl-memory/<repo>/`. |
@@ -79,7 +79,7 @@ command -v claude >/dev/null && claude --version || echo "Claude Code non in PAT
    ls ~/.cursor/rules/simpl-*.mdc
    ```
 2. Se non ci sono, dalla root del clone di `simpl_knowledge` esegui `bash scripts/team-bootstrap.sh`; se non hai ancora il clone puoi provare `curl` su `raw.githubusercontent.com` (solo repo pubblico). Se `curl` dà 404 (repo privato), vedi la sezione *curl team-bootstrap restituisce 404* più sotto.
-3. Se ci sono ma non si aggiornano, controlla `~/.cursor/hooks.json`: deve avere `sessionStart` verso `node ~/.cursor/hooks/adapter.js session-refresh`.
+3. Se ci sono ma non si aggiornano, controlla `~/.cursor/hooks.json`: deve avere `"hooks": { "sessionStart": [{ "command": "node …/adapter.js session-refresh" }] }` (array sotto `hooks`). Poi `bash scripts/doctor.sh`.
 
 ### Il sync da repo libreria non apre PR
 

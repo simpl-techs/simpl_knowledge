@@ -81,8 +81,8 @@ L'agent deve citare lo skill `git-workflow`. Se non lo cita → [TROUBLESHOOTING
 
 | Strumento | Cosa si aggiorna “in automatico” | Cosa fai tu, quando, perché |
 |-----------|-----------------------------------|-----------------------------|
-| **Cursor** | Con l’hook globale `session-refresh` (installato dal bootstrap), ad avvio sessione viene aggiornata circa **ogni ~6h** la **cache git** del bundle in `~/.claude/plugins/cache/simpl_knowledge` e copiate le regole org **`simpl-*.mdc`** in `~/.cursor/rules/`. Così resti allineato alle release / `main` senza rifare tutto ogni giorno. | Se serve **subito** (appena mergiato qualcosa sul hub): riesegui `team-bootstrap.sh` dal clone o elimina `.last-refresh` nella cache e riapri Cursor; vedi anche [TROUBLESHOOTING.md](TROUBLESHOOTING.md). |
-| **Claude Code** | [Inference] Claude Code **può** aggiornare la cache del marketplace da solo se attivi l’**auto-update** dal menu (vedi sotto). Il refresh avviene al SessionStart; le modifiche ai plugin sono effettive dopo un restart del client. | Per **essere sicuro** di vedere subito le ultime versioni dei plugin (`simpl-standards`, `simpl-memory`, `simpl-libraries`, `*-context`): esegui **`/plugin marketplace update`** e, se serve, riapri la sessione perché le skill si ricarichino. **Perché**: anche con auto-update attivo, il comando manuale è l’unico modo verificabile di forzare un fetch immediato. |
+| **Cursor** | L’hook globale `session-refresh` (schema: `hooks.sessionStart` come array) a ogni nuova chat fa fetch + `reset --hard` della cache git, sincronizza **`simpl-*.mdc`**, scrive `~/.simpl_knowledge/state.json` e inietta lo sha nel contesto sessione. | Se serve **subito**: `SIMPL_KNOWLEDGE_FORCE_REFRESH=1` o `bash scripts/doctor.sh` / `team-bootstrap.sh`; vedi [TROUBLESHOOTING.md](TROUBLESHOOTING.md). |
+| **Claude Code** | `simpl-standards` SessionStart esegue `plugin-refresh`: self-heal del clone marketplace (`reset --hard origin/main`) e avviso in-sessione se le versioni installate restano indietro. L’auto-update nativo di Claude aiuta solo se il clone non è divergente. | Quando l’hook avvisa (o dopo merge sull’hub): **`/plugin marketplace update`** poi `/plugin install <plugin>@simpl`. **Perché**: l’hook non riscrive la cache versionata dei plugin. |
 
 Comando di riferimento in sessione Claude Code:
 
@@ -103,7 +103,7 @@ Da quel momento, all’avvio di ogni sessione Claude Code la cache del marketpla
 
 [Unverified] La configurazione tramite `settings.json` non è (ancora) supportata: la richiesta è tracciata su [anthropics/claude-code#51350](https://github.com/anthropics/claude-code/issues/51350).
 
-**In sintesi:** Cursor → cache + `.mdc` con throttle ~6h; Claude Code → l’auto-update *può* esserci ma non è garantito, quindi per certezza esegui **`/plugin marketplace update`** quando l’hub è stato aggiornato.
+**In sintesi:** Cursor → cache + `.mdc` aggiornati a ogni chat (sha-based); Claude Code → self-heal del clone + avviso se i plugin sono stale, poi `/plugin install …` quando richiesto.
 
 ---
 

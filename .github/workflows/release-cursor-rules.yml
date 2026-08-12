@@ -32,6 +32,21 @@ jobs:
       - name: Generate Cursor rules
         run: bash scripts/generate-cursor-rules.sh
 
+      - name: Write version stamp
+        run: |
+          mkdir -p cursor-rules
+          python3 - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+          sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          generated_at = subprocess.check_output(
+              ["date", "-u", "+%Y-%m-%dT%H:%M:%SZ"], text=True
+          ).strip()
+          Path("cursor-rules/.version").write_text(
+              json.dumps({"sha": sha, "generated_at": generated_at}, indent=2) + "\n"
+          )
+          PY
+
       - name: Create deterministic zip
         run: |
           rm -f cursor-rules.zip
@@ -39,12 +54,18 @@ jobs:
           # Stable entry order => stable zip checksum when inputs unchanged
           find . -type f -print0 | sort -z | xargs -0 zip -X -q ../cursor-rules.zip
 
-      - name: Compare with current release asset
+      - name: Compare with current release asset (*.mdc only)
         id: compare
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           SKIP=false
+          hash_mdc() {
+            local dir="$1"
+            # Hash only rule payloads so .version stamp does not force every upload.
+            (cd "$dir" && find . -name '*.mdc' -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')
+          }
+          NEW=$(hash_mdc cursor-rules)
           if gh release view cursor-rules-rolling --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             PREV_DIR=$(mktemp -d)
             if gh release download cursor-rules-rolling \
@@ -53,12 +74,18 @@ jobs:
               --dir "$PREV_DIR" 2>/dev/null; then
               PREV_ZIP="$PREV_DIR/cursor-rules.zip"
               if [ -f "$PREV_ZIP" ]; then
-                OLD=$(sha256sum "$PREV_ZIP" | awk '{print $1}')
-                NEW=$(sha256sum cursor-rules.zip | awk '{print $1}')
+                EXTRACT=$(mktemp -d)
+                unzip -o -q "$PREV_ZIP" -d "$EXTRACT"
+                SRC="$EXTRACT"
+                if [ -d "$EXTRACT/cursor-rules" ]; then
+                  SRC="$EXTRACT/cursor-rules"
+                fi
+                OLD=$(hash_mdc "$SRC")
                 if [ "$OLD" = "$NEW" ]; then
                   SKIP=true
-                  echo "cursor-rules.zip unchanged vs release; skipping upload."
+                  echo "cursor-rules *.mdc unchanged vs release; skipping upload."
                 fi
+                rm -rf "$EXTRACT"
               fi
             fi
             rm -rf "$PREV_DIR"
