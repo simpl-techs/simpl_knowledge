@@ -1,0 +1,10 @@
+# One Doppler project per main repo. Scripts read this file; do not duplicate the list.
+simpl_api
+simpl_outreach
+simpl_sales
+simpl_flow
+simpl_scraping
+simpl_dashboard
+simpl_growth
+simpl_ops
+simpl_google_extension

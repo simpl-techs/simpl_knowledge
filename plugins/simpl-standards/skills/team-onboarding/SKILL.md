@@ -94,7 +94,19 @@ Install **`simpl-memory` with the other global plugins** — it is required for 
 
 See `plugins/simpl-memory/PRIVACY.md` and `/extract-instincts` for details.
 
-## 5. Optional: AgentShield security audit
+## 5. Doppler (secrets)
+
+Install the [Doppler CLI](https://docs.doppler.com/docs/install-cli). Do **not** run `doppler login` and do **not** send them to the Doppler dashboard.
+
+A maintainer (Raff, Iacopo, or Flavio) creates a **read-only service token** for **that one project**, config **`dev`**, and shares it. The developer puts it in gitignored `.env` as `DOPPLER_TOKEN` and runs:
+
+```bash
+doppler run --config dev -- <command>
+```
+
+One token = one project. Never a `prd` token. New keys that Doppler does not have yet go in local `.env` only until a PR lists them for the maintainer — see the `doppler` skill.
+
+## 6. Optional: AgentShield security audit
 
 Before ending, offer to run a one-time audit:
 
@@ -104,7 +116,7 @@ npx ecc-agentshield scan
 
 Takes ~10s, flags insecure configs in the current setup. Read the report together with the user.
 
-## 6. Confirm and send them off
+## 7. Confirm and send them off
 
 End with:
 
@@ -116,5 +128,7 @@ End with:
 
 - NEVER modify the user's shell rc files without asking first
 - NEVER leak their API key to anything other than the env var
+- NEVER tell them to run `doppler login` or open the Doppler dashboard — token handoff from Raff / Iacopo / Flavio only (`doppler` skill)
+- NEVER commit `.env`
 - If the user is on Windows, use PowerShell equivalents (`$env:CLAUDE_PACKAGE_MANAGER`, `Copy-Item -Recurse`, etc.)
 - If anything fails, don't pretend it worked — show the error and help them debug

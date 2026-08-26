@@ -35,6 +35,7 @@ Every Python repo's `README.md` must include a section equivalent to this (adjus
 
 - [Conda](https://docs.conda.io/en/latest/miniconda.html) or [Anaconda](https://www.anaconda.com/)
 - [Poetry](https://python-poetry.org/) (will be installed via Conda)
+- [Doppler CLI](https://docs.doppler.com/docs/install-cli) (token from Raff / Iacopo / Flavio — see `doppler`)
 
 ### Setup
 
@@ -49,11 +50,7 @@ Every Python repo's `README.md` must include a section equivalent to this (adjus
    poetry install
    ```
 
-3. **Set up environment variables:**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your values
-   ```
+3. **Secrets (Doppler):** `.env.example` is `DOPPLER_TOKEN`. Ask Raff / Iacopo / Flavio for a read-only `dev` token for this project; put it in gitignored `.env`. Run with `doppler run --config dev -- …`. A key that Doppler does not have yet may live in `.env` only until the maintainer writes it in Doppler — then delete it from `.env`. See the `doppler` skill. Do not run `doppler login`.
 
 ## Development Workflow
 
@@ -67,12 +64,12 @@ conda activate <repo_name>
 ### Running Tests
 
 ```bash
-poetry run pytest
+doppler run --config dev -- poetry run pytest
 ```
 
 With coverage report:
 ```bash
-poetry run pytest --cov=src --cov-report=html
+doppler run --config dev -- poetry run pytest --cov=src --cov-report=html
 ```
 
 ## Linting and Formatting
@@ -106,6 +103,7 @@ The project's Python environment is the **Conda env whose name matches the repo*
 When running tests, linters, type-checkers, the app, or any Python tool:
 
 - ✅ `poetry run pytest`
+- ✅ `doppler run --config dev -- poetry run pytest` (when the process needs secrets — see `doppler`)
 - ✅ `poetry run ruff check .`
 - ✅ `poetry run python -m <module>`
 - ❌ `pytest` (uses whatever Python is on PATH — wrong env, missing deps)
@@ -171,3 +169,5 @@ The Python version is pinned in `environment.yml` and reflected in `pyproject.to
 ## When in doubt
 
 Ask the human before deviating. A misconfigured environment is the single most common source of "works on my machine" bugs we hit.
+
+Secrets and `.env` are owned by the `doppler` skill, not this one.

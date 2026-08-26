@@ -1,0 +1,19 @@
+# One secret → the Doppler projects that actually read it.
+# Used by set-secret.sh. Do not put values here.
+SUPABASE_SERVICE_ROLE_KEY  simpl_outreach simpl_sales simpl_dashboard simpl_flow
+SUPABASE_URL  simpl_api simpl_outreach simpl_flow simpl_scraping simpl_growth simpl_ops simpl_google_extension
+SUPABASE_DB_PASSWORD  simpl_api simpl_outreach simpl_flow simpl_scraping simpl_growth simpl_ops simpl_google_extension
+PREFECT_API_KEY  simpl_flow simpl_outreach simpl_ops
+PREFECT_API_URL  simpl_flow simpl_outreach simpl_ops
+RESEND_API_KEY  simpl_api simpl_flow simpl_ops simpl_growth
+OPENAI_API_KEY  simpl_api simpl_outreach simpl_sales simpl_flow simpl_growth simpl_ops
+OPENROUTER_API_KEY  simpl_api simpl_outreach
+LANGFUSE_HOST  simpl_api simpl_outreach simpl_sales simpl_dashboard
+LANGFUSE_BASE_URL  simpl_api simpl_outreach simpl_sales simpl_dashboard
+LANGFUSE_SECRET_KEY  simpl_api simpl_outreach simpl_sales simpl_dashboard
+LANGFUSE_PUBLIC_KEY  simpl_api simpl_outreach simpl_sales simpl_dashboard
+SIMPL_API_TOKEN  simpl_sales simpl_dashboard
+SIMPL_API_BASE_URL  simpl_sales simpl_dashboard
+COMPOSIO_API_KEY  simpl_api simpl_sales simpl_ops simpl_growth
+STRIPE_SECRET_KEY  simpl_api simpl_sales
+STRIPE_WEBHOOK_SECRET  simpl_sales

@@ -9,8 +9,8 @@
     {
       "name": "simpl-standards",
       "source": "./plugins/simpl-standards",
-      "description": "Cross-cutting standards for all simpl projects: coding conventions, git workflow, testing policy, Python environment toolchain, repo docs and env-var consistency.",
-      "version": "0.9.0",
+      "description": "Cross-cutting standards for all simpl projects: coding conventions, git workflow, testing policy, Python environment toolchain, repo docs and env-var consistency, Doppler secrets.",
+      "version": "0.10.0",
       "keywords": ["standards", "conventions", "simpl"]
     },
     {

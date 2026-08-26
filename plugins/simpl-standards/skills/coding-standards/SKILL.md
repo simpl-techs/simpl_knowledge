@@ -1,6 +1,6 @@
 ---
 name: coding-standards
-description: simpl-wide coding conventions, style rules, and the engineering-principles HUB. ALWAYS consult this skill when writing, refactoring, or reviewing any code in our codebase, even if the user doesn't explicitly mention standards. Covers naming, formatting, project structure, imports, error handling, type hints, comments, documentation style, and "how do we write X at simpl". Also acts as the routing hub pointing to deeper standards skills (architecture-discipline, state-and-persistence, data-flow-discipline, testing-policy).
+description: simpl-wide coding conventions, style rules, and the engineering-principles HUB. ALWAYS consult this skill when writing, refactoring, or reviewing any code in our codebase, even if the user doesn't explicitly mention standards. Covers naming, formatting, project structure, imports, error handling, type hints, comments, documentation style, and "how do we write X at simpl". Also acts as the routing hub pointing to deeper standards skills (architecture-discipline, state-and-persistence, data-flow-discipline, testing-policy, doppler).
 ---
 
 # simpl coding standards
@@ -42,6 +42,7 @@ The hub never duplicates the deep skills — it points to them. Open the matchin
 | Writing or reviewing tests | `testing-policy` |
 | Anything that could already be an internal simpl library | `internal-libraries-awareness` |
 | Python env, dependencies, running tests | `python-environment` |
+| Secrets, `.env`, Doppler, Cloud Run / Vercel / Prefect env | `doppler` |
 | Branches, commits, PRs | `git-workflow` |
 
 If a decision spans more than one territory (it usually does), open all relevant skills before committing to an approach.
@@ -112,6 +113,7 @@ See `git-workflow` skill.
 
 - Never add a new runtime dependency without asking the human first.
 - Never write secrets or API keys in code, even placeholders like `"your-key-here"`.
+- Never commit `.env`. Never tell a developer to run `doppler login` — see `doppler`.
 - Never bypass existing abstractions (e.g. don't write raw SQL if the repository has an ORM layer).
 - Never use `any` / `# type: ignore` without a short comment explaining why.
 - Never duplicate code that already lives in the org — see `internal-libraries-awareness`.

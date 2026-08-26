@@ -24,6 +24,7 @@ ALWAYS_APPLY = {
     "architecture-discipline",
     "state-and-persistence",
     "data-flow-discipline",
+    "doppler",
 }
 
 for skill in pathlib.Path("plugins").rglob("SKILL.md"):

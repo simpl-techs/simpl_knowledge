@@ -75,6 +75,12 @@ L'agent deve citare lo skill `git-workflow`. Se non lo cita → [TROUBLESHOOTING
 
 ---
 
+## Segreti (Doppler)
+
+I secret del team stanno su Doppler, non in un `.env` pieno di chiavi. Installa la CLI Doppler. **Non** fare `doppler login` e **non** aprire la dashboard: chiedi a Raff, Iacopo o Flavio un token read-only `dev` per quel progetto, mettilo in `.env` come `DOPPLER_TOKEN`, poi `doppler run --config dev -- <comando>`. Dettaglio per agenti e maintainer: skill `doppler` in `simpl-standards`.
+
+---
+
 ## Aggiornamenti
 
 **Perché** il repo centrale (`simpl_knowledge`) cambia regole, skill e plugin: devi sapere **che cosa** si aggiorna **dove** e **cosa fare tu**.

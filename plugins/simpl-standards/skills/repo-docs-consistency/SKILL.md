@@ -32,6 +32,7 @@ When creating or updating docs in a repo, copy the structure from these files in
 | Python env / toolchain docs              | `simpl-standards` → `python-environment` skill                          |
 | Coding conventions referenced from docs  | `simpl-standards` → `coding-standards` skill                            |
 | Git/PR/commit conventions in docs        | `simpl-standards` → `git-workflow` skill                                |
+| Secrets / Doppler / `.env.example`       | `simpl-standards` → `doppler` skill                                     |
 
 If the repo is a Python library/service, it should look like `library-repo-template/` after cloning (use the `repo-context-bootstrap` skill to check drift).
 
@@ -83,8 +84,9 @@ Environment variables across simpl repos must use the same patterns:
   - one line explaining what it does,
   - whether it's required or optional,
   - the behavior when unset (if optional),
-  - an example value when non-obvious.
-- **Example file**: a `.env.example` at the repo root listing every var the README documents (no real secrets).
+  - an example value when non-obvious (never a real secret).
+- **Example file**: `.env.example` is minimal — `DOPPLER_TOKEN` (plus comments pointing at the README catalog). Shared secrets live in Doppler, not in a fill-in-the-blanks `.env`. See `doppler`.
+- **PR that adds an env var**: the PR must list for the maintainer (Raff / Iacopo / Flavio): name, purpose, required/optional, configs (`dev` and whether `stg`/`prd`). No secret values in the PR. Order: code → README / PR note → maintainer writes Doppler → publish (Vercel sync / Cloud Run revision / `prefect deploy`) → the author deletes those keys from local `.env`.
 - **No duplication**: if multiple services share a var (e.g. a base URL), the canonical name is set once and repos reuse it. Don't fork the name (`SIMPL_SALES_URL` vs `SALES_BASE_URL`) — propose a rename in simpl_knowledge first.
 
 Example (matching the canonical README pattern):
@@ -108,7 +110,7 @@ Same truth, different framing.
 ## Rules for agents
 
 - **Before editing any doc in a repo**, open the matching template in `simpl_knowledge` and mirror its structure. Don't free-style.
-- **When adding or renaming an env var**, update in this order: code → `.env.example` → `README.md` `## Environment Variables` → any `.agent/*.md` that mentions it → search the rest of the repo for stale references.
+- **When adding or renaming an env var**, update in this order: code → README `## Environment Variables` + PR maintainer block → `.env.example` stays `DOPPLER_TOKEN` unless the new key is a documented local-only exception → any `.agent/*.md` that mentions it → search the rest of the repo for stale references. Do not mark the PR done without the maintainer block (`doppler`).
 - **When you spot drift** (a section missing, an inconsistent name, agent docs out of sync with human docs), surface it to the human and offer to fix it in a `chore/` or `docs/` PR. Don't silently "fix" unrelated docs in a feature PR.
 - **When the template itself is wrong or incomplete**, propose the change in `simpl-techs/simpl_knowledge` first. Don't fork the convention in a downstream repo.
 - **Never** invent a new doc layout, section order, or env-var prefix without checking simpl_knowledge first.
@@ -116,7 +118,7 @@ Same truth, different framing.
 ## Quick checklist before merging a doc-touching PR
 
 - [ ] README sections match the template order.
-- [ ] All env vars the code reads are documented in `README.md` and present in `.env.example`.
+- [ ] All env vars the code reads are documented in `README.md`. `.env.example` is `DOPPLER_TOKEN` (not a dump of every secret). A new env var has a maintainer Doppler block in the PR.
 - [ ] Env-var names are `SCREAMING_SNAKE_CASE` and prefixed where needed.
 - [ ] `.agent/SKILL.md` and `.agent/INTERNAL.md` (if present) follow the frontmatter + body rules in `SKILL_AUTHORING.md`.
 - [ ] Human-facing and agent-facing docs agree on every concrete fact (env vars, install steps, public API).

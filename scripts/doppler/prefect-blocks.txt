@@ -1,0 +1,4 @@
+# Prefect Secret block name  token filename under TOKEN_DIR
+doppler-token-flow  simpl_flow-prd
+doppler-token-outreach  simpl_outreach-prd
+doppler-token-ops  simpl_ops-prd
