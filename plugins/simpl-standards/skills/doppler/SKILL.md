@@ -41,7 +41,7 @@ A PR that introduces an env var is **not done** without that maintainer block.
 
 Projects: `simpl_api`, `simpl_growth`, `simpl_ops`, `simpl_google_extension`, `simpl_flow`, `simpl_outreach`, `simpl_sales`, `simpl_dashboard`, `simpl_scraping`.
 
-Configs on each: `dev`, `dev_personal`, `stg`, `prd`.
+Configs on each: `dev`, `stg`, `prd`. Local always uses `dev`.
 
 ## Runtime
 
