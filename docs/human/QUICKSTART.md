@@ -48,18 +48,9 @@ Verifica accesso: `gh repo view simpl-techs/simpl_knowledge`.
 
 Lo script rileva da solo se hai Claude Code, Cursor o entrambi. È idempotente: rieseguilo per forzare un refresh.
 
-## Passo 2 — Solo se hai Claude Code
+## Passo 2 — Claude Code (già fatto dallo script)
 
-Apri una sessione Claude Code e incolla:
-
-```text
-/plugin marketplace add simpl-techs/simpl_knowledge
-/plugin install simpl-standards@simpl
-/plugin install simpl-memory@simpl
-/plugin install simpl-libraries@simpl
-```
-
-Questi comandi esistono solo dentro la sessione Claude Code, lo script non può eseguirli per te.
+`team-bootstrap.sh` aggiunge il marketplace, installa i tre plugin globali e accende `autoUpdate`. Non serve digitare `/plugin`.
 
 Gli **instinct owner** (`Len378`, `n3ural`, `not-Karot`, vedi `config/simpl.json`) usano `/extract-instincts` per catturare pattern dalla sessione; gli altri dev ricevono i pattern team-wide al SessionStart. Dettagli: [`team-instincts/README.md`](../../team-instincts/README.md).
 
@@ -87,29 +78,10 @@ I secret del team stanno su Doppler, non in un `.env` pieno di chiavi. Installa 
 
 | Strumento | Cosa si aggiorna “in automatico” | Cosa fai tu, quando, perché |
 |-----------|-----------------------------------|-----------------------------|
-| **Cursor** | L’hook globale `session-refresh` (schema: `hooks.sessionStart` come array) a ogni nuova chat fa fetch + `reset --hard` della cache git, sincronizza **`simpl-*.mdc`**, scrive `~/.simpl_knowledge/state.json` e inietta lo sha nel contesto sessione. | Se serve **subito**: `SIMPL_KNOWLEDGE_FORCE_REFRESH=1` o `bash scripts/doctor.sh` / `team-bootstrap.sh`; vedi [TROUBLESHOOTING.md](TROUBLESHOOTING.md). |
-| **Claude Code** | `simpl-standards` SessionStart esegue `plugin-refresh`: self-heal del clone marketplace (`reset --hard origin/main`) e avviso in-sessione se le versioni installate restano indietro. L’auto-update nativo di Claude aiuta solo se il clone non è divergente. | Quando l’hook avvisa (o dopo merge sull’hub): **`/plugin marketplace update`** poi `/plugin install <plugin>@simpl`. **Perché**: l’hook non riscrive la cache versionata dei plugin. |
+| **Cursor** | L’hook globale `session-refresh` a ogni nuova chat fa fetch + `reset --hard` della cache git e sincronizza **`simpl-*.mdc`** da `cursor-rules/` (commit CI) o dallo zip `cursor-rules-rolling`. | Se serve **subito**: `SIMPL_KNOWLEDGE_FORCE_REFRESH=1` o `bash scripts/doctor.sh` / `team-bootstrap.sh`. |
+| **Claude Code** | SessionStart `plugin-refresh`: self-heal del clone + `claude plugin update` se le versioni sono indietro. `autoUpdate: true` sul marketplace. Nuove versioni attive alla sessione successiva. | Niente. Se `doctor.sh` segnala ancora stale: `bash scripts/team-bootstrap.sh`. |
 
-Comando di riferimento in sessione Claude Code:
-
-```text
-/plugin marketplace update
-```
-
-### Attivare l’auto-update del marketplace `simpl` (Claude Code, una volta sola)
-
-Per non doverlo fare ogni volta a mano, abilita l’auto-update **dal menu plugin**:
-
-1. In sessione Claude Code esegui `/plugin` (apre la TUI).
-2. Vai sul tab **Marketplaces**.
-3. Seleziona **`simpl`** (il marketplace `simpl-techs/simpl_knowledge` aggiunto al Passo 2).
-4. Attiva **«Enable auto-update»**.
-
-Da quel momento, all’avvio di ogni sessione Claude Code la cache del marketplace viene aggiornata; le nuove versioni dei plugin entrano in vigore al **prossimo restart** del client. Per un refresh immediato resta valido `/plugin marketplace update`.
-
-[Unverified] La configurazione tramite `settings.json` non è (ancora) supportata: la richiesta è tracciata su [anthropics/claude-code#51350](https://github.com/anthropics/claude-code/issues/51350).
-
-**In sintesi:** Cursor → cache + `.mdc` aggiornati a ogni chat (sha-based); Claude Code → self-heal del clone + avviso se i plugin sono stale, poi `/plugin install …` quando richiesto.
+**In sintesi:** Cursor e Claude Code si aggiornano da soli. Unico comando per un PC nuovo: `bash scripts/team-bootstrap.sh`.
 
 ---
 
@@ -121,7 +93,7 @@ Da quel momento, all’avvio di ogni sessione Claude Code la cache del marketpla
    bash ~/.claude/plugins/cache/simpl_knowledge/library-repo-template/scripts/bootstrap.sh <repo-name>
    ```
 3. Compila `.agent/SKILL.md` (rimuovi i placeholder `REPLACE-ME`), commit, push.
-4. Al merge in `main`, il workflow `sync-skill-to-marketplace` apre PR sul repo centrale. Dopo il merge della PR, gli altri dev ricevono l'update con `/plugin marketplace update`.
+4. Al merge in `main`, il workflow `sync-skill-to-marketplace` apre PR sul repo centrale. Dopo il merge della PR, Cursor e Claude Code ricevono l’update alla sessione successiva.
 
 ---
 

@@ -21,15 +21,12 @@ alwaysApply: true
 ## Claude Code
 
 ```text
-/plugin marketplace add simpl-techs/simpl_knowledge
-/plugin install simpl-standards@simpl
-/plugin install simpl-memory@simpl
-/plugin install simpl-libraries@simpl
-/plugin install <lib>-context@simpl   # when task needs full integration SKILL
-/plugin marketplace update           # when prompted, or weekly
+bash scripts/team-bootstrap.sh
+# optional, when a task needs a full library SKILL:
+# /plugin install <lib>-context@simpl
 ```
 
-- **Auto-heal**: `simpl-standards` SessionStart runs `plugin-refresh.js` — `fetch` + `reset --hard` on `~/.claude/plugins/marketplaces/simpl`, then warns in-session if installed plugin versions lag `marketplace.json` (human still runs `/plugin install …`).
+- **Auto-heal**: `simpl-standards` SessionStart runs `plugin-refresh.js` — `fetch` + `reset --hard` on `~/.claude/plugins/marketplaces/simpl`, then `claude plugin update` when installed versions lag `marketplace.json`. New versions load next session.
 
 ## Cursor
 

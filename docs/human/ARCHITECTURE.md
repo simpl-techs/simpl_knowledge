@@ -60,7 +60,7 @@ Il developer riceve il contenuto in due modi:
 
 1. Nel repo della libreria, la **fonte pubblica** è `.agent/SKILL.md` (INTERNAL resta locale).
 2. Su merge in `main` che tocca `SKILL.md`, **`sync-skill-to-marketplace`** (dal template) crea/aggiorna il plugin `*-context` in **`simpl-techs/simpl_knowledge`** tramite PR.
-3. Dopo merge nel marketplace, i developer aggiornano con `/plugin marketplace update`; **Cursor** riceve le stesse informazioni come regole **`simpl-*.mdc`** dalla release **`cursor-rules-rolling`**.
+3. Dopo merge nel marketplace, **Claude Code** aggiorna i plugin al SessionStart (`plugin-refresh`) e **Cursor** sincronizza **`simpl-*.mdc`** da `cursor-rules/` (commit CI su `main`) o dalla release **`cursor-rules-rolling`**.
 4. **`catalog.md` / `catalog.json`** riassumono ogni `*-context` così gli agent evitano duplicazioni.
 
 ## Esempio concreto
@@ -71,7 +71,7 @@ Se il repo `simpl_tracker` cambia il modo corretto di tracciare eventi:
 2. merge su `main`;
 3. il workflow apre una PR su `simpl-techs/simpl_knowledge`;
 4. dopo merge, il plugin `simpl_tracker-context` e il catalogo vengono aggiornati;
-5. un developer fa `/plugin marketplace update`;
+5. alla sessione successiva, plugin Claude e regole Cursor sono già aggiornati;
 6. quando chiede all’agent di aggiungere tracking, l’agent sa usare `simpl_tracker` invece di inventare una soluzione nuova.
 
 ## Hook condivisi (Claude ↔ Cursor)

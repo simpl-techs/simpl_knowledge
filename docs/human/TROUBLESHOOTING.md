@@ -2,14 +2,14 @@
 
 Questa pagina parte dai sintomi più comuni. Prima di debuggare, ricorda la distinzione:
 
-- **Claude Code** usa marketplace e plugin (`/plugin marketplace add`, `/plugin install`, `/plugin marketplace update`).
+- **Claude Code** usa marketplace e plugin (installati da `team-bootstrap.sh`; SessionStart li aggiorna).
 - **Cursor** usa file `.mdc` in `~/.cursor/rules/` e hook in `~/.cursor/hooks.json`.
 - Entrambi leggono dalla cache locale `~/.claude/plugins/cache/simpl_knowledge`.
 
 | Sintomo | Cosa controllare |
 |---------|------------------|
 | `curl …team-bootstrap.sh` → 404 / errore 56 | Se hai già clonato il repo: `bash scripts/team-bootstrap.sh` dalla root. Altrimenti: repo privato (raw senza token), branch diverso da `main`, file non pushato. Alternativa: API GitHub + `gh auth token` (vedi [QUICKSTART](QUICKSTART.md)). Verifica: `gh repo view simpl-techs/simpl_knowledge`. |
-| L’agent non cita `git-workflow` | Hai aggiunto `/plugin marketplace add simpl-techs/simpl_knowledge`? Hai installato i tre plugin con **`@simpl`** (non `@simpl-techs`)? Prova `/plugin marketplace update` e riavvia la sessione Claude. |
+| L’agent non cita `git-workflow` | Riesegui `bash scripts/team-bootstrap.sh`. I tre plugin devono essere `…@simpl` (non `@simpl-techs`). Poi nuova sessione. |
 | “Marketplace not found” o clone fallisce | Connettività GitHub; per fork/staging imposta `SIMPL_KNOWLEDGE_REPO` (e opzionale `SIMPL_KNOWLEDGE_CACHE`) coerenti con quel remote e riesegui `team-bootstrap.sh`. |
 | Cursor senza regole `.mdc` | Esiste sul remoto la release **`cursor-rules-rolling`** / `cursor-rules.zip`? Altrimenti riesegui `team-bootstrap.sh` (fallback clone + `generate-cursor-rules.sh`; serve **PyYAML**). |
 | Cursor: regole ferme da giorni | Hook globale: `~/.cursor/hooks.json` deve avere `hooks.sessionStart` come **array** con `session-refresh` (eventi fuori da `hooks` sono ignorati). Forza: `SIMPL_KNOWLEDGE_FORCE_REFRESH=1` o `bash scripts/doctor.sh` / `team-bootstrap.sh`. Cache git: `~/.claude/plugins/cache/simpl_knowledge`. Solo **`simpl-*.mdc`** sono gestiti dall’org. |
@@ -60,17 +60,11 @@ command -v claude >/dev/null && claude --version || echo "Claude Code non in PAT
    /plugin list
    ```
 3. Devono comparire `simpl-standards`, `simpl-memory`, `simpl-libraries`.
-4. Se mancano:
-   ```text
-   /plugin marketplace add simpl-techs/simpl_knowledge
-   /plugin install simpl-standards@simpl
-   /plugin install simpl-memory@simpl
-   /plugin install simpl-libraries@simpl
+4. Se mancano o sono vecchi:
+   ```bash
+   bash scripts/team-bootstrap.sh
    ```
-5. Se sono presenti ma sembrano vecchi:
-   ```text
-   /plugin marketplace update
-   ```
+   Poi apri una nuova sessione Claude.
 
 ### Cursor non riceve le regole
 

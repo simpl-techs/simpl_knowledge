@@ -9,6 +9,8 @@ alwaysApply: true
 
 > **Auto-distributed via simpl_knowledge. Propose edits with a PR on `simpl-techs/simpl_knowledge`.**
 
+<!-- sync-test 2026-09-09 -->
+
 This skill is the **always-on hub**. It carries the universal engineering principles every contributor follows, plus a routing table to the deeper, scoped standards skills. Open the deep skill named here when you cross into its territory.
 
 ## Languages and stacks
@@ -44,6 +46,7 @@ The hub never duplicates the deep skills — it points to them. Open the matchin
 | Writing or reviewing tests | `testing-policy` |
 | Anything that could already be an internal simpl library | `internal-libraries-awareness` |
 | Python env, dependencies, running tests | `python-environment` |
+| Secrets, `.env`, Doppler, Cloud Run / Vercel / Prefect env | `doppler` |
 | Branches, commits, PRs | `git-workflow` |
 
 If a decision spans more than one territory (it usually does), open all relevant skills before committing to an approach.
@@ -114,6 +117,7 @@ See `git-workflow` skill.
 
 - Never add a new runtime dependency without asking the human first.
 - Never write secrets or API keys in code, even placeholders like `"your-key-here"`.
+- Never commit `.env`. Never tell a developer to run `doppler login` — see `doppler`.
 - Never bypass existing abstractions (e.g. don't write raw SQL if the repository has an ORM layer).
 - Never use `any` / `# type: ignore` without a short comment explaining why.
 - Never duplicate code that already lives in the org — see `internal-libraries-awareness`.

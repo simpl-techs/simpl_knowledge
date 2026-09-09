@@ -181,7 +181,7 @@ for name in core:
         print(f"  ✗ {name}: not installed (marketplace {want})")
         continue
     if cmp(have, want) < 0:
-        print(f"  ✗ {name}: installed {have} < marketplace {want} — /plugin install {name}@{mp_name}")
+        print(f"  ✗ {name}: installed {have} < marketplace {want} — plugin-refresh / claude plugin update {name}@{mp_name}")
     else:
         print(f"  ✓ {name}: installed {have} (marketplace {want})")
 PY

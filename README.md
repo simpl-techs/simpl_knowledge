@@ -6,7 +6,7 @@ Il problema che risolve è semplice: ogni repo ha convenzioni, librerie interne 
 
 In pratica contiene:
 
-- **Un marketplace Claude Code**: si aggiunge una volta con `/plugin marketplace add simpl-techs/simpl_knowledge` e poi si installano plugin con alias `@simpl`.
+- **Un marketplace Claude Code**: `team-bootstrap.sh` lo aggiunge e installa i plugin `@simpl`; le sessioni successive si aggiornano da sole.
 - **Regole Cursor**: gli stessi contenuti vengono convertiti in file `.mdc` e installati in `~/.cursor/rules/`.
 - **Un catalogo delle librerie interne**: `catalog.md` / `catalog.json` dicono all’agent quali librerie esistono e quando usarle.
 - **Un template per repo libreria**: ogni libreria può pubblicare il proprio `.agent/SKILL.md` dentro questo marketplace.

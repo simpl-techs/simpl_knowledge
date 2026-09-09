@@ -9,7 +9,7 @@ description: Token-efficient reference for agents about simpl_knowledge. Read wh
 - **Plugins**: `simpl-standards`, `simpl-memory`, `simpl-libraries` (all global defaults), `<repo>-context` (full SKILL per library when needed).
 - **Catalog**: `catalog.md` + `catalog.json` at repo root — summaries of every `*-context` plugin; agents consult via `simpl-libraries` / `internal-libraries-awareness` before duplicating org tooling.
 - **Truth**: Library integration text lives in **that library’s** `.agent/SKILL.md`; `simpl_knowledge` mirrors it under `plugins/<repo>-context/`.
-- **Cursor**: Consume `cursor-rules.zip` from release tag `cursor-rules-rolling` (not the git tree).
+- **Cursor**: `session-refresh` copies `simpl-*.mdc` from cache `cursor-rules/` (CI commits this on `main`); zip `cursor-rules-rolling` is the fallback.
 - **Memory path**: `~/.claude/simpl-memory/<repo>/instincts.jsonl`.
 - **Meta skill**: `simpl_knowledge_system` — explain full loop to users.
 - **Human docs** (longer): `docs/human/*.md` (Italian, onboarding).

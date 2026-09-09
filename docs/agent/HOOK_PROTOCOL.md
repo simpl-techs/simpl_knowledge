@@ -17,7 +17,7 @@ description: Normalized hook payload between Cursor and Claude Code for simpl_kn
 |--------|------|
 | `secret-scan.js` | `beforeShellExecution`, `afterFileEdit`, `beforeSubmitPrompt` → block obvious secrets (exit 2). |
 | `session-refresh.js` | `sessionStart` / SessionStart → fetch + `reset --hard` of simpl_knowledge cache, sync org `simpl-*.mdc`, write `~/.simpl_knowledge/state.json`, emit Cursor `additional_context` / Claude `additionalContext` with sha (or failure warning). |
-| `plugin-refresh.js` | Claude `simpl-standards` SessionStart → heal marketplace clone; warn when installed plugin versions lag. |
+| `plugin-refresh.js` | Claude `simpl-standards` SessionStart → heal marketplace clone; `claude plugin update` when installed versions lag. |
 | `repo-context-check.js` | After refresh (worker) or sync hook path (`--claude-session-hook`): compare repo to `library-repo-template/` when opted-in; write `.claude/.simpl-repo-report.json` on drift. |
 
 ## Adding a hook (DRY)

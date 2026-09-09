@@ -10,7 +10,7 @@
 | Chi | Cosa fa |
 |-----|---------|
 | **Platform / admin** | Possiede `simpl-techs/simpl_knowledge`: branch protection, CI verde, release `cursor-rules-rolling`, rotazione `SIMPL_KNOWLEDGE_PAT`, onboarding org su `DEEPSEEK_API_KEY`. Risponde se il bootstrap o lo zip delle regole falliscono per tutti. |
-| **Consumer (developer)** | Esegue `team-bootstrap.sh`, aggiunge marketplace e installa `simpl-standards`, `simpl-memory`, `simpl-libraries` con `@simpl`. Consulta `catalog.md` prima di nuove integrazioni. Settimanale: `/plugin marketplace update`. |
+| **Consumer (developer)** | Esegue `team-bootstrap.sh` (marketplace + plugin + regole). Consulta `catalog.md` prima di nuove integrazioni. Update automatici a ogni sessione. |
 | **Maintainer libreria** | Mantiene `.agent/SKILL.md` e `INTERNAL.md`; usa `/update-skill` quando cambia la superficie pubblica; review delle PR aperte da `auto-update-skill` o dal bot di sync. |
 | **Bot / automazioni** | Apre PR di sync verso `simpl-techs/simpl_knowledge` e bozze skill; **nessun merge automatico** su contenuto sensibile — serve review umana. |
 
@@ -19,10 +19,8 @@
 Un developer che vuole solo usare gli agent non deve capire tutto il sistema. Deve:
 
 1. eseguire `team-bootstrap.sh`;
-2. installare in Claude Code i tre plugin globali;
-3. aggiornare periodicamente con `/plugin marketplace update`;
-4. fidarsi del catalogo quando l’agent segnala che esiste una libreria interna;
-5. chiedere a un maintainer se il catalogo sembra mancare una libreria.
+2. fidarsi del catalogo quando l’agent segnala che esiste una libreria interna;
+3. chiedere a un maintainer se il catalogo sembra mancare una libreria.
 
 ## Cosa fa un maintainer di libreria
 

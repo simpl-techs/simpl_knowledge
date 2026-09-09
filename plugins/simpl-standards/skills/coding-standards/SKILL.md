@@ -7,6 +7,8 @@ description: simpl-wide coding conventions, style rules, and the engineering-pri
 
 > **Auto-distributed via simpl_knowledge. Propose edits with a PR on `simpl-techs/simpl_knowledge`.**
 
+<!-- sync-test 2026-09-09 -->
+
 This skill is the **always-on hub**. It carries the universal engineering principles every contributor follows, plus a routing table to the deeper, scoped standards skills. Open the deep skill named here when you cross into its territory.
 
 ## Languages and stacks

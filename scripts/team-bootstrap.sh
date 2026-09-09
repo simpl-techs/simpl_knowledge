@@ -87,30 +87,58 @@ fi
 echo
 
 # --- 2. Claude Code: marketplace + plugins --------------------------------
+enable_claude_autoupdate() {
+  python3 - "$MARKETPLACE_REPO" <<'PY'
+import json, sys
+from pathlib import Path
+
+repo = sys.argv[1]
+home = Path.home()
+settings_path = home / ".claude" / "settings.json"
+known_path = home / ".claude" / "plugins" / "known_marketplaces.json"
+
+settings = {}
+if settings_path.exists():
+    settings = json.loads(settings_path.read_text())
+ekm = settings.setdefault("extraKnownMarketplaces", {})
+entry = ekm.setdefault("simpl", {})
+entry["source"] = {"source": "github", "repo": repo}
+entry["autoUpdate"] = True
+enabled = settings.setdefault("enabledPlugins", {})
+for name in ("simpl-standards@simpl", "simpl-memory@simpl", "simpl-libraries@simpl"):
+    enabled[name] = True
+settings_path.parent.mkdir(parents=True, exist_ok=True)
+settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+if known_path.exists():
+    known = json.loads(known_path.read_text())
+    if isinstance(known.get("simpl"), dict):
+        known["simpl"]["autoUpdate"] = True
+        known_path.write_text(json.dumps(known, indent=2) + "\n")
+PY
+}
+
 if [ "$HAS_CLAUDE" = "true" ]; then
   say "2. Claude Code configuration"
 
-  # Claude Code's plugin config lives at ~/.claude/plugins/
   CLAUDE_PLUGINS_DIR="${HOME}/.claude/plugins"
   MARKETPLACE_CACHE="${CLAUDE_PLUGINS_DIR}/cache/${MARKETPLACE_REPO##*/}"
 
-  if [ ! -d "$MARKETPLACE_CACHE" ]; then
-    say "   Adding marketplace: ${MARKETPLACE_REPO}"
-    cat <<EOF
-   Run this inside a Claude Code session to complete the install:
-
-       /plugin marketplace add ${MARKETPLACE_REPO}
-$(for p in "${DEFAULT_PLUGINS[@]}"; do echo "       /plugin install ${p}@${MARKETPLACE_NAME}"; done)
-
-   For project-specific integration plugins, install as needed:
-$(for p in "${OPTIONAL_PLUGINS[@]}"; do echo "       /plugin install ${p}@${MARKETPLACE_NAME}"; done)
-EOF
-    echo
-  else
+  if [ -d "$MARKETPLACE_CACHE/.git" ]; then
     ok "Marketplace cache exists: ${MARKETPLACE_CACHE}"
     say "   Refreshing..."
     run "cd '$MARKETPLACE_CACHE' && git pull --quiet origin main 2>/dev/null || true"
   fi
+
+  say "   Installing marketplace + core plugins via Claude CLI"
+  run "claude plugin marketplace add ${MARKETPLACE_REPO} --scope user || true"
+  if [ "$DRY_RUN" != "true" ]; then
+    enable_claude_autoupdate
+  fi
+  for p in "${DEFAULT_PLUGINS[@]}"; do
+    run "claude plugin install ${p}@${MARKETPLACE_NAME} --scope user || claude plugin update ${p}@${MARKETPLACE_NAME} --scope user || true"
+  done
+  ok "   Core plugins + autoUpdate=true"
   echo
 fi
 
@@ -198,24 +226,19 @@ cat <<'EOF'
 
 Next steps:
 
-  1. Inside Claude Code, run:
-        /plugin marketplace add simpl-techs/simpl_knowledge
-        /plugin install simpl-standards@simpl
-        /plugin install simpl-memory@simpl
-        /plugin install simpl-libraries@simpl
-
-  2. In any project, ask your agent:
+  1. In any project, ask your agent:
         "How do we write commit messages here?"
      It should cite the git-workflow skill.
 
-  3. Per-project integration plugins: your agent reads `catalog.md` (via `simpl-libraries`) and suggests installs, e.g.:
+  2. Per-project integration plugins: your agent reads `catalog.md` (via `simpl-libraries`) and suggests installs, e.g.:
         /plugin install simpl_tracker-context@simpl
 
-  4. On a library repo you maintain (after marketplace cache exists):
+  3. On a library repo you maintain (after marketplace cache exists):
         bash ~/.claude/plugins/cache/simpl_knowledge/library-repo-template/scripts/bootstrap.sh <repo-name>
      Or ask the agent: /bootstrap-repo-context
 
-Weekly: /plugin marketplace update (Claude Code; SessionStart also self-heals the marketplace clone and warns if plugins are stale)
-Cursor: sessionStart runs session-refresh (sha-based; emits rule version into context). Diagnose with: bash scripts/doctor.sh
+Cursor: sessionStart runs session-refresh (sha-based; emits rule version into context).
+Claude Code: SessionStart plugin-refresh updates stale plugins; marketplace autoUpdate is on.
+Diagnose: bash scripts/doctor.sh
 Force: SIMPL_KNOWLEDGE_FORCE_REFRESH=1 or re-run this bootstrap.
 EOF

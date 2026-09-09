@@ -8,7 +8,7 @@
 | Cos’è `simpl_knowledge`? | È il bundle che distribuisce contesto agli agenti: plugin Claude Code, regole Cursor, catalogo librerie, template repo e hook condivisi. |
 | È codice runtime della nostra app? | No. Non va importato dal backend o frontend. Serve agli strumenti agentici e ai workflow CI che pubblicano knowledge. |
 | Dove installo i plugin? | Claude Code usa `/plugin`. Cursor non usa plugin Claude: riceve regole `.mdc` tramite `team-bootstrap.sh` e release `cursor-rules-rolling`. |
-| Devo committare `cursor-rules/`? | No: sono nel **release asset**, non su `main` del bundle (salvo eccezioni di tooling). |
+| Devo committare `cursor-rules/`? | Sì, via CI: `release-cursor-rules.yml` rigenera e committa `cursor-rules/` (incluso `.version`) su `main`, e pubblica anche lo zip `cursor-rules-rolling`. Non editare gli `.mdc` a mano. |
 
 ## Plugin
 
@@ -34,6 +34,6 @@
 
 | Domanda | Risposta breve |
 |---------|----------------|
-| Come ricevo update in Claude Code? | `/plugin marketplace update`, poi nuova sessione se vuoi essere sicuro che le skill vengano ricaricate. |
+| Come ricevo update in Claude Code? | Automatico: SessionStart `plugin-refresh` + `autoUpdate`. Nuove versioni attive alla sessione successiva. |
 | Come ricevo update in Cursor? | L’hook `session-refresh` aggiorna cache e regole `simpl-*.mdc` a ogni nuova chat (skip se lo sha non è cambiato). Per forzare: `SIMPL_KNOWLEDGE_FORCE_REFRESH=1` o `bash scripts/doctor.sh` / `team-bootstrap.sh`. |
 | Dove sono i file locali? | Cache marketplace: `~/.claude/plugins/cache/simpl_knowledge`. Regole Cursor: `~/.cursor/rules/simpl-*.mdc`. Instinct locali: `~/.claude/simpl-memory/<repo>/`. |

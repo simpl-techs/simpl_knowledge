@@ -1,16 +1,15 @@
 #!/usr/bin/env node
 /**
- * Keep in sync with: simpl_knowledge/scripts/shared-hooks/plugin-refresh.js
+ * Keep in sync with: plugins/simpl-standards/scripts/hooks/plugin-refresh.js
  *
- * plugin-refresh.js — Claude Code SessionStart: self-heal the marketplace git clone
- * and warn when installed plugin versions lag marketplace.json.
- *
- * Does NOT rewrite ~/.claude/plugins/installed_plugins.json or copy into the
- * versioned plugin cache — that remains a human `/plugin marketplace update`
- * + reinstall step. This hook only:
+ * plugin-refresh.js — Claude Code SessionStart:
  *   1. git fetch + reset --hard origin/main on the marketplace clone
- *   2. compare installed versions vs marketplace manifest
- *   3. emit additionalContext when stale
+ *   2. compare installed versions vs marketplace.json
+ *   3. when stale, run `claude plugin update` (or install if missing)
+ *   4. emit additionalContext (updated plugins apply next session)
+ *
+ * Fail-open: never blocks the IDE. Errors go to
+ * ~/.simpl_knowledge/plugin-refresh.log with stack.
  *
  * Output: Claude SessionStart JSON with hookSpecificOutput.additionalContext.
  */
@@ -22,6 +21,7 @@ const { execFileSync } = require('node:child_process');
 
 const MARKETPLACE_NAME = process.env.SIMPL_MARKETPLACE_NAME || 'simpl';
 const CORE_PLUGINS = ['simpl-standards', 'simpl-memory', 'simpl-libraries'];
+const CLAUDE_TIMEOUT_MS = 55_000;
 
 function home() {
   return os.homedir();
@@ -38,6 +38,10 @@ function installedPluginsPath() {
   return path.join(home(), '.claude', 'plugins', 'installed_plugins.json');
 }
 
+function logPath() {
+  return path.join(home(), '.simpl_knowledge', 'plugin-refresh.log');
+}
+
 function appendLog(message, err) {
   try {
     const dir = path.join(home(), '.simpl_knowledge');
@@ -47,9 +51,9 @@ function appendLog(message, err) {
       err && (err.stack || String(err)),
       '',
     ].filter(Boolean);
-    fs.appendFileSync(path.join(dir, 'refresh.log'), lines.join('\n'));
+    fs.appendFileSync(logPath(), lines.join('\n'));
   } catch {
-    /* ignore */
+    /* ignore logging failures */
   }
   console.error(`[simpl-hooks] plugin-refresh: ${message}`);
   if (err) console.error(err.stack || err);
@@ -60,6 +64,26 @@ function git(cwd, args) {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   }).trim();
+}
+
+function claudeBin() {
+  if (process.env.CLAUDE_BIN) return process.env.CLAUDE_BIN;
+  try {
+    return execFileSync('which', ['claude'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return 'claude';
+  }
+}
+
+function runClaude(args) {
+  return execFileSync(claudeBin(), args, {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: CLAUDE_TIMEOUT_MS,
+  });
 }
 
 function healMarketplaceClone(cloneDir) {
@@ -101,7 +125,6 @@ function readInstalledVersions() {
     const out = {};
     const plugins = j.plugins || {};
     for (const [key, entries] of Object.entries(plugins)) {
-      // key like "simpl-standards@simpl"
       const name = key.split('@')[0];
       const list = Array.isArray(entries) ? entries : [entries];
       const latest = list[0];
@@ -144,6 +167,18 @@ function findStale(marketplaceVersions, installedVersions) {
   return stale;
 }
 
+function updateOrInstallPlugin(stale) {
+  const spec = `${stale.name}@${MARKETPLACE_NAME}`;
+  const action = stale.have ? 'update' : 'install';
+  try {
+    runClaude(['plugin', action, spec, '--scope', 'user']);
+    return { ok: true };
+  } catch (e) {
+    appendLog(`claude plugin ${action} ${spec} failed`, e);
+    return { ok: false, reason: e.message || String(e) };
+  }
+}
+
 function emit(additionalContext) {
   const sanitized = String(additionalContext)
     .replace(/[^\n\r\t\x20-\x7E]/g, '')
@@ -165,7 +200,7 @@ function main() {
 
   if (!heal.ok) {
     lines.push(
-      `[simpl_knowledge] WARNING: could not refresh Claude marketplace clone (${heal.reason}). Run: /plugin marketplace update`,
+      `[simpl_knowledge] WARNING: could not refresh Claude marketplace clone (${heal.reason}). See ~/.simpl_knowledge/plugin-refresh.log`,
     );
   } else {
     lines.push(`[simpl_knowledge] marketplace clone @ ${heal.sha.slice(0, 12)}`);
@@ -176,16 +211,33 @@ function main() {
   const stale = findStale(marketplaceVersions, installedVersions);
 
   if (stale.length > 0) {
-    lines.push('[simpl_knowledge] WARNING: Claude plugins are behind the marketplace. Update with:');
-    lines.push('  /plugin marketplace update');
+    try {
+      runClaude(['plugin', 'marketplace', 'update', MARKETPLACE_NAME]);
+    } catch (e) {
+      appendLog('claude plugin marketplace update failed', e);
+    }
+    const updated = [];
+    const failed = [];
     for (const s of stale) {
+      const result = updateOrInstallPlugin(s);
+      if (result.ok) {
+        updated.push(`${s.name} ${s.have || 'missing'} -> ${s.want}`);
+      } else {
+        failed.push(`${s.name}: ${result.reason}`);
+      }
+    }
+    if (updated.length) {
+      lines.push('[simpl_knowledge] Claude plugins updated (active next session):');
+      for (const u of updated) lines.push(`  ${u}`);
+    }
+    if (failed.length) {
       lines.push(
-        `  /plugin install ${s.name}@${MARKETPLACE_NAME}   # installed ${s.have || 'missing'} → ${s.want}`,
+        '[simpl_knowledge] WARNING: plugin auto-update failed. See ~/.simpl_knowledge/plugin-refresh.log',
       );
+      for (const f of failed) lines.push(`  ${f}`);
     }
   }
 
-  // Only inject when there is something actionable or a heal confirmation with stale plugins.
   if (stale.length > 0 || !heal.ok) {
     emit(lines.join('\n'));
   }

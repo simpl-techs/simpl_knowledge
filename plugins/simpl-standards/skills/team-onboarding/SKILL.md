@@ -50,14 +50,7 @@ curl -fsSL https://raw.githubusercontent.com/simpl-techs/simpl_knowledge/main/sc
 
 If `curl` returns 404, the repo is likely **private** — use the local `bash scripts/team-bootstrap.sh` path or pipe from the GitHub API with `gh auth token` (see `docs/human/QUICKSTART.md`).
 
-Then, inside Claude Code (ask the user to do this in a new session or tell them to copy-paste):
-
-```
-/plugin marketplace add simpl-techs/simpl_knowledge
-/plugin install simpl-standards@simpl
-/plugin install simpl-memory@simpl
-/plugin install simpl-libraries@simpl
-```
+`team-bootstrap.sh` installs the three global Claude plugins via CLI and sets `autoUpdate: true`. The human does not type `/plugin` commands.
 
 ### Case B: Partial install
 Only some pieces present. Install the missing ones explicitly — don't blindly re-run bootstrap, show the user exactly what will change.
@@ -122,7 +115,7 @@ End with:
 
 > "You're set up. Test it: in any project, ask your agent 'how do we write commit messages here?' — it should reference our git-workflow skill. If it doesn't, ping me (the onboarder) and we'll diagnose.
 >
-> Cursor refreshes org rules on each new chat via `sessionStart`. Claude SessionStart self-heals the marketplace clone and warns if plugins are stale — then run `/plugin marketplace update` and reinstall the named plugins. Diagnose anytime with `bash scripts/doctor.sh`."
+> Cursor refreshes org rules on each new chat via `sessionStart`. Claude SessionStart self-heals the marketplace clone and updates stale plugins. Diagnose anytime with `bash scripts/doctor.sh`."
 
 ## Rules
 

@@ -18,13 +18,34 @@ echo "=== simpl_knowledge installer ==="
 echo
 
 if command -v claude >/dev/null 2>&1; then
-  echo "✓ Claude Code detected."
-  echo "  In Claude Code:"
-  echo "     /plugin marketplace add ${MARKETPLACE_REPO}"
-  echo "     /plugin install simpl-standards@simpl"
-  echo "     /plugin install simpl-memory@simpl"
-  echo "     /plugin install simpl-libraries@simpl"
-  echo
+  echo "✓ Claude Code detected — installing marketplace + core plugins"
+  claude plugin marketplace add "${MARKETPLACE_REPO}" --scope user || true
+  python3 - "${MARKETPLACE_REPO}" <<'PY'
+import json, sys
+from pathlib import Path
+repo = sys.argv[1]
+home = Path.home()
+settings_path = home / ".claude" / "settings.json"
+known_path = home / ".claude" / "plugins" / "known_marketplaces.json"
+settings = json.loads(settings_path.read_text()) if settings_path.exists() else {}
+ekm = settings.setdefault("extraKnownMarketplaces", {})
+entry = ekm.setdefault("simpl", {})
+entry["source"] = {"source": "github", "repo": repo}
+entry["autoUpdate"] = True
+enabled = settings.setdefault("enabledPlugins", {})
+for name in ("simpl-standards@simpl", "simpl-memory@simpl", "simpl-libraries@simpl"):
+    enabled[name] = True
+settings_path.parent.mkdir(parents=True, exist_ok=True)
+settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+if known_path.exists():
+    known = json.loads(known_path.read_text())
+    if isinstance(known.get("simpl"), dict):
+        known["simpl"]["autoUpdate"] = True
+        known_path.write_text(json.dumps(known, indent=2) + "\n")
+PY
+  for p in simpl-standards simpl-memory simpl-libraries; do
+    claude plugin install "${p}@simpl" --scope user || claude plugin update "${p}@simpl" --scope user || true
+  done
   echo "  Per-project integration plugins (agent suggests from catalog), e.g.:"
   echo "     /plugin install simpl_tracker-context@simpl"
   echo
@@ -81,7 +102,7 @@ cat <<EOF
 === Refresh behavior ===
 
   Cursor: global sessionStart → session-refresh (sha-based; hooks.sessionStart must be an array under hooks).
-  Claude Code: SessionStart plugin-refresh self-heals the marketplace clone and warns if plugin versions lag.
+  Claude Code: SessionStart plugin-refresh self-heals the marketplace clone and updates stale plugins.
   Diagnose: bash scripts/doctor.sh (from a simpl_knowledge clone).
 
 Test: ask the agent how commit messages work (git-workflow).
