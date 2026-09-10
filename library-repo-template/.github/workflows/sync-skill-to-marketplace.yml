@@ -24,16 +24,16 @@ jobs:
 
     steps:
       - name: Checkout this repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: source
 
       - name: Checkout simpl_knowledge
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: simpl-techs/simpl_knowledge
-          token: ${{ secrets.SIMPL_KNOWLEDGE_PAT }}
           path: marketplace
+          token: ${{ secrets.SIMPL_KNOWLEDGE_PAT || github.token }}
 
       - name: Apply SKILL + semver + provenance
         env:
@@ -52,6 +52,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.SIMPL_KNOWLEDGE_PAT }}
         run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::error::Missing Actions secret SIMPL_KNOWLEDGE_PAT (needed to push the sync PR). See docs/human/ADMIN_SETUP.md."
+            exit 1
+          fi
           REPO_NAME="${GITHUB_REPOSITORY##*/}"
           BRANCH="sync/${REPO_NAME}-$(date +%s)"
 

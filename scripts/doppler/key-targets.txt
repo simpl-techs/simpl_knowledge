@@ -17,3 +17,6 @@ SIMPL_API_BASE_URL  simpl_sales simpl_dashboard
 COMPOSIO_API_KEY  simpl_api simpl_sales simpl_ops simpl_growth
 STRIPE_SECRET_KEY  simpl_api simpl_sales
 STRIPE_WEBHOOK_SECRET  simpl_sales
+DISCORD_ERROR_WEBHOOK_URL  simpl_api simpl_outreach simpl_flow
+DISCORD_WARNING_WEBHOOK_URL  simpl_api simpl_outreach simpl_flow
+DISCORD_SUCCESS_WEBHOOK_URL  simpl_api simpl_outreach simpl_flow
