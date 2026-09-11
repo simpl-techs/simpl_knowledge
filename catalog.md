@@ -1,8 +1,16 @@
 # simpl internal libraries catalog
 
-Auto-generated at `2026-05-20T10:48:39.591Z`. Do not edit by hand — run `node scripts/ci/generate-catalog.js` or merge a library sync PR.
+Auto-generated at `2026-09-11T09:51:03.614Z`. Do not edit by hand — run `node scripts/ci/generate-catalog.js` or merge a library sync PR.
 
 Each entry summarizes an integration plugin (`*-context`). Install the plugin in Claude Code for the full SKILL. Until then, use this file to decide whether a library fits the current task.
+
+## simpl_api-context
+
+- **Skill**: `simpl_api`
+- **Summary**: simpl_api integration guide
+- **When to use**: Use this skill whenever the user asks about the simpl FastAPI backend, API routes, customer/admin endpoints, agent endpoints, prompt templates, exports, webhooks, background jobs, or code that calls `simpl_api` service behavior. This is primarily an app/service repo, not a reusable library.
+- **Install full context (Claude Code)**: `/plugin install simpl_api-context@simpl`
+- **Skill path in cache**: `~/.claude/plugins/cache/simpl_knowledge/plugins/simpl_api-context/skills/`
 
 ## simpl_sales-context
 
