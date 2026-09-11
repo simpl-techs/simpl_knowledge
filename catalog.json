@@ -1,7 +1,15 @@
 {
-  "generated_at": "2026-05-20T10:48:39.591Z",
+  "generated_at": "2026-09-11T09:51:03.614Z",
   "marketplace_alias": "simpl",
   "libraries": [
+    {
+      "plugin": "simpl_api-context",
+      "skill_name": "simpl_api",
+      "summary": "simpl_api integration guide",
+      "when_to_use": "Use this skill whenever the user asks about the simpl FastAPI backend, API routes, customer/admin endpoints, agent endpoints, prompt templates, exports, webhooks, background jobs, or code that calls `simpl_api` service behavior. This is primarily an app/service repo, not a reusable library.",
+      "required_when": null,
+      "plugin_install_command": "/plugin install simpl_api-context@simpl"
+    },
     {
       "plugin": "simpl_sales-context",
       "skill_name": "simpl-sales",
