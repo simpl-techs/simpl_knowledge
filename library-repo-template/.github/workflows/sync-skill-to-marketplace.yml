@@ -79,6 +79,8 @@ jobs:
             echo
             echo "Upstream: https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
           } > "$BODY"
+          gh label create "auto-sync" --description "Automated SKILL.md sync from a library repo" --color "0E8A16" --force
+          gh label create "upstream:${REPO_NAME}" --description "Synced from ${REPO_NAME}" --color "1D76DB" --force
           gh pr create \
             --title "sync(${REPO_NAME}): SKILL.md update from ${GITHUB_SHA:0:7}" \
             --body-file "$BODY" \
