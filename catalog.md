@@ -1,6 +1,6 @@
 # simpl internal libraries catalog
 
-Auto-generated at `2026-09-11T09:51:03.614Z`. Do not edit by hand — run `node scripts/ci/generate-catalog.js` or merge a library sync PR.
+Auto-generated at `2026-09-13T10:07:15.047Z`. Do not edit by hand — run `node scripts/ci/generate-catalog.js` or merge a library sync PR.
 
 Each entry summarizes an integration plugin (`*-context`). Install the plugin in Claude Code for the full SKILL. Until then, use this file to decide whether a library fits the current task.
 
@@ -11,6 +11,14 @@ Each entry summarizes an integration plugin (`*-context`). Install the plugin in
 - **When to use**: Use this skill whenever the user asks about the simpl FastAPI backend, API routes, customer/admin endpoints, agent endpoints, prompt templates, exports, webhooks, background jobs, or code that calls `simpl_api` service behavior. This is primarily an app/service repo, not a reusable library.
 - **Install full context (Claude Code)**: `/plugin install simpl_api-context@simpl`
 - **Skill path in cache**: `~/.claude/plugins/cache/simpl_knowledge/plugins/simpl_api-context/skills/`
+
+## simpl_core-context
+
+- **Skill**: `simpl_core`
+- **Summary**: simpl_core integration guide
+- **When to use**: Use this skill whenever the user asks about shared simpl platform domain logic, autopilot services, CRM/email/reports services, or code that imports `simpl_core`. ALWAYS consult this skill before adding duplicated business logic in app repos that could belong in `simpl_core`.
+- **Install full context (Claude Code)**: `/plugin install simpl_core-context@simpl`
+- **Skill path in cache**: `~/.claude/plugins/cache/simpl_knowledge/plugins/simpl_core-context/skills/`
 
 ## simpl_sales-context
 
