@@ -84,6 +84,17 @@
         "integration",
         "simpl"
       ]
+    },
+    {
+      "name": "simpl_core-context",
+      "source": "./plugins/simpl_core-context",
+      "description": "Integration context for simpl_core. Auto-synced from simpl-techs/simpl_core.",
+      "version": "1.0.1",
+      "keywords": [
+        "simpl_core",
+        "integration",
+        "simpl"
+      ]
     }
   ]
 }
