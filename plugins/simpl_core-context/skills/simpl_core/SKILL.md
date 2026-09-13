@@ -13,6 +13,12 @@ description: |
 
 `simpl_core` is the shared Python business layer for the simpl platform. It contains reusable domain models, repositories, and services for autopilot, outreach, CRM, email, notifications, reports, ROI / capital allocation (`simpl_core.roi`), and related platform workflows.
 
+Request accounting uses the coordinated tracker migration and library release.
+`simpl_ia` captures each model response; `simpl_core` binds agent/node/pipeline
+and business attribution. `track_cost` suppresses duplicate run aggregates when
+request evidence exists. Unknown prices remain visible; never synthesize costs
+from an unmatched provider-export difference.
+
 ## Installation
 
 ```bash
