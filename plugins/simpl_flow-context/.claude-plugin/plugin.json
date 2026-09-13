@@ -1,0 +1,12 @@
+{
+  "name": "simpl_flow-context",
+  "version": "1.0.1",
+  "description": "Integration context for simpl_flow. Auto-synced from simpl-techs/simpl_flow.",
+  "author": {
+    "name": "simpl_flow maintainers"
+  },
+  "keywords": [
+    "simpl_flow",
+    "integration"
+  ]
+}

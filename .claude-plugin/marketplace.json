@@ -95,6 +95,17 @@
         "integration",
         "simpl"
       ]
+    },
+    {
+      "name": "simpl_flow-context",
+      "source": "./plugins/simpl_flow-context",
+      "description": "Integration context for simpl_flow. Auto-synced from simpl-techs/simpl_flow.",
+      "version": "1.0.1",
+      "keywords": [
+        "simpl_flow",
+        "integration",
+        "simpl"
+      ]
     }
   ]
 }
