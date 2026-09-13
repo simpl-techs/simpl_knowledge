@@ -1,5 +1,5 @@
 ---
-description: "Explains how simpl org shares agent context via simpl_knowledge (Claude Code marketplace + Cursor rules + optional simpl-memory). ALWAYS consult when the user asks how this setup works, what skills ex"
+description: "Explains how simpl org shares agent context via simpl_knowledge (Claude Code marketplace + Cursor rules + Codex skills + optional simpl-memory). ALWAYS consult when the user asks how this setup works,"
 globs: "**/*"
 alwaysApply: true
 ---
@@ -32,7 +32,15 @@ bash scripts/team-bootstrap.sh
 
 - Rules ship as **`cursor-rules-rolling`** release zip (built from SKILL.md; includes `.version` stamp). Install via `scripts/team-bootstrap.sh` or `scripts/install-team.sh`.
 - **Hooks (DRY with Claude Code)**: add new logic once under `simpl_knowledge/scripts/shared-hooks/<name>.js`. Register Cursor events in `.cursor/hooks.json` **under `hooks` as arrays** (`node …/adapter.js <name>`). Global `sessionStart` → `session-refresh` is merged by `install-cursor-global-hooks.sh` (also copies `shared-hooks` to `~/.cursor/hooks/shared-hooks/`).
-- **Auto-refresh**: each new Cursor chat runs `session-refresh` (fetch + `reset --hard` on the git cache, sync `simpl-*.mdc`, write `~/.simpl_knowledge/state.json`, inject `additional_context` with the active sha). Diagnose with `bash scripts/doctor.sh`.
+- **Hook self-update**: `session-refresh` re-copies `shared-hooks/*.js` and `adapter.js` from the cache each run, so changed hook code reaches a machine without re-running the bootstrap (active from the next session). Registering a *new event* still needs `install-cursor-global-hooks.sh`.
+- **Auto-refresh**: each new Cursor chat runs `session-refresh` (fetch + `reset --hard` on the git cache, sync `simpl-*.mdc`, sync Codex skills, write `~/.simpl_knowledge/state.json`, inject `additional_context` with the active sha). Diagnose with `bash scripts/doctor.sh`.
+
+## Codex
+
+- Skills: every `plugins/*/skills/<name>` in the cache is symlinked into `~/.agents/skills` and `~/.codex/skills` (both Codex global skill dirs), so Codex sees the org standards *and* every `<lib>-context` skill without a plugin install.
+- Instructions: `~/.codex/AGENTS.md` holds a block between `<!-- simpl_knowledge:start -->` / `:end` markers listing the always-on skills. Text outside the markers is the developer's own and is never touched.
+- Wiring: `sync-codex-knowledge.js` (shared hook) runs from `team-bootstrap.sh` / `install-team.sh` and again from every `session-refresh`. Because skills are symlinks, a cache refresh updates their content with no re-link.
+- The always-on list is derived from `cursor-rules/*.mdc` frontmatter (`alwaysApply: true`) — one source of truth across the three harnesses.
 
 ## Update loop (library)
 

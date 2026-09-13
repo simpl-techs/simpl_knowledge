@@ -1,5 +1,5 @@
 ---
-description: "Guide new team members through the full setup of simpl_knowledge (marketplace, plugins, Cursor rules, memory, AgentShield). Use when a user says "set me up", "install the simpl config", "onboard me", "
+description: "Guide new team members through the full setup of simpl_knowledge (marketplace, plugins, Cursor rules, Codex skills, memory, AgentShield). Use when a user says "set me up", "install the simpl config", "
 globs: "**/*.py,**/*.ts,**/*.tsx,**/*.js"
 alwaysApply: false
 ---
@@ -17,6 +17,7 @@ Before suggesting anything, run:
 # What tools are installed?
 command -v claude && claude --version || echo "Claude Code NOT installed"
 command -v cursor || [ -d ~/.cursor ] && echo "Cursor detected" || echo "Cursor NOT detected"
+command -v codex || [ -d ~/.codex ] && echo "Codex detected" || echo "Codex NOT detected"
 command -v node && node --version || echo "Node NOT installed"
 
 # Is the marketplace already added?
@@ -24,6 +25,10 @@ command -v node && node --version || echo "Node NOT installed"
 
 # Any Cursor rules already installed?
 ls ~/.cursor/rules/*.mdc 2>/dev/null | wc -l
+
+# Codex: org skills linked and instructions in place?
+ls ~/.agents/skills ~/.codex/skills 2>/dev/null | wc -l
+grep -l simpl_knowledge ~/.codex/AGENTS.md 2>/dev/null || echo "AGENTS.md block missing"
 
 # Full health check (preferred when a simpl_knowledge clone is available):
 # bash /path/to/simpl_knowledge/scripts/doctor.sh
@@ -52,7 +57,7 @@ curl -fsSL https://raw.githubusercontent.com/simpl-techs/simpl_knowledge/main/sc
 
 If `curl` returns 404, the repo is likely **private** — use the local `bash scripts/team-bootstrap.sh` path or pipe from the GitHub API with `gh auth token` (see `docs/human/QUICKSTART.md`).
 
-`team-bootstrap.sh` installs the three global Claude plugins via CLI and sets `autoUpdate: true`. The human does not type `/plugin` commands.
+`team-bootstrap.sh` installs the three global Claude plugins via CLI and sets `autoUpdate: true`. The human does not type `/plugin` commands. It also links the org skills into `~/.agents/skills` + `~/.codex/skills` and writes the managed block in `~/.codex/AGENTS.md` when Codex is detected.
 
 ### Case B: Partial install
 Only some pieces present. Install the missing ones explicitly — don't blindly re-run bootstrap, show the user exactly what will change.
@@ -62,6 +67,7 @@ Verify it actually works:
 - Ask Claude "how do we write commit messages here?" — should cite `git-workflow`
 - Check `/instinct-status` — should not crash
 - Check `/plugin list` — should show simpl-standards, simpl-memory, simpl-libraries
+- In Codex, ask the same commit-message question — should cite `git-workflow` from the linked skills
 
 If any fails, diagnose the specific issue.
 
@@ -77,6 +83,8 @@ Example after the agent matches a task to a catalog entry:
 /plugin install simpl_tracker-context@simpl
 /plugin install <other-lib>-context@simpl
 ```
+
+In Codex there is nothing to install: every `*-context` skill in the cache is already linked into the global skill dirs, and Codex loads a skill only when its description matches the task.
 
 If they mention a library that doesn't exist in the marketplace yet, that's a signal: the library owner should use the `repo-context-bootstrap` skill or `/bootstrap-repo-context` (or `bash ~/.claude/plugins/cache/simpl_knowledge/library-repo-template/scripts/bootstrap.sh <name>`) to scaffold and publish it.
 
@@ -117,7 +125,7 @@ End with:
 
 > "You're set up. Test it: in any project, ask your agent 'how do we write commit messages here?' — it should reference our git-workflow skill. If it doesn't, ping me (the onboarder) and we'll diagnose.
 >
-> Cursor refreshes org rules on each new chat via `sessionStart`. Claude SessionStart self-heals the marketplace clone and updates stale plugins. Diagnose anytime with `bash scripts/doctor.sh`."
+> Cursor refreshes org rules on each new chat via `sessionStart`. Claude SessionStart self-heals the marketplace clone and updates stale plugins. Codex reads the same skills from `~/.agents/skills` and `~/.codex/skills`, kept current because they are symlinks into the cache. Diagnose anytime with `bash scripts/doctor.sh`."
 
 ## Rules
 
