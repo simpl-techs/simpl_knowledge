@@ -10,7 +10,7 @@
 | Chi | Cosa fa |
 |-----|---------|
 | **Platform / admin** | Possiede `simpl-techs/simpl_knowledge`: branch protection, CI verde, release `cursor-rules-rolling`, rotazione `SIMPL_KNOWLEDGE_PAT`, onboarding org su `DEEPSEEK_API_KEY`. Risponde se il bootstrap o lo zip delle regole falliscono per tutti. |
-| **Consumer (developer)** | Esegue `team-bootstrap.sh` (marketplace + plugin + regole). Consulta `catalog.md` prima di nuove integrazioni. Update automatici a ogni sessione. |
+| **Consumer (developer)** | Esegue `team-bootstrap.sh` (marketplace + plugin + regole Cursor + skill Codex). Consulta `catalog.md` prima di nuove integrazioni. Update automatici a ogni sessione. |
 | **Maintainer libreria** | Mantiene `.agent/SKILL.md` e `INTERNAL.md`; usa `/update-skill` quando cambia la superficie pubblica; review delle PR aperte da `auto-update-skill` o dal bot di sync. |
 | **Bot / automazioni** | Apre PR di sync verso `simpl-techs/simpl_knowledge` e bozze skill; **nessun merge automatico** su contenuto sensibile — serve review umana. |
 
@@ -45,6 +45,6 @@ Le automazioni riducono il lavoro manuale, ma non sostituiscono review umana:
 - `auto-update-skill` può proporre una PR quando lo skill sembra driftare dal codice;
 - `sync-skill-to-marketplace` propaga `.agent/SKILL.md` al marketplace;
 - `generate-catalog` aggiorna `catalog.md` / `catalog.json`;
-- `session-refresh` aggiorna cache e regole locali.
+- `session-refresh` aggiorna cache, regole Cursor e skill Codex locali.
 
 Contenuto sensibile o org-wide: sempre review esplicita.

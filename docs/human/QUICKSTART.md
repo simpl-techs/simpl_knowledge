@@ -8,8 +8,10 @@ flowchart LR
   skill --> hub["Repo simpl-techs/simpl_knowledge"]
   hub --> claude[Claude Code plugin]
   hub --> cursor[Cursor rules]
+  hub --> codex["Codex skills (~/.agents + ~/.codex)"]
   claude --> dev[Agent del developer]
   cursor --> dev
+  codex --> dev
 ```
 
 ---
@@ -46,7 +48,7 @@ curl -fsSL \
 
 Verifica accesso: `gh repo view simpl-techs/simpl_knowledge`.
 
-Lo script rileva da solo se hai Claude Code, Cursor o entrambi. È idempotente: rieseguilo per forzare un refresh.
+Lo script rileva da solo quali strumenti hai (Claude Code, Cursor, Codex) e configura solo quelli. È idempotente: rieseguilo per forzare un refresh.
 
 ## Passo 2 — Claude Code (già fatto dallo script)
 
@@ -54,9 +56,13 @@ Lo script rileva da solo se hai Claude Code, Cursor o entrambi. È idempotente: 
 
 Gli **instinct owner** (`Len378`, `n3ural`, `not-Karot`, vedi `config/simpl.json`) usano `/extract-instincts` per catturare pattern dalla sessione; gli altri dev ricevono i pattern team-wide al SessionStart. Dettagli: [`team-instincts/README.md`](../../team-instincts/README.md).
 
+## Passo 2b — Codex (già fatto dallo script)
+
+`team-bootstrap.sh` collega gli skill dell'org in `~/.agents/skills` e `~/.codex/skills` (symlink alla cache, così coprono sia la CLI sia l'estensione IDE) e scrive un blocco gestito in `~/.codex/AGENTS.md` tra i marker `<!-- simpl_knowledge:start -->` / `:end`. Quello che scrivi fuori dai marker resta tuo. Non serve installare plugin: Codex vede sia gli standard sia gli skill `*-context` di ogni libreria e carica quello che serve al task.
+
 ## Passo 3 — Verifica
 
-Apri Claude o Cursor in un repo qualsiasi e chiedi:
+Apri Claude, Cursor o Codex in un repo qualsiasi e chiedi:
 
 ```text
 come scriviamo i commit qui?
@@ -78,10 +84,11 @@ I secret del team stanno su Doppler, non in un `.env` pieno di chiavi. Installa 
 
 | Strumento | Cosa si aggiorna “in automatico” | Cosa fai tu, quando, perché |
 |-----------|-----------------------------------|-----------------------------|
-| **Cursor** | L’hook globale `session-refresh` a ogni nuova chat fa fetch + `reset --hard` della cache git e sincronizza **`simpl-*.mdc`** da `cursor-rules/` (commit CI) o dallo zip `cursor-rules-rolling`. | Se serve **subito**: `SIMPL_KNOWLEDGE_FORCE_REFRESH=1` o `bash scripts/doctor.sh` / `team-bootstrap.sh`. |
+| **Cursor** | L’hook globale `session-refresh` a ogni nuova chat fa fetch + `reset --hard` della cache git e sincronizza **`simpl-*.mdc`** da `cursor-rules/` (commit CI) o dallo zip `cursor-rules-rolling`. Aggiorna anche gli hook stessi (`~/.cursor/hooks/shared-hooks/*.js` + `adapter.js`) dalla cache: il codice nuovo parte dalla sessione dopo. | Se serve **subito**: `SIMPL_KNOWLEDGE_FORCE_REFRESH=1` o `bash scripts/doctor.sh` / `team-bootstrap.sh`. |
 | **Claude Code** | SessionStart `plugin-refresh`: self-heal del clone + `claude plugin update` se le versioni sono indietro. `autoUpdate: true` sul marketplace. Nuove versioni attive alla sessione successiva. | Niente. Se `doctor.sh` segnala ancora stale: `bash scripts/team-bootstrap.sh`. |
+| **Codex** | Gli skill in `~/.agents/skills` e `~/.codex/skills` sono symlink alla cache: quando `session-refresh` (chat Cursor o Claude) aggiorna la cache, il contenuto è già nuovo. Lo stesso hook rilinka gli skill aggiunti o rinominati e riscrive il blocco in `~/.codex/AGENTS.md`. | Niente, se usi anche Cursor o Claude. Se usi **solo** Codex: `bash scripts/team-bootstrap.sh` quando vuoi allineare. |
 
-**In sintesi:** Cursor e Claude Code si aggiornano da soli. Unico comando per un PC nuovo: `bash scripts/team-bootstrap.sh`.
+**In sintesi:** Cursor, Claude Code e Codex si aggiornano da soli. Unico comando per un PC nuovo: `bash scripts/team-bootstrap.sh`.
 
 ---
 

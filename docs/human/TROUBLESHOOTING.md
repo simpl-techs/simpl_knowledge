@@ -4,7 +4,8 @@ Questa pagina parte dai sintomi più comuni. Prima di debuggare, ricorda la dist
 
 - **Claude Code** usa marketplace e plugin (installati da `team-bootstrap.sh`; SessionStart li aggiorna).
 - **Cursor** usa file `.mdc` in `~/.cursor/rules/` e hook in `~/.cursor/hooks.json`.
-- Entrambi leggono dalla cache locale `~/.claude/plugins/cache/simpl_knowledge`.
+- **Codex** usa skill in `~/.agents/skills` e `~/.codex/skills` (symlink) e il blocco gestito in `~/.codex/AGENTS.md`.
+- Tutti leggono dalla cache locale `~/.claude/plugins/cache/simpl_knowledge`.
 
 | Sintomo | Cosa controllare |
 |---------|------------------|
@@ -13,6 +14,8 @@ Questa pagina parte dai sintomi più comuni. Prima di debuggare, ricorda la dist
 | “Marketplace not found” o clone fallisce | Connettività GitHub; per fork/staging imposta `SIMPL_KNOWLEDGE_REPO` (e opzionale `SIMPL_KNOWLEDGE_CACHE`) coerenti con quel remote e riesegui `team-bootstrap.sh`. |
 | Cursor senza regole `.mdc` | Esiste sul remoto la release **`cursor-rules-rolling`** / `cursor-rules.zip`? Altrimenti riesegui `team-bootstrap.sh` (fallback clone + `generate-cursor-rules.sh`; serve **PyYAML**). |
 | Cursor: regole ferme da giorni | Hook globale: `~/.cursor/hooks.json` deve avere `hooks.sessionStart` come **array** con `session-refresh` (eventi fuori da `hooks` sono ignorati). Forza: `SIMPL_KNOWLEDGE_FORCE_REFRESH=1` o `bash scripts/doctor.sh` / `team-bootstrap.sh`. Cache git: `~/.claude/plugins/cache/simpl_knowledge`. Solo **`simpl-*.mdc`** sono gestiti dall’org. |
+| Codex non cita gli skill org | `ls ~/.agents/skills` e `ls ~/.codex/skills` devono mostrare i symlink alla cache e `~/.codex/AGENTS.md` il blocco `simpl_knowledge:start`. Se manca: `bash scripts/team-bootstrap.sh` (serve Node). Dettagli errori: `~/.simpl_knowledge/refresh.log`. |
+| Codex: skill che punta a nulla | Symlink rotto dopo una rinomina upstream: il prossimo `session-refresh` lo rimuove e rilinca; per forzare subito `SIMPL_CODEX_FORCE=1 node ~/.claude/plugins/cache/simpl_knowledge/scripts/shared-hooks/sync-codex-knowledge.js`. |
 | Sync PR non si apre dal repo libreria | Secret **`SIMPL_KNOWLEDGE_PAT`** presente sul repo? Permessi su `simpl-techs/simpl_knowledge`? Il workflow fa checkout di `simpl-techs/simpl_knowledge` — il nome org nel YAML deve combaciare col remoto. |
 | `auto-update-skill` fallisce (o prima era verde con errori aider) | `requirements-agent-ci.txt` in root. Secret **`DEEPSEEK_API_KEY`** come **repository secret** se non avete org secrets (Settings → Secrets and variables → Actions → Secrets — non Variables). Il workflow fallisce subito se il secret manca; se c’è ma è invalido, lo step aider fallisce con `Illegal header value` / `litellm.*`. Opzionale **variable** `SKILL_AGENT_MODEL`. Vedi [ADMIN_SETUP](ADMIN_SETUP.md) passo 5. |
 | Instinct locali vuoti | Solo i tre **instinct owner** (`config/simpl.json`) possono popolare righe via `/extract-instincts` (serve `gh auth login` e path al transcript). Gli altri dev consumano `team-instincts/instincts.jsonl` dopo merge. Store locale: `~/.claude/simpl-memory/<repo>/`. |
@@ -25,6 +28,10 @@ Questa pagina parte dai sintomi più comuni. Prima di debuggare, ricorda la dist
 
 # Quante regole org in Cursor?
 ls ~/.cursor/rules/simpl-*.mdc 2>/dev/null | wc -l
+
+# Codex: skill linkati e istruzioni presenti?
+ls ~/.agents/skills ~/.codex/skills 2>/dev/null | wc -l
+grep -c simpl_knowledge ~/.codex/AGENTS.md 2>/dev/null || echo "blocco AGENTS.md assente"
 
 # Claude Code installato?
 command -v claude >/dev/null && claude --version || echo "Claude Code non in PATH"

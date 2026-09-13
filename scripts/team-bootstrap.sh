@@ -10,12 +10,13 @@
 # Private repo: raw URL returns 404 without a token — use local bash above, or GitHub API + gh auth token (see docs/human/QUICKSTART.md).
 #
 # What it does:
-#   1. Detects which tools are installed (Claude Code, Cursor, Node)
+#   1. Detects which tools are installed (Claude Code, Cursor, Codex, Node)
 #   2. Points Claude Code at the simpl marketplace
 #   3. Installs recommended plugins (simpl-standards, simpl-memory, simpl-libraries)
 #   4. Copies the generated Cursor rules to ~/.cursor/rules/
 #   5. Installs global Cursor sessionStart → session-refresh (adapter + hooks.json merge + shared-hooks copy)
-#   6. Verifies AgentShield is callable (`npx ecc-agentshield --version`)
+#   6. Links org skills into ~/.agents/skills + ~/.codex/skills, managed block in ~/.codex/AGENTS.md
+#   7. Verifies AgentShield is callable (`npx ecc-agentshield --version`)
 #
 # Idempotent: re-run anytime; only missing pieces get installed.
 # Safe: never overwrites user files without asking; --dry-run to preview.
@@ -57,7 +58,21 @@ say "1. Detecting environment"
 
 HAS_CLAUDE=false
 HAS_CURSOR=false
+HAS_CODEX=false
 HAS_NODE=false
+
+MARKETPLACE_CACHE="${HOME}/.claude/plugins/cache/${MARKETPLACE_REPO##*/}"
+
+# Clone (or refresh) the marketplace clone every consumer reads from.
+ensure_marketplace_cache() {
+  mkdir -p "$(dirname "$MARKETPLACE_CACHE")"
+  if [ ! -d "$MARKETPLACE_CACHE/.git" ]; then
+    say "   Cloning ${MARKETPLACE_REPO} to plugin cache (shared hooks + skills)…"
+    run "git clone --depth 1 'https://github.com/${MARKETPLACE_REPO}.git' '$MARKETPLACE_CACHE'"
+  else
+    run "cd '$MARKETPLACE_CACHE' && git pull --quiet origin main 2>/dev/null || true"
+  fi
+}
 
 if command -v claude >/dev/null 2>&1; then
   HAS_CLAUDE=true
@@ -73,6 +88,13 @@ else
   skip "Cursor not detected"
 fi
 
+if command -v codex >/dev/null 2>&1 || [ -d "${HOME}/.codex" ] || [ -d "${HOME}/.agents/skills" ]; then
+  HAS_CODEX=true
+  ok "Codex detected"
+else
+  skip "Codex not detected"
+fi
+
 if command -v node >/dev/null 2>&1 && command -v npx >/dev/null 2>&1; then
   HAS_NODE=true
   ok "Node $(node --version) + npx available"
@@ -80,8 +102,8 @@ else
   skip "Node/npx not available — AgentShield will be skipped"
 fi
 
-if [ "$HAS_CLAUDE" = "false" ] && [ "$HAS_CURSOR" = "false" ]; then
-  warn "Neither Claude Code nor Cursor detected. Install one and re-run."
+if [ "$HAS_CLAUDE" = "false" ] && [ "$HAS_CURSOR" = "false" ] && [ "$HAS_CODEX" = "false" ]; then
+  warn "None of Claude Code, Cursor or Codex detected. Install one and re-run."
   exit 1
 fi
 echo
@@ -121,14 +143,7 @@ PY
 if [ "$HAS_CLAUDE" = "true" ]; then
   say "2. Claude Code configuration"
 
-  CLAUDE_PLUGINS_DIR="${HOME}/.claude/plugins"
-  MARKETPLACE_CACHE="${CLAUDE_PLUGINS_DIR}/cache/${MARKETPLACE_REPO##*/}"
-
-  if [ -d "$MARKETPLACE_CACHE/.git" ]; then
-    ok "Marketplace cache exists: ${MARKETPLACE_CACHE}"
-    say "   Refreshing..."
-    run "cd '$MARKETPLACE_CACHE' && git pull --quiet origin main 2>/dev/null || true"
-  fi
+  ensure_marketplace_cache
 
   say "   Installing marketplace + core plugins via Claude CLI"
   run "claude plugin marketplace add ${MARKETPLACE_REPO} --scope user || true"
@@ -145,14 +160,7 @@ fi
 # --- 3. Cursor: global hooks + rules from GitHub Release (rolling) or clone+generate fallback -----
 if [ "$HAS_CURSOR" = "true" ]; then
   say "3. Cursor rules + global hooks"
-  MARKETPLACE_CACHE="${HOME}/.claude/plugins/cache/${MARKETPLACE_REPO##*/}"
-  mkdir -p "$(dirname "$MARKETPLACE_CACHE")"
-  if [ ! -d "$MARKETPLACE_CACHE/.git" ]; then
-    say "   Cloning ${MARKETPLACE_REPO} to plugin cache (shared hooks + adapter)…"
-    run "git clone --depth 1 'https://github.com/${MARKETPLACE_REPO}.git' '$MARKETPLACE_CACHE'"
-  else
-    run "cd '$MARKETPLACE_CACHE' && git pull --quiet origin main 2>/dev/null || true"
-  fi
+  ensure_marketplace_cache
   if [ -f "$MARKETPLACE_CACHE/scripts/install-cursor-global-hooks.sh" ]; then
     # shellcheck disable=SC1090
     source "$MARKETPLACE_CACHE/scripts/install-cursor-global-hooks.sh"
@@ -208,9 +216,23 @@ if [ "$HAS_CURSOR" = "true" ]; then
   echo
 fi
 
-# --- 4. AgentShield (optional, via npx) -----------------------------------
+# --- 4. Codex: global skills + AGENTS.md ----------------------------------
+if [ "$HAS_CODEX" = "true" ]; then
+  say "4. Codex skills + AGENTS.md"
+  ensure_marketplace_cache
+  CODEX_SYNC="$MARKETPLACE_CACHE/scripts/shared-hooks/sync-codex-knowledge.js"
+  if [ "$HAS_NODE" = "true" ] && [ -f "$CODEX_SYNC" ]; then
+    run "SIMPL_CODEX_FORCE=1 node '$CODEX_SYNC' '$MARKETPLACE_CACHE'"
+    ok "   Skills symlinked to ~/.agents/skills + ~/.codex/skills, managed block in ~/.codex/AGENTS.md"
+  else
+    warn "   Needs Node — install Node and re-run to enable Codex skills"
+  fi
+  echo
+fi
+
+# --- 5. AgentShield (optional, via npx) -----------------------------------
 if [ "$HAS_NODE" = "true" ]; then
-  say "4. AgentShield (security scanner)"
+  say "5. AgentShield (security scanner)"
   if ! npx --no-install ecc-agentshield --version >/dev/null 2>&1; then
     say "   Will be fetched on first use via: npx ecc-agentshield scan"
     ok "   No action needed — npx resolves on demand"
@@ -220,7 +242,7 @@ if [ "$HAS_NODE" = "true" ]; then
   echo
 fi
 
-# --- 5. Summary -----------------------------------------------------------
+# --- 6. Summary -----------------------------------------------------------
 say "Done"
 cat <<'EOF'
 
@@ -239,6 +261,7 @@ Next steps:
 
 Cursor: sessionStart runs session-refresh (sha-based; emits rule version into context).
 Claude Code: SessionStart plugin-refresh updates stale plugins; marketplace autoUpdate is on.
+Codex: skills are symlinks to the cache, so a cache refresh updates them; session-refresh re-links on every Cursor/Claude session.
 Diagnose: bash scripts/doctor.sh
 Force: SIMPL_KNOWLEDGE_FORCE_REFRESH=1 or re-run this bootstrap.
 EOF

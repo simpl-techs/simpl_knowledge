@@ -8,9 +8,10 @@ In pratica contiene:
 
 - **Un marketplace Claude Code**: `team-bootstrap.sh` lo aggiunge e installa i plugin `@simpl`; le sessioni successive si aggiornano da sole.
 - **Regole Cursor**: gli stessi contenuti vengono convertiti in file `.mdc` e installati in `~/.cursor/rules/`.
+- **Skill Codex**: gli stessi skill vengono linkati in `~/.agents/skills` e `~/.codex/skills`, con un blocco gestito in `~/.codex/AGENTS.md`.
 - **Un catalogo delle librerie interne**: `catalog.md` / `catalog.json` dicono all’agent quali librerie esistono e quando usarle.
 - **Un template per repo libreria**: ogni libreria può pubblicare il proprio `.agent/SKILL.md` dentro questo marketplace.
-- **Hook condivisi**: aggiornano cache, regole Cursor e controlli base senza duplicare logica tra Cursor e Claude Code.
+- **Hook condivisi**: aggiornano cache, regole Cursor, skill Codex e controlli base senza duplicare logica tra i tre strumenti.
 
 ## Modello mentale
 
@@ -25,8 +26,10 @@ flowchart LR
   skillFile --> syncPr[PR verso simpl_knowledge]
   syncPr --> marketplace[Marketplace Claude]
   syncPr --> cursorRules[Regole Cursor]
+  syncPr --> codexSkills[Skill Codex]
   marketplace --> devAgent[Agent del developer]
   cursorRules --> devAgent
+  codexSkills --> devAgent
 ```
 
 ## Componenti principali

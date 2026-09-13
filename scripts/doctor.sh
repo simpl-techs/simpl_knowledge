@@ -186,6 +186,49 @@ for name in core:
         print(f"  ✓ {name}: installed {have} (marketplace {want})")
 PY
 
+section "Codex skills + AGENTS.md"
+if command -v codex >/dev/null 2>&1 || [ -d "${HOME}/.codex" ] || [ -d "${HOME}/.agents/skills" ]; then
+  CACHE_SKILLS=$(find "${CACHE}/plugins" -mindepth 4 -maxdepth 4 -name SKILL.md 2>/dev/null | wc -l | tr -d ' ')
+  for SKILLS_DIR in "${HOME}/.agents/skills" "${HOME}/.codex/skills"; do
+    SHORT="${SKILLS_DIR#"${HOME}"/}"
+    if [ ! -d "$SKILLS_DIR" ]; then
+      bad "missing ~/${SHORT} — run team-bootstrap.sh"
+      continue
+    fi
+    LINKED=0
+    DANGLING=0
+    for link in "$SKILLS_DIR"/*; do
+      [ -L "$link" ] || continue
+      case "$(readlink "$link")" in
+        "${CACHE}"*)
+          if [ -f "${link}/SKILL.md" ]; then
+            LINKED=$((LINKED + 1))
+          else
+            bad "dangling skill link ~/${SHORT}/$(basename "$link")"
+            DANGLING=$((DANGLING + 1))
+          fi
+          ;;
+      esac
+    done
+    if [ "$LINKED" -eq 0 ]; then
+      bad "no org skills linked into ~/${SHORT} — run team-bootstrap.sh"
+    elif [ "$DANGLING" -eq 0 ]; then
+      ok "${LINKED}/${CACHE_SKILLS} cache skills linked in ~/${SHORT}"
+    fi
+  done
+
+  AGENTS_MD="${HOME}/.codex/AGENTS.md"
+  if [ ! -f "$AGENTS_MD" ]; then
+    bad "missing ${AGENTS_MD} — run team-bootstrap.sh"
+  elif grep -q 'simpl_knowledge:start' "$AGENTS_MD"; then
+    ok "managed block present in ~/.codex/AGENTS.md"
+  else
+    bad "~/.codex/AGENTS.md has no managed block — run team-bootstrap.sh"
+  fi
+else
+  warn "Codex not detected — skipping"
+fi
+
 section "Local state"
 STATE="${HOME}/.simpl_knowledge/state.json"
 if [ -f "$STATE" ]; then

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install simpl_knowledge context for Claude Code + Cursor.
+# Install simpl_knowledge context for Claude Code + Cursor + Codex.
 #
 # Usage (from clone, recommended):
 #   bash scripts/install-team.sh
@@ -98,11 +98,27 @@ else
   echo
 fi
 
+if command -v codex >/dev/null 2>&1 || [ -d "$HOME/.codex" ] || [ -d "$HOME/.agents/skills" ]; then
+  echo "✓ Codex detected."
+  CODEX_SYNC="$MARKETPLACE_CACHE/scripts/shared-hooks/sync-codex-knowledge.js"
+  if command -v node >/dev/null 2>&1 && [ -f "$CODEX_SYNC" ]; then
+    SIMPL_CODEX_FORCE=1 node "$CODEX_SYNC" "$MARKETPLACE_CACHE"
+    echo "  ✓ Skills → ~/.agents/skills + ~/.codex/skills, managed block → ~/.codex/AGENTS.md"
+  else
+    echo "  ⚠ Needs Node + marketplace cache — run team-bootstrap.sh"
+  fi
+  echo
+else
+  echo "ⓘ Codex not detected — skipping."
+  echo
+fi
+
 cat <<EOF
 === Refresh behavior ===
 
   Cursor: global sessionStart → session-refresh (sha-based; hooks.sessionStart must be an array under hooks).
   Claude Code: SessionStart plugin-refresh self-heals the marketplace clone and updates stale plugins.
+  Codex: ~/.agents/skills + ~/.codex/skills are symlinks into the cache; session-refresh re-links them each Cursor/Claude session.
   Diagnose: bash scripts/doctor.sh (from a simpl_knowledge clone).
 
 Test: ask the agent how commit messages work (git-workflow).

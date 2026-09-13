@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * session-refresh.js — SessionStart / sessionStart: refresh simpl_knowledge git cache,
- * sync org-managed Cursor rules (simpl-*.mdc), run repo-local sync-cursor-internal.sh.
+ * sync org-managed Cursor rules (simpl-*.mdc), refresh the local shared-hooks copy,
+ * sync Codex skills + AGENTS.md, run repo-local sync-cursor-internal.sh.
  *
  * Invoked by:
  * - Cursor: node adapter.js session-refresh (stdin has _harness: cursor)
@@ -377,6 +378,61 @@ function emitClaudeContext(message) {
   );
 }
 
+/**
+ * Refresh the copy of shared-hooks under ~/.cursor/hooks from the cache.
+ * Without this, hook fixes only reach a machine when the developer re-runs
+ * team-bootstrap.sh. New files land on disk now, run from the next session.
+ */
+function selfUpdateSharedHooks(cacheDir) {
+  if (!cacheDir) return;
+  const src = path.join(cacheDir, 'scripts', 'shared-hooks');
+  if (!fs.existsSync(src) || path.resolve(src) === path.resolve(__dirname)) return;
+  try {
+    const updated = [];
+    for (const file of fs.readdirSync(src)) {
+      if (!file.endsWith('.js')) continue;
+      const from = path.join(src, file);
+      const to = path.join(__dirname, file);
+      const next = fs.readFileSync(from);
+      if (fs.existsSync(to) && fs.readFileSync(to).equals(next)) continue;
+      fs.writeFileSync(to, next);
+      updated.push(file);
+    }
+    const adapterSrc = path.join(cacheDir, 'scripts', 'cursor-hooks', 'adapter.js');
+    const adapterDest = path.join(__dirname, '..', 'adapter.js');
+    if (fs.existsSync(adapterSrc) && fs.existsSync(adapterDest)) {
+      const next = fs.readFileSync(adapterSrc);
+      if (!fs.readFileSync(adapterDest).equals(next)) {
+        fs.writeFileSync(adapterDest, next);
+        updated.push('adapter.js');
+      }
+    }
+    if (updated.length) {
+      appendRefreshLog(`shared-hooks updated from cache: ${updated.join(', ')}`);
+    }
+  } catch (e) {
+    appendRefreshLog('shared-hooks self-update failed', e);
+  }
+}
+
+function syncCodexKnowledge(cacheDir) {
+  // Prefer the cache copy: it is always at the sha we just fetched.
+  const cached = cacheDir
+    ? path.join(cacheDir, 'scripts', 'shared-hooks', 'sync-codex-knowledge.js')
+    : null;
+  const script =
+    cached && fs.existsSync(cached) ? cached : path.join(__dirname, 'sync-codex-knowledge.js');
+  if (!cacheDir || !fs.existsSync(script)) return;
+  try {
+    execFileSync(process.execPath, [script, cacheDir], {
+      stdio: 'ignore',
+      timeout: 10_000,
+    });
+  } catch (e) {
+    appendRefreshLog('sync-codex-knowledge failed', e);
+  }
+}
+
 function runRepoContextCheck(cwd, mode) {
   const checkPath = path.join(__dirname, 'repo-context-check.js');
   if (!fs.existsSync(checkPath)) return;
@@ -399,6 +455,8 @@ function refreshSync({ cwd, needMdc, emit }) {
   if (needMdc) {
     syncCursorRules(result.cacheDir, { force: Boolean(result.changed) || forceRefresh(cwd) });
   }
+  selfUpdateSharedHooks(result.cacheDir);
+  syncCodexKnowledge(result.cacheDir);
   if (cwd) runSyncCursorInternal(cwd);
   const message = buildContextMessage({
     sha: result.sha,
@@ -418,6 +476,8 @@ function runWorker(job) {
     if (needMdc) {
       syncCursorRules(cacheDir, { force: Boolean(result.changed) || forceRefresh(cwd) });
     }
+    selfUpdateSharedHooks(cacheDir);
+    syncCodexKnowledge(cacheDir);
     if (cwd) runSyncCursorInternal(cwd);
     if (cwd && !skipRepoCheck) {
       runRepoContextCheck(cwd, '--from-refresh-worker');

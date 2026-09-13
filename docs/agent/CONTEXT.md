@@ -1,6 +1,6 @@
 ---
 name: simpl_knowledge_agent_context
-description: Token-efficient reference for agents about simpl_knowledge. Read when answering questions about org-wide agent setup, marketplace simpl-techs/simpl_knowledge (alias install `@simpl`), plugin names simpl-standards, simpl-memory, simpl-libraries, Cursor rolling release cursor-rules-rolling, catalog.md, or provenance.jsonl.
+description: Token-efficient reference for agents about simpl_knowledge. Read when answering questions about org-wide agent setup, marketplace simpl-techs/simpl_knowledge (alias install `@simpl`), plugin names simpl-standards, simpl-memory, simpl-libraries, Cursor rolling release cursor-rules-rolling, Codex skills in ~/.agents/skills and ~/.codex/skills, catalog.md, or provenance.jsonl.
 ---
 
 # simpl_knowledge — agent context
@@ -10,6 +10,7 @@ description: Token-efficient reference for agents about simpl_knowledge. Read wh
 - **Catalog**: `catalog.md` + `catalog.json` at repo root — summaries of every `*-context` plugin; agents consult via `simpl-libraries` / `internal-libraries-awareness` before duplicating org tooling.
 - **Truth**: Library integration text lives in **that library’s** `.agent/SKILL.md`; `simpl_knowledge` mirrors it under `plugins/<repo>-context/`.
 - **Cursor**: `session-refresh` copies `simpl-*.mdc` from cache `cursor-rules/` (CI commits this on `main`); zip `cursor-rules-rolling` is the fallback.
+- **Codex**: cache skills are symlinked into `~/.agents/skills` and `~/.codex/skills`; `~/.codex/AGENTS.md` carries a managed block between `<!-- simpl_knowledge:start -->` / `:end`. Wired by `sync-codex-knowledge.js` from bootstrap and every `session-refresh`.
 - **Memory path**: `~/.claude/simpl-memory/<repo>/instincts.jsonl`.
 - **Meta skill**: `simpl_knowledge_system` — explain full loop to users.
 - **Human docs** (longer): `docs/human/*.md` (Italian, onboarding).

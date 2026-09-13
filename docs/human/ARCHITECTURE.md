@@ -51,16 +51,17 @@ Questo evita che `simpl_knowledge` diventi una copia manuale e obsoleta di tutte
 
 ### 3. Macchina del developer
 
-Il developer riceve il contenuto in due modi:
+Il developer riceve il contenuto in tre modi:
 
 - Claude Code: marketplace + plugin installati.
 - Cursor: file `.mdc` in `~/.cursor/rules/` + hook `session-refresh`.
+- Codex: skill in `~/.agents/skills` e `~/.codex/skills` (symlink alla cache) + blocco gestito in `~/.codex/AGENTS.md`.
 
 ## Da repo libreria agli agent del team
 
 1. Nel repo della libreria, la **fonte pubblica** è `.agent/SKILL.md` (INTERNAL resta locale).
 2. Su merge in `main` che tocca `SKILL.md`, **`sync-skill-to-marketplace`** (dal template) crea/aggiorna il plugin `*-context` in **`simpl-techs/simpl_knowledge`** tramite PR.
-3. Dopo merge nel marketplace, **Claude Code** aggiorna i plugin al SessionStart (`plugin-refresh`) e **Cursor** sincronizza **`simpl-*.mdc`** da `cursor-rules/` (commit CI su `main`) o dalla release **`cursor-rules-rolling`**.
+3. Dopo merge nel marketplace, **Claude Code** aggiorna i plugin al SessionStart (`plugin-refresh`), **Cursor** sincronizza **`simpl-*.mdc`** da `cursor-rules/` (commit CI su `main`) o dalla release **`cursor-rules-rolling`**, e **Codex** legge gli stessi skill via symlink nella cache.
 4. **`catalog.md` / `catalog.json`** riassumono ogni `*-context` così gli agent evitano duplicazioni.
 
 ## Esempio concreto
@@ -82,6 +83,7 @@ Questo serve a non mantenere due implementazioni diverse per gli stessi controll
 
 - aggiorna la cache git locale di `simpl_knowledge`;
 - sincronizza regole Cursor `simpl-*.mdc`;
+- allinea gli skill Codex (`sync-codex-knowledge.js`);
 - può lanciare controlli sul template repo;
 - fallisce in modo non bloccante, così non rompe l’IDE.
 
@@ -92,6 +94,8 @@ flowchart LR
   shim --> sr[session-refresh.js]
   ad --> sr
   sr --> rules["simpl-*.mdc in ~/.cursor/rules"]
+  sr --> codex["sync-codex-knowledge.js"]
+  codex --> skills["~/.agents/skills, ~/.codex/skills + AGENTS.md"]
 ```
 
 ## Dove vive cosa
@@ -102,6 +106,7 @@ flowchart LR
 | Memoria / instinct | `plugins/simpl-memory/` | Dati locali sotto `~/.claude/simpl-memory/` |
 | Integrazione lib X | `plugins/<repo>-context/` | **Generato** da sync da `.agent/SKILL.md` |
 | Regole Cursor | Release `cursor-rules-rolling` | Da `SKILL.md`, non editare a mano |
+| Skill Codex | `~/.agents/skills` + `~/.codex/skills` (symlink alla cache) | Blocco gestito in `~/.codex/AGENTS.md`, fuori dai marker resta del dev |
 | Audit sync | `provenance.jsonl` | Una riga JSON per sync |
 | Scaffold repo libreria | `library-repo-template/` dentro `simpl_knowledge` | Drift vs template: report `.claude/.simpl-repo-report.json` + skill `repo-context-bootstrap` / `/bootstrap-repo-context` (solo dopo conferma utente) |
 
