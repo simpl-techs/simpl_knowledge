@@ -1,6 +1,6 @@
 # simpl internal libraries catalog
 
-Auto-generated at `2026-09-13T10:07:15.047Z`. Do not edit by hand — run `node scripts/ci/generate-catalog.js` or merge a library sync PR.
+Auto-generated at `2026-09-13T17:22:05.141Z`. Do not edit by hand — run `node scripts/ci/generate-catalog.js` or merge a library sync PR.
 
 Each entry summarizes an integration plugin (`*-context`). Install the plugin in Claude Code for the full SKILL. Until then, use this file to decide whether a library fits the current task.
 
@@ -19,6 +19,14 @@ Each entry summarizes an integration plugin (`*-context`). Install the plugin in
 - **When to use**: Use this skill whenever the user asks about shared simpl platform domain logic, autopilot services, CRM/email/reports services, or code that imports `simpl_core`. ALWAYS consult this skill before adding duplicated business logic in app repos that could belong in `simpl_core`.
 - **Install full context (Claude Code)**: `/plugin install simpl_core-context@simpl`
 - **Skill path in cache**: `~/.claude/plugins/cache/simpl_knowledge/plugins/simpl_core-context/skills/`
+
+## simpl_flow-context
+
+- **Skill**: `simpl_flow`
+- **Summary**: simpl_flow integration guide
+- **When to use**: Use this skill whenever the user asks about simpl Prefect flows, lead generation pipelines, job offer/company enrichment, ICP workflows, onboarding/customer-success pipelines, opportunity scoring/matching, or code that imports `simpl_flow`. This is primarily a workflow service repo.
+- **Install full context (Claude Code)**: `/plugin install simpl_flow-context@simpl`
+- **Skill path in cache**: `~/.claude/plugins/cache/simpl_knowledge/plugins/simpl_flow-context/skills/`
 
 ## simpl_sales-context
 
