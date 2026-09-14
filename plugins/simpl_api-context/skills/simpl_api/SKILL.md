@@ -70,5 +70,8 @@ poetry run ruff check .
 
 - Source: `https://github.com/simpl-techs/simpl_api`
 - App routes: `src/simpl_api/api`
+- ROI admin: `src/simpl_api/api/v1/admin/roi.py` (domain in `simpl_core.roi`). People/expenses routes use `require_owner`.
+- Dashboard roles: `src/simpl_api/api/v1/admin/platform_roles.py`. Hierarchy: owner > admin > staff. `is_admin` is derived.
+- ROI time survey (token, not JWT): `src/simpl_api/api/v1/roi_survey.py`
 - Agent code: `src/simpl_api/agents`
 - Internal conventions: `.agent/INTERNAL.md`
