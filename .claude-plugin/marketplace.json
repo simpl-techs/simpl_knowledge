@@ -95,6 +95,17 @@
         "integration",
         "simpl"
       ]
+    },
+    {
+      "name": "simpl_ia-context",
+      "source": "./plugins/simpl_ia-context",
+      "description": "Integration context for simpl_ia. Auto-synced from simpl-techs/simpl_ia.",
+      "version": "1.0.1",
+      "keywords": [
+        "simpl_ia",
+        "integration",
+        "simpl"
+      ]
     }
   ]
 }
