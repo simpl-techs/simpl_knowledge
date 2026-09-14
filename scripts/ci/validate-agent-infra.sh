@@ -143,6 +143,13 @@ if base:
             ["git", "diff", "--name-only", diff_range],
             text=True,
         ).splitlines()
+        # Include pending edits for local pre-commit verification as well as HEAD.
+        changed += subprocess.check_output(
+            ["git", "diff", "--name-only", "HEAD"], text=True,
+        ).splitlines()
+        changed += subprocess.check_output(
+            ["git", "ls-files", "--others", "--exclude-standard"], text=True,
+        ).splitlines()
     except Exception as e:
         errors.append(f"could not compute git diff against {base}: {e}")
         changed = []

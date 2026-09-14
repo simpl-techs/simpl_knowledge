@@ -64,8 +64,6 @@ function resolveSimplKnowledgeRoot() {
     const p = path.resolve(process.env.SIMPL_KNOWLEDGE_CACHE);
     if (fs.existsSync(p)) return p;
   }
-  const claudeCache = path.join(home(), '.claude', 'plugins', 'cache', 'simpl_knowledge');
-  if (fs.existsSync(claudeCache)) return claudeCache;
   const alt = path.join(home(), '.simpl_knowledge', 'cache');
   if (fs.existsSync(alt)) return alt;
   return null;

@@ -7,7 +7,7 @@ description: Check and align the current repo with simpl_knowledge library-repo-
 
 Same workflow as the `repo-context-bootstrap` skill: read `.claude/.simpl-repo-report.json`, or run `repo-context-check.js --print` (add `--skip-gate` only if the user confirmed a cold repo).
 
-1. `node ~/.claude/plugins/cache/simpl_knowledge/scripts/shared-hooks/repo-context-check.js --print`
+1. `node ~/.simpl_knowledge/cache/scripts/shared-hooks/repo-context-check.js --print`
 2. Show drift; ask confirmation.
 3. `node .../apply-repo-template.js` then `node .../apply-repo-template.js --write`
 4. `git diff` — suggest `chore(agent): bootstrap simpl_knowledge repo context`

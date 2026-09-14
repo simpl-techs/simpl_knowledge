@@ -27,9 +27,8 @@
  * Arg 1 is the script name to invoke from the shared hooks directory.
  * The shared directory is resolved by (in order):
  *   1. SIMPL_SHARED_HOOKS env var
- *   2. ~/.claude/plugins/cache/simpl_knowledge/scripts/shared-hooks/
- *   3. ~/.simpl_knowledge/cache/scripts/shared-hooks/
- *   4. Built-in fallback (this file's sibling `shared-hooks/` if copied here)
+ *   2. ~/.simpl_knowledge/cache/scripts/shared-hooks/
+ *   3. Built-in fallback (this file's sibling `shared-hooks/` if copied here)
  */
 
 const fs = require('node:fs');
@@ -89,16 +88,12 @@ function findSharedHooksDir() {
   }
   const cachePath = path.join(
     os.homedir(),
-    '.claude',
-    'plugins',
+    '.simpl_knowledge',
     'cache',
-    'simpl_knowledge',
     'scripts',
     'shared-hooks',
   );
   if (fs.existsSync(cachePath)) return cachePath;
-  const altCache = path.join(os.homedir(), '.simpl_knowledge', 'cache', 'scripts', 'shared-hooks');
-  if (fs.existsSync(altCache)) return altCache;
   const local = path.join(__dirname, 'shared-hooks');
   if (fs.existsSync(local)) return local;
   return null;

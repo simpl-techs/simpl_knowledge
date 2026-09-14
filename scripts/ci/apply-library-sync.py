@@ -34,10 +34,9 @@ def _get_json(url: str, token: str) -> list | dict:
 
 
 def _parse_semver(v: str) -> tuple[int, int, int]:
-    v = (v or "1.0.0").strip()
-    m = re.match(r"^(\d+)\.(\d+)\.(\d+)", v)
+    m = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", v.strip())
     if not m:
-        return (1, 0, 0)
+        raise ValueError(f"Invalid plugin version: {v}")
     return tuple(int(x) for x in m.groups())
 
 
@@ -76,12 +75,13 @@ def main() -> None:
     manifest = plugin_dir / ".claude-plugin" / "plugin.json"
     manifest.parent.mkdir(parents=True, exist_ok=True)
     org = args.full_repo.split("/")[0]
-    if not manifest.is_file():
+    new_plugin = not manifest.is_file()
+    if new_plugin:
         manifest.write_text(
             json.dumps(
                 {
                     "name": plugin_name,
-                    "version": "1.0.0",
+                    "version": "0.1.0",
                     "description": f"Integration context for {repo_name}. Auto-synced from {args.full_repo}.",
                     "author": {"name": f"{repo_name} maintainers"},
                     "keywords": [repo_name, "integration"],
@@ -107,9 +107,11 @@ def main() -> None:
         print(f"Could not list PRs for commit (default patch bump): {e}", file=sys.stderr)
 
     data = json.loads(manifest.read_text(encoding="utf-8"))
-    ma, mi, pa = _parse_semver(str(data.get("version", "1.0.0")))
-    if "breaking" in labels or "semver-major" in labels:
-        ma, mi, pa = ma + 1, 0, 0
+    ma, mi, pa = _parse_semver(data["version"])
+    if new_plugin:
+        ma, mi, pa = 0, 1, 0
+    elif "breaking" in labels or "semver-major" in labels:
+        ma, mi, pa = (0, mi + 1, 0) if ma == 0 else (ma + 1, 0, 0)
     elif (
         "enhancement" in labels
         or "feature" in labels
@@ -186,6 +188,20 @@ def main() -> None:
     )
     prev = changes.read_text(encoding="utf-8") if changes.is_file() else ""
     changes.write_text(line + prev, encoding="utf-8")
+
+    # CHANGES.md ships inside simpl-standards, so it needs its own cache release.
+    standards_manifest = mp_root / "plugins/simpl-standards/.claude-plugin/plugin.json"
+    standards = json.loads(standards_manifest.read_text(encoding="utf-8"))
+    major, minor, patch = _parse_semver(standards["version"])
+    standards["version"] = _format_semver((major, minor, patch + 1))
+    standards_manifest.write_text(json.dumps(standards, indent=2) + "\n", encoding="utf-8")
+    for plugin in plugins:
+        if plugin["name"] == "simpl-standards":
+            plugin["version"] = standards["version"]
+            break
+    else:
+        raise ValueError("simpl-standards is missing from marketplace.json")
+    mp_path.write_text(json.dumps(mp, indent=2) + "\n", encoding="utf-8")
 
     print(f"OK: {plugin_name} v{new_ver}")
 

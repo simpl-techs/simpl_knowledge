@@ -11,7 +11,7 @@ Same owners as `/extract-instincts` — `Len378`, `n3ural`, `not-Karot`:
 
 ```bash
 LOGIN="$(gh api user -q .login)" || { echo 'ERROR: run gh auth login first'; exit 1; }
-CONFIG="${SIMPL_KNOWLEDGE_CONFIG:-$HOME/.claude/plugins/cache/simpl_knowledge/config/simpl.json}"
+CONFIG="${SIMPL_KNOWLEDGE_CONFIG:-$HOME/.simpl_knowledge/cache/config/simpl.json}"
 node -e '
 const fs = require("fs");
 const login = process.env.LOGIN;
@@ -80,19 +80,19 @@ Build the filtered array `toShare`. If empty, stop and do not open a PR.
 Use the marketplace cache (same path as bootstrap):
 
 ```text
-${HOME}/.claude/plugins/cache/simpl_knowledge
+${HOME}/.simpl_knowledge/cache
 ```
 
 If that directory is missing or not a git repo, clone fresh:
 
 ```bash
-git clone --depth 1 https://github.com/simpl-techs/simpl_knowledge.git "$HOME/.claude/plugins/cache/simpl_knowledge"
+git clone --depth 1 https://github.com/simpl-techs/simpl_knowledge.git "$HOME/.simpl_knowledge/cache"
 ```
 
 Then:
 
 ```bash
-cd "$HOME/.claude/plugins/cache/simpl_knowledge"
+cd "$HOME/.simpl_knowledge/cache"
 git fetch origin
 git checkout main
 git pull origin main

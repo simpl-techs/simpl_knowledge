@@ -1,244 +1,115 @@
 #!/usr/bin/env bash
-# Compare installed Cursor rules / Claude plugins against simpl_knowledge main.
-# Usage: bash scripts/doctor.sh
+# Verify detected agents against the authenticated cache; nonzero means incomplete.
 set -euo pipefail
-
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-REPO="${SIMPL_KNOWLEDGE_REPO:-simpl-techs/simpl_knowledge}"
-CURSOR_TAG="cursor-rules-rolling"
-MARKETPLACE_NAME="${SIMPL_MARKETPLACE_NAME:-simpl}"
-
-ok() { printf '  ✓ %s\n' "$*"; }
-warn() { printf '  ⚠ %s\n' "$*"; }
-bad() { printf '  ✗ %s\n' "$*"; }
-section() { printf '\n== %s ==\n' "$*"; }
-
-short() { printf '%s' "$1" | cut -c1-12; }
-
-section "Cursor hooks.json schema"
-HOOKS_JSON="${HOME}/.cursor/hooks.json"
-if [ ! -f "$HOOKS_JSON" ]; then
-  bad "missing ${HOOKS_JSON} — run team-bootstrap.sh"
-else
-  python3 - "$HOOKS_JSON" <<'PY' && ok "sessionStart registered under hooks as array" || true
-import json, sys
-from pathlib import Path
-data = json.loads(Path(sys.argv[1]).read_text())
-hooks = data.get("hooks") if isinstance(data, dict) else None
-ss = hooks.get("sessionStart") if isinstance(hooks, dict) else None
-ok = isinstance(ss, list) and any(
-    isinstance(x, dict) and "session-refresh" in str(x.get("command", "")) for x in ss
-)
-# legacy broken layout
-legacy = isinstance(data, dict) and "sessionStart" in data and "hooks" in data and not (
-    isinstance(data.get("hooks"), dict) and "sessionStart" in data["hooks"]
-)
-if legacy or (isinstance(data, dict) and "sessionStart" in data and not isinstance(hooks, dict)):
-    print("  ✗ sessionStart is outside hooks (Cursor ignores it) — re-run install_cursor_global_hooks")
-    raise SystemExit(1)
-if not ok:
-    print("  ✗ hooks.sessionStart missing session-refresh command")
-    raise SystemExit(1)
-PY
-fi
-
-section "Cursor shared-hooks"
-SHARED="${HOME}/.cursor/hooks/shared-hooks"
-if [ -f "${SHARED}/session-refresh.js" ]; then
-  ok "found ${SHARED}/session-refresh.js"
-else
-  CACHE_SHARED="${HOME}/.claude/plugins/cache/simpl_knowledge/scripts/shared-hooks/session-refresh.js"
-  if [ -f "$CACHE_SHARED" ]; then
-    warn "global ~/.cursor/hooks/shared-hooks missing; adapter may still find cache copy"
-  else
-    bad "no shared-hooks on disk — adapter will no-op"
-  fi
-fi
-
-section "Cursor rules vs release"
-RULES_DIR="${HOME}/.cursor/rules"
-if [ ! -d "$RULES_DIR" ]; then
-  bad "missing ${RULES_DIR}"
-else
-  LOCAL_COUNT=$(find "$RULES_DIR" -name 'simpl-*.mdc' | wc -l | tr -d ' ')
-  ok "${LOCAL_COUNT} simpl-*.mdc in ~/.cursor/rules"
-fi
-
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
-ZIP_URL="https://github.com/${REPO}/releases/download/${CURSOR_TAG}/cursor-rules.zip"
-if curl -fsSL -L "$ZIP_URL" -o "$TMP/cursor-rules.zip" 2>/dev/null; then
-  unzip -o -q "$TMP/cursor-rules.zip" -d "$TMP/extract"
-  SRC="$TMP/extract"
-  [ -d "$TMP/extract/cursor-rules" ] && SRC="$TMP/extract/cursor-rules"
-  if [ -f "$SRC/.version" ]; then
-    ok "release .version: $(tr -d '\n' < "$SRC/.version")"
-  else
-    warn "release zip has no .version stamp yet"
-  fi
-  if [ -d "$RULES_DIR" ]; then
-    DIFF=0
-    for f in "$SRC"/simpl-*.mdc; do
-      [ -f "$f" ] || continue
-      base=$(basename "$f")
-      if [ ! -f "${RULES_DIR}/${base}" ]; then
-        bad "missing local rule ${base}"
-        DIFF=1
-      elif ! cmp -s "$f" "${RULES_DIR}/${base}"; then
-        bad "stale local rule ${base}"
-        DIFF=1
-      fi
-    done
-    if [ "$DIFF" -eq 0 ]; then
-      ok "local simpl-*.mdc match release zip"
-    fi
-  fi
-else
-  warn "could not download ${ZIP_URL}"
-fi
-
-section "simpl_knowledge cache"
-CACHE="${SIMPL_KNOWLEDGE_CACHE:-${HOME}/.claude/plugins/cache/simpl_knowledge}"
-if [ -d "${CACHE}/.git" ]; then
-  LOCAL_SHA=$(git -C "$CACHE" rev-parse HEAD 2>/dev/null || echo unknown)
-  git -C "$CACHE" fetch --quiet origin main 2>/dev/null || true
-  REMOTE_SHA=$(git -C "$CACHE" rev-parse origin/main 2>/dev/null || echo unknown)
-  ok "cache HEAD $(short "$LOCAL_SHA")"
-  if [ "$LOCAL_SHA" != "$REMOTE_SHA" ] && [ "$REMOTE_SHA" != "unknown" ]; then
-    bad "cache behind origin/main $(short "$REMOTE_SHA") — session-refresh should reset, or: git -C \"$CACHE\" reset --hard origin/main"
-  else
-    ok "cache matches origin/main"
-  fi
-else
-  bad "missing cache git repo at ${CACHE}"
-fi
-
-section "Claude marketplace clone"
-CLONE="${HOME}/.claude/plugins/marketplaces/${MARKETPLACE_NAME}"
-if [ -d "${CLONE}/.git" ]; then
-  LOCAL_SHA=$(git -C "$CLONE" rev-parse HEAD 2>/dev/null || echo unknown)
-  git -C "$CLONE" fetch --quiet origin main 2>/dev/null || true
-  REMOTE_SHA=$(git -C "$CLONE" rev-parse origin/main 2>/dev/null || echo unknown)
-  AHEAD=$(git -C "$CLONE" rev-list --count "origin/main..HEAD" 2>/dev/null || echo 0)
-  ok "marketplace HEAD $(short "$LOCAL_SHA")"
-  if [ "${AHEAD}" != "0" ]; then
-    bad "marketplace clone diverged (ahead ${AHEAD}) — plugin-refresh will reset --hard, or run: git -C \"$CLONE\" fetch origin main && git -C \"$CLONE\" reset --hard origin/main"
-  elif [ "$LOCAL_SHA" != "$REMOTE_SHA" ] && [ "$REMOTE_SHA" != "unknown" ]; then
-    bad "marketplace behind origin/main $(short "$REMOTE_SHA")"
-  else
-    ok "marketplace matches origin/main"
-  fi
-else
-  bad "missing marketplace clone at ${CLONE}"
-fi
-
-section "Claude plugin versions"
-python3 - <<'PY'
-import json, os
-from pathlib import Path
-
-home = Path.home()
-mp_name = os.environ.get("SIMPL_MARKETPLACE_NAME", "simpl")
-clone = home / ".claude" / "plugins" / "marketplaces" / mp_name
-installed_path = home / ".claude" / "plugins" / "installed_plugins.json"
-core = ["simpl-standards", "simpl-memory", "simpl-libraries"]
-
-mp_versions = {}
-mp_file = clone / ".claude-plugin" / "marketplace.json"
-if mp_file.exists():
-    mp = json.loads(mp_file.read_text())
-    for p in mp.get("plugins", []):
-        if p.get("name") and p.get("version"):
-            mp_versions[p["name"]] = str(p["version"])
-
-installed = {}
-if installed_path.exists():
-    data = json.loads(installed_path.read_text())
-    for key, entries in (data.get("plugins") or {}).items():
-        name = key.split("@")[0]
-        lst = entries if isinstance(entries, list) else [entries]
-        if lst and isinstance(lst[0], dict) and lst[0].get("version"):
-            installed[name] = str(lst[0]["version"])
-
-def cmp(a, b):
-    pa = [int(x) if x.isdigit() else 0 for x in str(a).split(".")]
-    pb = [int(x) if x.isdigit() else 0 for x in str(b).split(".")]
-    n = max(len(pa), len(pb))
-    for i in range(n):
-        da = pa[i] if i < len(pa) else 0
-        db = pb[i] if i < len(pb) else 0
-        if da < db: return -1
-        if da > db: return 1
-    return 0
-
-for name in core:
-    want = mp_versions.get(name)
-    have = installed.get(name)
-    if not want:
-        print(f"  ⚠ {name}: not in marketplace.json")
-        continue
-    if not have:
-        print(f"  ✗ {name}: not installed (marketplace {want})")
-        continue
-    if cmp(have, want) < 0:
-        print(f"  ✗ {name}: installed {have} < marketplace {want} — plugin-refresh / claude plugin update {name}@{mp_name}")
-    else:
-        print(f"  ✓ {name}: installed {have} (marketplace {want})")
-PY
-
-section "Codex skills + AGENTS.md"
-if command -v codex >/dev/null 2>&1 || [ -d "${HOME}/.codex" ] || [ -d "${HOME}/.agents/skills" ]; then
-  CACHE_SKILLS=$(find "${CACHE}/plugins" -mindepth 4 -maxdepth 4 -name SKILL.md 2>/dev/null | wc -l | tr -d ' ')
-  for SKILLS_DIR in "${HOME}/.agents/skills" "${HOME}/.codex/skills"; do
-    SHORT="${SKILLS_DIR#"${HOME}"/}"
-    if [ ! -d "$SKILLS_DIR" ]; then
-      bad "missing ~/${SHORT} — run team-bootstrap.sh"
-      continue
-    fi
-    LINKED=0
-    DANGLING=0
-    for link in "$SKILLS_DIR"/*; do
-      [ -L "$link" ] || continue
-      case "$(readlink "$link")" in
-        "${CACHE}"*)
-          if [ -f "${link}/SKILL.md" ]; then
-            LINKED=$((LINKED + 1))
-          else
-            bad "dangling skill link ~/${SHORT}/$(basename "$link")"
-            DANGLING=$((DANGLING + 1))
-          fi
-          ;;
-      esac
-    done
-    if [ "$LINKED" -eq 0 ]; then
-      bad "no org skills linked into ~/${SHORT} — run team-bootstrap.sh"
-    elif [ "$DANGLING" -eq 0 ]; then
-      ok "${LINKED}/${CACHE_SKILLS} cache skills linked in ~/${SHORT}"
-    fi
-  done
-
-  AGENTS_MD="${HOME}/.codex/AGENTS.md"
-  if [ ! -f "$AGENTS_MD" ]; then
-    bad "missing ${AGENTS_MD} — run team-bootstrap.sh"
-  elif grep -q 'simpl_knowledge:start' "$AGENTS_MD"; then
-    ok "managed block present in ~/.codex/AGENTS.md"
-  else
-    bad "~/.codex/AGENTS.md has no managed block — run team-bootstrap.sh"
-  fi
-else
-  warn "Codex not detected — skipping"
-fi
-
-section "Local state"
-STATE="${HOME}/.simpl_knowledge/state.json"
-if [ -f "$STATE" ]; then
-  ok "state.json present"
-  python3 -c "import json,pathlib; print(' ', pathlib.Path('${STATE}').read_text().strip())" 2>/dev/null || true
-else
-  warn "no ~/.simpl_knowledge/state.json yet (created on first session-refresh)"
-fi
-
-section "Repo tip"
-ok "from clone: bash ${ROOT}/scripts/team-bootstrap.sh"
-ok "force refresh: SIMPL_KNOWLEDGE_FORCE_REFRESH=1 node ${HOME}/.cursor/hooks/shared-hooks/session-refresh.js"
-printf '\n'
+node - <<'JS'
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
+const { execFileSync } = require('node:child_process');
+const home = os.homedir();
+const cache = process.env.SIMPL_KNOWLEDGE_CACHE || path.join(home, '.simpl_knowledge/cache');
+const marketplace = process.env.SIMPL_MARKETPLACE_NAME || 'simpl';
+let failures = 0;
+function check(ok, message) {
+  console.log(`  ${ok ? '✓' : '✗'} ${message}`);
+  if (!ok) failures++;
+}
+function section(label, action) {
+  console.log(`\n== ${label} ==`);
+  try { action(); } catch (error) { check(false, error.message); }
+}
+function exists(file) { return fs.existsSync(file); }
+function json(file) { return JSON.parse(fs.readFileSync(file, 'utf8')); }
+function command(name) {
+  return (process.env.PATH || '').split(path.delimiter).some((dir) => {
+    try { fs.accessSync(path.join(dir, name), fs.constants.X_OK); return true; } catch { return false; }
+  });
+}
+function matches(a, b) { return exists(a) && exists(b) && fs.readFileSync(a).equals(fs.readFileSync(b)); }
+function git(dir, ...args) {
+  return execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+}
+function verifyClone(dir) {
+  git(dir, 'fetch', '--quiet', 'origin', 'main');
+  const sha = git(dir, 'rev-parse', 'HEAD');
+  check(sha === git(dir, 'rev-parse', 'origin/main'), `cache matches origin/main (${sha.slice(0, 12)})`);
+  check(git(dir, 'status', '--porcelain', '--untracked-files=no') === '', `tracked cache content clean: ${dir}`);
+}
+const cursor = command('cursor') || exists(path.join(home, '.cursor')) || exists(path.join(home, 'Library/Application Support/Cursor'));
+const claude = command('claude') || exists(path.join(home, '.claude/plugins/installed_plugins.json'));
+const codex = command('codex') || exists(path.join(home, '.codex')) || exists(path.join(home, '.agents/skills'));
+check(cursor || claude || codex, 'at least one supported agent detected');
+section('simpl_knowledge cache', () => verifyClone(cache));
+if (cursor) {
+  section('Cursor hooks + shared-hooks', () => {
+    const hooks = json(path.join(home, '.cursor/hooks.json'));
+    const entries = hooks.hooks?.sessionStart;
+    check(!hooks.sessionStart && Array.isArray(entries) && entries.some(e => /adapter\.js.*session-refresh/.test(e.command)), 'hooks.sessionStart registered under hooks as array');
+    check(matches(path.join(cache, 'scripts/cursor-hooks/adapter.js'), path.join(home, '.cursor/hooks/adapter.js')), 'adapter matches cache');
+    const source = path.join(cache, 'scripts/shared-hooks');
+    for (const file of fs.readdirSync(source).filter(f => f.endsWith('.js'))) {
+      check(matches(path.join(source, file), path.join(home, '.cursor/hooks/shared-hooks', file)), `shared-hooks/${file} matches cache`);
+    }
+  });
+  section('Cursor rules vs cache', () => {
+    const source = path.join(cache, 'cursor-rules');
+    const rules = fs.readdirSync(source).filter(f => /^simpl-.*\.mdc$/.test(f));
+    check(rules.length > 0, 'generated Cursor rules available');
+    for (const file of rules) check(matches(path.join(source, file), path.join(home, '.cursor/rules', file)), `${file} matches cache`);
+  });
+}
+if (claude) {
+  const clone = path.join(home, '.claude/plugins/marketplaces', marketplace);
+  section('Claude marketplace clone', () => verifyClone(clone));
+  section('Claude plugins + auto-update', () => {
+    const versions = new Map(json(path.join(clone, '.claude-plugin/marketplace.json')).plugins.map(p => [p.name, p.version]));
+    const installed = json(path.join(home, '.claude/plugins/installed_plugins.json')).plugins;
+    const settings = json(path.join(home, '.claude/settings.json'));
+    const known = json(path.join(home, '.claude/plugins/known_marketplaces.json'));
+    check(known[marketplace]?.autoUpdate === true, 'marketplace autoUpdate enabled');
+    const names = new Set(['simpl-standards', 'simpl-memory', 'simpl-libraries']);
+    for (const key of Object.keys(installed)) if (key.endsWith(`@${marketplace}`)) names.add(key.split('@')[0]);
+    for (const name of names) {
+      const key = `${name}@${marketplace}`;
+      const entries = installed[key];
+      const entry = (Array.isArray(entries) ? entries : [entries]).find(e => e?.scope === 'user');
+      check(Boolean(versions.get(name)) && entry?.version === versions.get(name), `${name}: installed ${entry?.version || 'missing'} / marketplace ${versions.get(name)}`);
+      check(settings.enabledPlugins?.[key] === true, `${key} enabled for user`);
+      if (entry?.installPath) {
+        check(json(path.join(entry.installPath, '.claude-plugin/plugin.json')).version === versions.get(name), `${name} cached manifest matches`);
+      } else check(false, `${name} installPath missing`);
+    }
+  });
+}
+if (codex) section('Codex skills + AGENTS.md', () => {
+  const sources = [];
+  for (const plugin of fs.readdirSync(path.join(cache, 'plugins'))) {
+    const dir = path.join(cache, 'plugins', plugin, 'skills');
+    if (!exists(dir)) continue;
+    for (const skill of fs.readdirSync(dir)) if (exists(path.join(dir, skill, 'SKILL.md'))) sources.push({ name: skill, dir: path.join(dir, skill) });
+  }
+  check(sources.length > 0 && new Set(sources.map(s => s.name)).size === sources.length, 'nonempty unique cache skill names');
+  for (const root of ['.agents/skills', '.codex/skills']) {
+    let linked = 0;
+    for (const source of sources) {
+      const dest = path.join(home, root, source.name);
+      if (fs.lstatSync(dest, { throwIfNoEntry: false })?.isSymbolicLink() && exists(dest) && fs.realpathSync(dest) === fs.realpathSync(source.dir)) linked++;
+      else check(false, `missing or incorrect ${root}/${source.name}`);
+    }
+    check(linked === sources.length, `${linked}/${sources.length} cache skills linked in ${root}`);
+  }
+  const text = fs.readFileSync(path.join(home, '.codex/AGENTS.md'), 'utf8');
+  const start = '<!-- simpl_knowledge:start -->';
+  const end = '<!-- simpl_knowledge:end -->';
+  const block = text.slice(text.indexOf(start), text.indexOf(end));
+  check(text.split(start).length === 2 && text.split(end).length === 2 && text.indexOf(end) > text.indexOf(start), 'one complete managed AGENTS.md block');
+  check(block.includes('`git-workflow`'), 'managed block requires git-workflow');
+});
+section('Refresh status', () => {
+  const file = path.join(home, '.simpl_knowledge/state.json');
+  if (exists(file)) { const state = json(file); check(state.last_refresh_ok !== false, `last refresh: ${state.last_error || 'OK'}`); }
+  else console.log('  - first session refresh has not run yet');
+});
+console.log(`\ndoctor ${failures ? `FAILED (${failures})` : 'OK'}`);
+process.exitCode = failures ? 1 : 0;
+JS

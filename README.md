@@ -76,4 +76,9 @@ Config di riferimento: [config/simpl.json](config/simpl.json).
 
 ## CI
 
+`bash scripts/ci/validate-agent-infra.sh` validates hooks and matching plugin versions.
+Use `VALIDATE_BASE_REF=main` to check release bumps against the PR base, including local pending edits.
+`node --test tests/*.test.js` exercises bootstrap, refresh and library sync in disposable homes and clones; GitHub labels and Claude updates are mocked at the CLI/API boundary. No network, credentials or npm packages are required.
+Library sync increments `simpl-standards` whenever it updates the bundled `CHANGES.md`, in addition to the integration plugin version.
+
 Il repo centrale include [.github/workflows/release-cursor-rules.yml](.github/workflows/release-cursor-rules.yml), che rigenera la release GitHub `cursor-rules-rolling` quando cambiano gli skill sotto `plugins/**/SKILL.md` (o lo script generatore). Nei repo libreria pre-configurati ci sono `auto-update-skill.yml` e `sync-skill-to-marketplace.yml` ([library-repo-template/.github/workflows/](library-repo-template/.github/workflows/)). Dettagli sulla release Cursor: [docs/human/ADMIN_SETUP.md](docs/human/ADMIN_SETUP.md) (Passo 6).

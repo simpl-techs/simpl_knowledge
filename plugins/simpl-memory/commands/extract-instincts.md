@@ -13,7 +13,7 @@ Uses the **same inference as your Cursor / Claude Code session** — no HTTP cal
 
 ```bash
 LOGIN="$(gh api user -q .login)" || { echo 'ERROR: run gh auth login first'; exit 1; }
-CONFIG="${SIMPL_KNOWLEDGE_CONFIG:-$HOME/.claude/plugins/cache/simpl_knowledge/config/simpl.json}"
+CONFIG="${SIMPL_KNOWLEDGE_CONFIG:-$HOME/.simpl_knowledge/cache/config/simpl.json}"
 node -e '
 const fs = require("fs");
 const login = process.env.LOGIN;
@@ -90,7 +90,7 @@ Write this JSON to a temp file, e.g. `/tmp/simpl-extract-$$.json`.
 From the **git repo root** where instincts should apply:
 
 ```bash
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/plugins/cache/simpl_knowledge/plugins/simpl-memory}"
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$HOME/.simpl_knowledge/cache/plugins/simpl-memory}"
 node "$PLUGIN_ROOT/scripts/persist-instincts.js" /tmp/simpl-extract-XXXX.json
 ```
 

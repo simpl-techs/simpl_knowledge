@@ -9,7 +9,7 @@ alwaysApply: true
 
 Org-wide **canonical list** of integration libraries lives in the simpl_knowledge repo root:
 
-- **Primary**: `~/.claude/plugins/cache/simpl_knowledge/catalog.md` (same tree if you have a clone of `simpl-techs/simpl_knowledge` at `SIMPL_KNOWLEDGE_CACHE`).
+- **Primary**: `~/.simpl_knowledge/cache/catalog.md` (same tree if you have a clone of `simpl-techs/simpl_knowledge` at `SIMPL_KNOWLEDGE_CACHE`).
 - **Machine-readable**: `catalog.json` beside it.
 
 ## What you must do
@@ -27,7 +27,7 @@ Org-wide **canonical list** of integration libraries lives in the simpl_knowledg
 
 Cursor agents do not run `/plugin install`. Still read `catalog.md` from the cache path above. For full integration docs, open:
 
-`~/.claude/plugins/cache/simpl_knowledge/plugins/<plugin-name>/skills/*/SKILL.md`
+`~/.simpl_knowledge/cache/plugins/<plugin-name>/skills/*/SKILL.md`
 
 Suggest installing the matching `*-context` plugin in Claude Code if the user also works there.
 

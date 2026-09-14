@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Install ~/.cursor/hooks/adapter.js + shared-hooks/, and merge sessionStart into
 # ~/.cursor/hooks.json using Cursor's documented schema (events under hooks as arrays).
-# Requires simpl_knowledge clone at ~/.claude/plugins/cache/<repo basename> (see callers).
+# Requires simpl_knowledge clone at ~/.simpl_knowledge/cache (see callers).
 #
 # Usage (after sourcing):
 #   install_cursor_global_hooks "simpl-techs/simpl_knowledge"
 
 install_cursor_global_hooks() {
   local MARKETPLACE_REPO="${1:-simpl-techs/simpl_knowledge}"
-  local CACHE="${HOME}/.claude/plugins/cache/${MARKETPLACE_REPO##*/}"
+  local CACHE="${HOME}/.simpl_knowledge/cache"
   local ADAPTER_SRC="${CACHE}/scripts/cursor-hooks/adapter.js"
   local SHARED_SRC="${CACHE}/scripts/shared-hooks"
   local CURSOR_HOOKS="${HOME}/.cursor/hooks"
@@ -17,7 +17,7 @@ install_cursor_global_hooks() {
 
   if [ ! -f "$ADAPTER_SRC" ]; then
     echo "  ⚠ install_cursor_global_hooks: missing ${ADAPTER_SRC} — clone ${MARKETPLACE_REPO} first." >&2
-    return 0
+    return 1
   fi
 
   mkdir -p "$CURSOR_HOOKS" "$BACKUP_DIR"
@@ -35,7 +35,7 @@ install_cursor_global_hooks() {
     fi
   fi
 
-  local WANT_CMD="node ${HOME}/.cursor/hooks/adapter.js session-refresh"
+  local WANT_CMD="node \"${HOME}/.cursor/hooks/adapter.js\" session-refresh"
   python3 - "$HOOKS_JSON" "$WANT_CMD" "$BACKUP_DIR" <<'PY'
 import json, pathlib, shutil, sys
 from datetime import datetime, timezone
@@ -111,6 +111,8 @@ for key in list(data.keys()):
         hooks[key] = dedupe_by_command(as_hook_list(hooks.get(key)) + as_hook_list(data.pop(key)))
 
 session = dedupe_by_command(as_hook_list(hooks.get("sessionStart")))
+legacy_cmd = want_cmd.replace('"', '')
+session = [entry for entry in session if entry.get("command") != legacy_cmd]
 if not any(h.get("command") == want_cmd for h in session):
     session.append(want)
 hooks["sessionStart"] = session

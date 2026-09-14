@@ -9,7 +9,7 @@
  * (alwaysApply: true) so Cursor, Claude and Codex share one source of truth.
  *
  * Invoked by team-bootstrap.sh, install-team.sh, and session-refresh.js.
- * Fail-open: never throws to the caller; logs to ~/.simpl_knowledge/refresh.log.
+ * Exits nonzero on incomplete sync; session hooks may catch and surface it.
  *
  * Env:
  *   SIMPL_KNOWLEDGE_CACHE  — override cache dir
@@ -65,9 +65,8 @@ function resolveCacheDir(explicit) {
     const p = path.resolve(process.env.SIMPL_KNOWLEDGE_CACHE);
     if (fs.existsSync(p)) return p;
   }
-  const claudeCache = path.join(home(), '.claude', 'plugins', 'cache', 'simpl_knowledge');
-  if (fs.existsSync(claudeCache)) return claudeCache;
-  return null;
+  const cache = path.join(home(), '.simpl_knowledge', 'cache');
+  return fs.existsSync(cache) ? cache : null;
 }
 
 /** Every skill shipped by the org plugins, keyed by directory name. */
@@ -118,13 +117,14 @@ function alwaysOnSkills(cacheDir, sources) {
 /** Symlink managed skills into one dir, dropping links that no longer resolve. */
 function linkSkillsInto(destRoot, cacheDir, sources) {
   fs.mkdirSync(destRoot, { recursive: true });
-  const managed = new Map(sources.map((s) => [s.name, s.dir]));
 
   for (const entry of fs.readdirSync(destRoot, { withFileTypes: true })) {
     const dest = path.join(destRoot, entry.name);
     if (!fs.lstatSync(dest).isSymbolicLink()) continue;
-    const target = fs.readlinkSync(dest);
-    const ours = target.startsWith(cacheDir) || managed.has(entry.name);
+    if (entry.name === '.system') continue;
+    const target = path.resolve(destRoot, fs.readlinkSync(dest));
+    const legacyRoot = path.join(home(), '.claude', 'plugins', 'cache', 'simpl_knowledge');
+    const ours = target.startsWith(`${path.resolve(cacheDir)}${path.sep}`) || target.startsWith(`${legacyRoot}${path.sep}`);
     if (ours) fs.unlinkSync(dest);
   }
 
@@ -132,7 +132,7 @@ function linkSkillsInto(destRoot, cacheDir, sources) {
   const skipped = [];
   for (const src of sources) {
     const dest = path.join(destRoot, src.name);
-    if (fs.existsSync(dest)) {
+    if (fs.existsSync(dest) || fs.lstatSync(dest, { throwIfNoEntry: false })) {
       skipped.push(src.name);
       continue;
     }
@@ -190,12 +190,17 @@ function upsertAgentsMd(alwaysOn, cacheDir) {
   const current = fs.readFileSync(dest, 'utf8');
   const start = current.indexOf(MARKER_START);
   const end = current.indexOf(MARKER_END);
+  if (current.split(MARKER_START).length > 2 || current.split(MARKER_END).length > 2) {
+    throw new Error(`Duplicate managed markers in ${dest}; repair them before syncing`);
+  }
   let next;
   if (start !== -1 && end !== -1 && end > start) {
-    const tail = current.slice(end + MARKER_END.length).replace(/^\n+/, '');
-    next = `${current.slice(0, start)}${block}${tail}`;
+    const tail = current.slice(end + MARKER_END.length);
+    next = `${current.slice(0, start)}${block.trimEnd()}${tail}`;
+  } else if (start !== -1 || end !== -1) {
+    throw new Error(`Malformed managed markers in ${dest}; repair them before syncing`);
   } else {
-    next = `${current.replace(/\s*$/, '')}\n\n${block}`;
+    next = `${current}${current.endsWith('\n') ? '\n' : '\n\n'}${block}`;
   }
   if (next === current) return 'unchanged';
   fs.writeFileSync(dest, next);
@@ -210,18 +215,27 @@ function main() {
     }
     const cacheDir = resolveCacheDir(process.argv[2]);
     if (!cacheDir) {
-      appendLog('no simpl_knowledge cache on disk — skipped');
-      return;
+      throw new Error('No simpl_knowledge cache on disk');
     }
     const sources = managedSources(cacheDir);
+    if (!sources.length) throw new Error(`No skills in ${cacheDir}`);
+    if (new Set(sources.map((s) => s.name)).size !== sources.length) {
+      throw new Error('Duplicate skill directory names in cache');
+    }
+    const alwaysOn = alwaysOnSkills(cacheDir, sources);
+    if (!alwaysOn.includes('git-workflow')) {
+      throw new Error('Incomplete cache: always-on rules do not include git-workflow');
+    }
     const results = linkSkills(cacheDir, sources);
-    const agents = upsertAgentsMd(alwaysOnSkills(cacheDir, sources), cacheDir);
+    const agents = upsertAgentsMd(alwaysOn, cacheDir);
     const summary = results
       .map((r) => `${path.basename(path.dirname(r.dir))}/skills ${r.linked.length}/${sources.length}`)
       .join(', ');
     process.stdout.write(`codex: ${summary} linked, AGENTS.md ${agents}\n`);
+    if (results.some((result) => result.skipped.length)) process.exitCode = 1;
   } catch (e) {
     appendLog('failed', e);
+    process.exitCode = 1;
   }
 }
 

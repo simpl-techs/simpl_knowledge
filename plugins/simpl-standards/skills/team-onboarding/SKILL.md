@@ -19,7 +19,7 @@ command -v codex || [ -d ~/.codex ] && echo "Codex detected" || echo "Codex NOT 
 command -v node && node --version || echo "Node NOT installed"
 
 # Is the marketplace already added?
-[ -d ~/.claude/plugins/cache/simpl_knowledge ] && echo "Marketplace already added" || echo "Marketplace NOT added"
+[ -d ~/.simpl_knowledge/cache ] && echo "Marketplace already added" || echo "Marketplace NOT added"
 
 # Any Cursor rules already installed?
 ls ~/.cursor/rules/*.mdc 2>/dev/null | wc -l
@@ -84,7 +84,7 @@ Example after the agent matches a task to a catalog entry:
 
 In Codex there is nothing to install: every `*-context` skill in the cache is already linked into the global skill dirs, and Codex loads a skill only when its description matches the task.
 
-If they mention a library that doesn't exist in the marketplace yet, that's a signal: the library owner should use the `repo-context-bootstrap` skill or `/bootstrap-repo-context` (or `bash ~/.claude/plugins/cache/simpl_knowledge/library-repo-template/scripts/bootstrap.sh <name>`) to scaffold and publish it.
+If they mention a library that doesn't exist in the marketplace yet, that's a signal: the library owner should use the `repo-context-bootstrap` skill or `/bootstrap-repo-context` (or `bash ~/.simpl_knowledge/cache/library-repo-template/scripts/bootstrap.sh <name>`) to scaffold and publish it.
 
 ## 4. Memory layer (simpl-memory)
 

@@ -10,7 +10,7 @@
       "name": "simpl-standards",
       "source": "./plugins/simpl-standards",
       "description": "Cross-cutting standards for all simpl projects: coding conventions, git workflow, testing policy, Python environment toolchain, repo docs and env-var consistency, Doppler secrets.",
-      "version": "0.12.0",
+      "version": "0.13.0",
       "keywords": [
         "standards",
         "conventions",
@@ -21,7 +21,7 @@
       "name": "simpl-memory",
       "source": "./plugins/simpl-memory",
       "description": "Continuous-learning layer: recurring session patterns surfaced for promotion to shared skills.",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "keywords": [
         "memory",
         "learning",
@@ -34,7 +34,7 @@
       "name": "simpl-libraries",
       "source": "./plugins/simpl-libraries",
       "description": "Auto-generated catalog of internal simpl libraries; consult before building new cross-cutting functionality.",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "keywords": [
         "catalog",
         "internal-libraries",

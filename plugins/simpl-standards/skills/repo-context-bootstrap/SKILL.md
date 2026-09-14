@@ -8,8 +8,8 @@ description: |
 
 ## Paths
 
-- Shared scripts: `~/.claude/plugins/cache/simpl_knowledge/scripts/shared-hooks/` (same tree under a cloned `simpl_knowledge` repo).
-- Template: `~/.claude/plugins/cache/simpl_knowledge/library-repo-template/`
+- Shared scripts: `~/.simpl_knowledge/cache/scripts/shared-hooks/` (same tree under a cloned `simpl_knowledge` repo).
+- Template: `~/.simpl_knowledge/cache/library-repo-template/`
 
 ## 1. Read drift signal
 
@@ -17,13 +17,13 @@ description: |
 2. If missing or stale, run (from repo root):
 
 ```bash
-node ~/.claude/plugins/cache/simpl_knowledge/scripts/shared-hooks/repo-context-check.js --print
+node ~/.simpl_knowledge/cache/scripts/shared-hooks/repo-context-check.js --print
 ```
 
 3. To analyze a repo that is not yet opted in (no `.agent/` / `CLAUDE.md` / etc.), only after the user confirms:
 
 ```bash
-node ~/.claude/plugins/cache/simpl_knowledge/scripts/shared-hooks/repo-context-check.js --print --skip-gate
+node ~/.simpl_knowledge/cache/scripts/shared-hooks/repo-context-check.js --print --skip-gate
 ```
 
 ## 2. Explain impact (no emojis)
@@ -38,8 +38,8 @@ Ask once: proceed with template apply? If no, stop.
 ## 4. Dry-run then apply
 
 ```bash
-node ~/.claude/plugins/cache/simpl_knowledge/scripts/shared-hooks/apply-repo-template.js
-node ~/.claude/plugins/cache/simpl_knowledge/scripts/shared-hooks/apply-repo-template.js --write
+node ~/.simpl_knowledge/cache/scripts/shared-hooks/apply-repo-template.js
+node ~/.simpl_knowledge/cache/scripts/shared-hooks/apply-repo-template.js --write
 ```
 
 After `--write`: show `git status` and `git diff --stat`, suggest commit message `chore(agent): bootstrap simpl_knowledge repo context`.

@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-SHARED="${SIMPL_SHARED_HOOKS:-$HOME/.claude/plugins/cache/simpl_knowledge/scripts/shared-hooks}"
+SHARED="${SIMPL_SHARED_HOOKS:-$HOME/.simpl_knowledge/cache/scripts/shared-hooks}"
 if [ ! -f "$SHARED/session-refresh.js" ]; then
   exit 0
 fi

@@ -30,6 +30,8 @@ bash scripts/team-bootstrap.sh
 
 ## Cursor
 
+- **Shared Git cache**: `~/.simpl_knowledge/cache`, outside Claude's plugin cache garbage collection. Bootstrap migrates legacy `~/.claude/plugins/cache/simpl_knowledge` into a backup and relinks Codex skills. Do not put a shared repository inside a harness-owned plugin cache.
+
 - Rules ship as **`cursor-rules-rolling`** release zip (built from SKILL.md; includes `.version` stamp). Install via `scripts/team-bootstrap.sh` or `scripts/install-team.sh`.
 - **Hooks (DRY with Claude Code)**: add new logic once under `simpl_knowledge/scripts/shared-hooks/<name>.js`. Register Cursor events in `.cursor/hooks.json` **under `hooks` as arrays** (`node …/adapter.js <name>`). Global `sessionStart` → `session-refresh` is merged by `install-cursor-global-hooks.sh` (also copies `shared-hooks` to `~/.cursor/hooks/shared-hooks/`).
 - **Hook self-update**: `session-refresh` re-copies `shared-hooks/*.js` and `adapter.js` from the cache each run, so changed hook code reaches a machine without re-running the bootstrap (active from the next session). Registering a *new event* still needs `install-cursor-global-hooks.sh`.

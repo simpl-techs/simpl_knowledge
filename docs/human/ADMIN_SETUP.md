@@ -127,7 +127,7 @@ Per ogni libreria interna che vuoi includere:
 1. `cd` nel repo della libreria (deve avere `.git`).
 2. Esegui:
    ```bash
-   bash ~/.claude/plugins/cache/simpl_knowledge/library-repo-template/scripts/bootstrap.sh <repo-name>
+   bash ~/.simpl_knowledge/cache/library-repo-template/scripts/bootstrap.sh <repo-name>
    ```
 3. Compila `.agent/SKILL.md` (rimuovi i placeholder `REPLACE-ME`).
 4. Verifica i secret Actions: con **org secrets** (`SIMPL_KNOWLEDGE_PAT`, `DEEPSEEK_API_KEY`) ereditati dal repo; senza piano org, imposta gli stessi nomi come **repository secrets** su ogni repo libreria. Controlla che esista `requirements-agent-ci.txt` in root (il bootstrap lo copia dal template).

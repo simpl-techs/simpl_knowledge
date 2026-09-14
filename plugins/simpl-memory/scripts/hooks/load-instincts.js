@@ -19,10 +19,8 @@ const { execSync } = require('node:child_process');
 
 const TEAM_INSTINCTS_PATH = path.join(
   os.homedir(),
-  '.claude',
-  'plugins',
+  '.simpl_knowledge',
   'cache',
-  'simpl_knowledge',
   'team-instincts',
   'instincts.jsonl',
 );

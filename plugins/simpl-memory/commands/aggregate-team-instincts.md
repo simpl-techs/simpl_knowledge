@@ -11,7 +11,7 @@ Same owners as `/extract-instincts` — `Len378`, `n3ural`, `not-Karot`:
 
 ```bash
 LOGIN="$(gh api user -q .login)" || { echo 'ERROR: run gh auth login first'; exit 1; }
-CONFIG="${SIMPL_KNOWLEDGE_CONFIG:-$HOME/.claude/plugins/cache/simpl_knowledge/config/simpl.json}"
+CONFIG="${SIMPL_KNOWLEDGE_CONFIG:-$HOME/.simpl_knowledge/cache/config/simpl.json}"
 node -e '
 const fs = require("fs");
 const login = process.env.LOGIN;
@@ -41,7 +41,7 @@ console.log("OK instinct owner:", login);
 ### 1. Clone / update simpl_knowledge
 
 ```bash
-CACHE="${HOME}/.claude/plugins/cache/simpl_knowledge"
+CACHE="${HOME}/.simpl_knowledge/cache"
 if [ ! -d "$CACHE/.git" ]; then
   git clone --depth 1 https://github.com/simpl-techs/simpl_knowledge.git "$CACHE"
 fi

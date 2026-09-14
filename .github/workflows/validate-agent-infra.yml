@@ -6,6 +6,8 @@ on:
   pull_request:
     paths:
       - "plugins/**"
+      - "scripts/**"
+      - "tests/**"
       - "library-repo-template/.cursor/hooks.json"
       - "scripts/install-cursor-global-hooks.sh"
       - "scripts/ci/validate-agent-infra.sh"
@@ -16,6 +18,8 @@ on:
       - main
     paths:
       - "plugins/**"
+      - "scripts/**"
+      - "tests/**"
       - "library-repo-template/.cursor/hooks.json"
       - "scripts/install-cursor-global-hooks.sh"
       - "scripts/ci/validate-agent-infra.sh"
@@ -35,3 +39,10 @@ jobs:
         env:
           VALIDATE_BASE_REF: ${{ github.event.pull_request.base.ref || '' }}
         run: bash scripts/ci/validate-agent-infra.sh
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Test bootstrap and refresh in isolated homes
+        run: node --test tests/*.test.js

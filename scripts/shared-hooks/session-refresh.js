@@ -48,15 +48,13 @@ function resolveCacheDir() {
     const p = path.resolve(process.env.SIMPL_KNOWLEDGE_CACHE);
     if (fs.existsSync(p)) return p;
   }
-  const claudeCache = path.join(home(), '.claude', 'plugins', 'cache', 'simpl_knowledge');
-  if (fs.existsSync(claudeCache)) return claudeCache;
   const alt = path.join(home(), '.simpl_knowledge', 'cache');
   if (fs.existsSync(alt)) return alt;
   return null;
 }
 
 function defaultCacheDir() {
-  return path.join(home(), '.claude', 'plugins', 'cache', 'simpl_knowledge');
+  return path.join(home(), '.simpl_knowledge', 'cache');
 }
 
 function readState() {
@@ -150,6 +148,7 @@ function cloneCache(dest) {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   execFileSync('git', ['clone', '--depth', '1', '--branch', 'main', url, dest], {
     stdio: 'ignore',
+    timeout: 20000,
   });
 }
 
@@ -185,6 +184,7 @@ function ensureCacheFresh(cwd) {
     if (!skipFetch) {
       execFileSync('git', ['-C', cacheDir, 'fetch', '--prune', '--quiet', 'origin', 'main'], {
         stdio: 'ignore',
+        timeout: 20000,
       });
       writeState({ last_fetch_at: new Date().toISOString() });
     }
@@ -194,6 +194,7 @@ function ensureCacheFresh(cwd) {
     if (remote && local !== remote) {
       execFileSync('git', ['-C', cacheDir, 'reset', '--hard', 'origin/main'], {
         stdio: 'ignore',
+        timeout: 20000,
       });
     }
 
@@ -244,6 +245,7 @@ function copyMdcFromDir(srcDir, destDir) {
       fs.copyFileSync(from, to);
     } catch (e) {
       appendRefreshLog(`session-refresh: copy ${name} failed`, e);
+      throw e;
     }
   }
   return toCopy.length;
@@ -255,7 +257,7 @@ function downloadZipExtractMdcSync(destRulesDir) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'simpl-cursor-rules-'));
   const zipPath = path.join(tmp, 'cursor-rules.zip');
   try {
-    execFileSync('curl', ['-fsSL', '-L', zipUrl, '-o', zipPath], { stdio: 'ignore' });
+    execFileSync('curl', ['--max-time', '20', '-fsSL', '-L', zipUrl, '-o', zipPath], { stdio: 'ignore' });
     execFileSync('unzip', ['-o', '-q', zipPath, '-d', tmp], { stdio: 'ignore' });
     let src = path.join(tmp, 'cursor-rules');
     if (!fs.existsSync(src)) src = tmp;
@@ -289,7 +291,12 @@ function syncCursorRules(cacheDir, { force }) {
   const dest = path.join(home(), '.cursor', 'rules');
   const src = cacheDir ? path.join(cacheDir, 'cursor-rules') : null;
   const state = readState();
-  if (!force && state.rules_synced_sha && state.cache_sha && state.rules_synced_sha === state.cache_sha) {
+  const sourceFiles = src ? listMdcFiles(src) : [];
+  const rulesMatch = sourceFiles.length > 0 && managedMdcBasenames(sourceFiles).every((file) => {
+    const target = path.join(dest, file);
+    return fs.existsSync(target) && fs.readFileSync(target).equals(fs.readFileSync(path.join(src, file)));
+  });
+  if (!force && rulesMatch && state.rules_synced_sha && state.cache_sha && state.rules_synced_sha === state.cache_sha) {
     return { copied: 0, skipped: true };
   }
 
@@ -311,6 +318,7 @@ function syncCursorRules(cacheDir, { force }) {
   } else {
     copied = downloadZipExtractMdcSync(dest);
   }
+  if (!copied) throw new Error('No Cursor rules synchronized');
 
   writeState({
     rules_synced_sha: readState().cache_sha || null,
@@ -386,20 +394,21 @@ function emitClaudeContext(message) {
 function selfUpdateSharedHooks(cacheDir) {
   if (!cacheDir) return;
   const src = path.join(cacheDir, 'scripts', 'shared-hooks');
-  if (!fs.existsSync(src) || path.resolve(src) === path.resolve(__dirname)) return;
+  const destination = path.join(home(), '.cursor', 'hooks', 'shared-hooks');
+  if (!fs.existsSync(src) || !fs.existsSync(destination)) return;
   try {
     const updated = [];
     for (const file of fs.readdirSync(src)) {
       if (!file.endsWith('.js')) continue;
       const from = path.join(src, file);
-      const to = path.join(__dirname, file);
+      const to = path.join(destination, file);
       const next = fs.readFileSync(from);
       if (fs.existsSync(to) && fs.readFileSync(to).equals(next)) continue;
       fs.writeFileSync(to, next);
       updated.push(file);
     }
     const adapterSrc = path.join(cacheDir, 'scripts', 'cursor-hooks', 'adapter.js');
-    const adapterDest = path.join(__dirname, '..', 'adapter.js');
+    const adapterDest = path.join(destination, '..', 'adapter.js');
     if (fs.existsSync(adapterSrc) && fs.existsSync(adapterDest)) {
       const next = fs.readFileSync(adapterSrc);
       if (!fs.readFileSync(adapterDest).equals(next)) {
@@ -412,6 +421,7 @@ function selfUpdateSharedHooks(cacheDir) {
     }
   } catch (e) {
     appendRefreshLog('shared-hooks self-update failed', e);
+    throw e;
   }
 }
 
@@ -425,11 +435,12 @@ function syncCodexKnowledge(cacheDir) {
   if (!cacheDir || !fs.existsSync(script)) return;
   try {
     execFileSync(process.execPath, [script, cacheDir], {
-      stdio: 'ignore',
+      stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 10_000,
     });
   } catch (e) {
     appendRefreshLog('sync-codex-knowledge failed', e);
+    throw e;
   }
 }
 
@@ -452,11 +463,16 @@ function runRepoContextCheck(cwd, mode) {
  */
 function refreshSync({ cwd, needMdc, emit }) {
   const result = ensureCacheFresh(cwd);
-  if (needMdc) {
-    syncCursorRules(result.cacheDir, { force: Boolean(result.changed) || forceRefresh(cwd) });
+  try {
+    if (needMdc) {
+      syncCursorRules(result.cacheDir, { force: Boolean(result.changed) || forceRefresh(cwd) });
+    }
+    selfUpdateSharedHooks(result.cacheDir);
+    syncCodexKnowledge(result.cacheDir);
+  } catch (error) {
+    result.error = error.message;
+    writeState({ last_refresh_ok: false, last_error: error.message });
   }
-  selfUpdateSharedHooks(result.cacheDir);
-  syncCodexKnowledge(result.cacheDir);
   if (cwd) runSyncCursorInternal(cwd);
   const message = buildContextMessage({
     sha: result.sha,
@@ -484,6 +500,7 @@ function runWorker(job) {
     }
   } catch (e) {
     appendRefreshLog('session-refresh worker failed', e);
+    writeState({ last_refresh_ok: false, last_error: e.message });
   }
 }
 

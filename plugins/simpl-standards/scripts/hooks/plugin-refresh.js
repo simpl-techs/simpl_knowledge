@@ -22,6 +22,13 @@ const { execFileSync } = require('node:child_process');
 const MARKETPLACE_NAME = process.env.SIMPL_MARKETPLACE_NAME || 'simpl';
 const CORE_PLUGINS = ['simpl-standards', 'simpl-memory', 'simpl-libraries'];
 const CLAUDE_TIMEOUT_MS = 55_000;
+const DEADLINE = Date.now() + CLAUDE_TIMEOUT_MS;
+
+function remainingTimeout(limit) {
+  const remaining = DEADLINE - Date.now();
+  if (remaining <= 0) throw new Error('Plugin refresh exceeded its 55-second budget');
+  return Math.min(limit, remaining);
+}
 
 function home() {
   return os.homedir();
@@ -63,6 +70,7 @@ function git(cwd, args) {
   return execFileSync('git', ['-C', cwd, ...args], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: remainingTimeout(20000),
   }).trim();
 }
 
@@ -82,7 +90,7 @@ function runClaude(args) {
   return execFileSync(claudeBin(), args, {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: CLAUDE_TIMEOUT_MS,
+    timeout: remainingTimeout(CLAUDE_TIMEOUT_MS),
   });
 }
 
@@ -125,9 +133,10 @@ function readInstalledVersions() {
     const out = {};
     const plugins = j.plugins || {};
     for (const [key, entries] of Object.entries(plugins)) {
+      if (!key.endsWith(`@${MARKETPLACE_NAME}`)) continue;
       const name = key.split('@')[0];
       const list = Array.isArray(entries) ? entries : [entries];
-      const latest = list[0];
+      const latest = list.find(entry => entry && entry.scope === 'user');
       if (latest && latest.version) out[name] = String(latest.version);
     }
     return out;
@@ -152,7 +161,7 @@ function compareSemver(a, b) {
 
 function findStale(marketplaceVersions, installedVersions) {
   const stale = [];
-  for (const name of CORE_PLUGINS) {
+  for (const name of new Set([...CORE_PLUGINS, ...Object.keys(installedVersions)])) {
     const want = marketplaceVersions[name];
     const have = installedVersions[name];
     if (!want) continue;
@@ -172,6 +181,9 @@ function updateOrInstallPlugin(stale) {
   const action = stale.have ? 'update' : 'install';
   try {
     runClaude(['plugin', action, spec, '--scope', 'user']);
+    if (readInstalledVersions()[stale.name] !== stale.want) {
+      throw new Error(`Plugin ${spec} did not reach ${stale.want}`);
+    }
     return { ok: true };
   } catch (e) {
     appendLog(`claude plugin ${action} ${spec} failed`, e);
@@ -206,6 +218,20 @@ function main() {
     lines.push(`[simpl_knowledge] marketplace clone @ ${heal.sha.slice(0, 12)}`);
   }
 
+  if (heal.ok) {
+    try {
+      const refresh = path.join(cloneDir, 'scripts/shared-hooks/session-refresh.js');
+      const output = execFileSync(process.execPath, [refresh, '--claude-session-hook'], {
+        encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: remainingTimeout(55000),
+      });
+      const context = JSON.parse(output).hookSpecificOutput.additionalContext;
+      lines.push(context);
+    } catch (error) {
+      appendLog('shared cache refresh failed', error);
+      lines.push('[simpl_knowledge] WARNING: shared cache refresh failed; run doctor.sh');
+    }
+  }
+
   const marketplaceVersions = heal.ok ? readMarketplaceVersions(cloneDir) : {};
   const installedVersions = readInstalledVersions();
   const stale = findStale(marketplaceVersions, installedVersions);
@@ -238,9 +264,7 @@ function main() {
     }
   }
 
-  if (stale.length > 0 || !heal.ok) {
-    emit(lines.join('\n'));
-  }
+  emit(lines.join('\n'));
 }
 
 try {

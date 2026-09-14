@@ -18,8 +18,8 @@
 #   6. Links org skills into ~/.agents/skills + ~/.codex/skills, managed block in ~/.codex/AGENTS.md
 #   7. Verifies AgentShield is callable (`npx ecc-agentshield --version`)
 #
-# Idempotent: re-run anytime; only missing pieces get installed.
-# Safe: never overwrites user files without asking; --dry-run to preview.
+# Idempotent: re-run to align detected agents with the published cache.
+# Preserves personal skill directories and text outside managed markers.
 
 set -euo pipefail
 
@@ -27,7 +27,6 @@ set -euo pipefail
 MARKETPLACE_REPO="simpl-techs/simpl_knowledge"
 MARKETPLACE_NAME="simpl"
 DEFAULT_PLUGINS=("simpl-standards" "simpl-memory" "simpl-libraries")
-OPTIONAL_PLUGINS=("simpl_tracker-context")  # per-project; dev picks
 # --------------------------------------------------------------------------
 
 DRY_RUN="${DRY_RUN:-false}"
@@ -37,7 +36,6 @@ say() { printf "\033[0;36m==>\033[0m %s\n" "$*"; }
 warn() { printf "\033[0;33m[!]\033[0m %s\n" "$*" >&2; }
 ok() { printf "\033[0;32m[✓]\033[0m %s\n" "$*"; }
 skip() { printf "\033[0;90m[-]\033[0m %s\n" "$*"; }
-run() { [ "$DRY_RUN" = "true" ] && echo "   (dry-run) $*" || eval "$*"; }
 
 # Parse flags
 for arg in "$@"; do
@@ -61,16 +59,17 @@ HAS_CURSOR=false
 HAS_CODEX=false
 HAS_NODE=false
 
-MARKETPLACE_CACHE="${HOME}/.claude/plugins/cache/${MARKETPLACE_REPO##*/}"
+MARKETPLACE_CACHE="${HOME}/.simpl_knowledge/cache"
 
 # Clone (or refresh) the marketplace clone every consumer reads from.
 ensure_marketplace_cache() {
   mkdir -p "$(dirname "$MARKETPLACE_CACHE")"
   if [ ! -d "$MARKETPLACE_CACHE/.git" ]; then
     say "   Cloning ${MARKETPLACE_REPO} to plugin cache (shared hooks + skills)…"
-    run "git clone --depth 1 'https://github.com/${MARKETPLACE_REPO}.git' '$MARKETPLACE_CACHE'"
+    git clone --depth 1 "https://github.com/${MARKETPLACE_REPO}.git" "$MARKETPLACE_CACHE"
   else
-    run "cd '$MARKETPLACE_CACHE' && git pull --quiet origin main 2>/dev/null || true"
+    git -C "$MARKETPLACE_CACHE" fetch --quiet origin main
+    git -C "$MARKETPLACE_CACHE" merge --ff-only origin/main
   fi
 }
 
@@ -95,9 +94,9 @@ else
   skip "Codex not detected"
 fi
 
-if command -v node >/dev/null 2>&1 && command -v npx >/dev/null 2>&1; then
+if command -v node >/dev/null 2>&1; then
   HAS_NODE=true
-  ok "Node $(node --version) + npx available"
+  ok "Node $(node --version) available"
 else
   skip "Node/npx not available — AgentShield will be skipped"
 fi
@@ -107,6 +106,31 @@ if [ "$HAS_CLAUDE" = "false" ] && [ "$HAS_CURSOR" = "false" ] && [ "$HAS_CODEX" 
   exit 1
 fi
 echo
+
+if [ "$HAS_NODE" != "true" ] || ! command -v python3 >/dev/null 2>&1 || ! command -v git >/dev/null 2>&1; then
+  warn "Node, Python 3 and Git are required. Install them and re-run."
+  exit 1
+fi
+if [ "$DRY_RUN" = "true" ]; then
+  say "Preview: refresh cache; configure detected agents; install core Claude plugins; sync Cursor hooks/rules and Codex skills; run doctor."
+  exit 0
+fi
+
+ensure_marketplace_cache
+LEGACY_CACHE="${HOME}/.claude/plugins/cache/simpl_knowledge"
+if [ -d "$LEGACY_CACHE" ] && [ ! -L "$LEGACY_CACHE" ]; then
+  LEGACY_BACKUP="${HOME}/.simpl_knowledge/backups/legacy-cache-$(date -u +%Y%m%dT%H%M%SZ)"
+  mkdir -p "$(dirname "$LEGACY_BACKUP")"
+  mv "$LEGACY_CACHE" "$LEGACY_BACKUP"
+  ok "Legacy shared cache preserved at $LEGACY_BACKUP"
+fi
+SCRIPT_ROOT="$MARKETPLACE_CACHE/scripts"
+if [ -n "${BASH_SOURCE[0]:-}" ]; then
+  LOCAL_SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if [ -f "$LOCAL_SCRIPTS/shared-hooks/sync-codex-knowledge.js" ]; then
+    SCRIPT_ROOT="$LOCAL_SCRIPTS"
+  fi
+fi
 
 # --- 2. Claude Code: marketplace + plugins --------------------------------
 enable_claude_autoupdate() {
@@ -143,86 +167,39 @@ PY
 if [ "$HAS_CLAUDE" = "true" ]; then
   say "2. Claude Code configuration"
 
-  ensure_marketplace_cache
-
   say "   Installing marketplace + core plugins via Claude CLI"
-  run "claude plugin marketplace add ${MARKETPLACE_REPO} --scope user || true"
+  claude plugin marketplace add "$MARKETPLACE_REPO" --scope user
+  claude plugin marketplace update "$MARKETPLACE_NAME"
   if [ "$DRY_RUN" != "true" ]; then
     enable_claude_autoupdate
   fi
   for p in "${DEFAULT_PLUGINS[@]}"; do
-    run "claude plugin install ${p}@${MARKETPLACE_NAME} --scope user || claude plugin update ${p}@${MARKETPLACE_NAME} --scope user || true"
+    claude plugin install "${p}@${MARKETPLACE_NAME}" --scope user
+    claude plugin update "${p}@${MARKETPLACE_NAME}" --scope user
   done
   ok "   Core plugins + autoUpdate=true"
   echo
 fi
 
-# --- 3. Cursor: global hooks + rules from GitHub Release (rolling) or clone+generate fallback -----
+# --- 3. Cursor: install from the authenticated cache ----------------------
 if [ "$HAS_CURSOR" = "true" ]; then
   say "3. Cursor rules + global hooks"
-  ensure_marketplace_cache
-  if [ -f "$MARKETPLACE_CACHE/scripts/install-cursor-global-hooks.sh" ]; then
-    # shellcheck disable=SC1090
-    source "$MARKETPLACE_CACHE/scripts/install-cursor-global-hooks.sh"
-    install_cursor_global_hooks "$MARKETPLACE_REPO" || true
-    ok "   Global Cursor sessionStart → session-refresh"
-  fi
-
-  CURSOR_RULES="${HOME}/.cursor/rules"
-  mkdir -p "$CURSOR_RULES"
-
-  TMP="$(mktemp -d)"
-  trap "rm -rf $TMP" EXIT
-  CURSOR_TAG="cursor-rules-rolling"
-  ZIP_URL="https://github.com/${MARKETPLACE_REPO}/releases/download/${CURSOR_TAG}/cursor-rules.zip"
-  say "   Trying release asset: ${CURSOR_TAG}/cursor-rules.zip"
-  if run "curl -fsSL -L '${ZIP_URL}' -o '$TMP/cursor-rules.zip'"; then
-    run "unzip -o -q '$TMP/cursor-rules.zip' -d '$TMP'"
-    SRC_DIR="$TMP/cursor-rules"
-    if [ ! -d "$SRC_DIR" ]; then
-      SRC_DIR="$TMP"
-    fi
-    count=0
-    for f in "$SRC_DIR"/*.mdc; do
-      [ -f "$f" ] || continue
-      base=$(basename "$f")
-      target="$CURSOR_RULES/$base"
-      if [ -f "$target" ] && ! cmp -s "$f" "$target"; then
-        warn "   $base exists and differs — backing up to ${base}.bak"
-        run "cp '$target' '${target}.bak'"
-      fi
-      run "cp '$f' '$target'"
-      count=$((count + 1))
-    done
-    ok "   Installed $count .mdc rules from release to $CURSOR_RULES"
-  else
-    warn "   Release asset missing — cloning repo and generating rules locally (needs PyYAML: pip install pyyaml)"
-    run "git clone --depth 1 'https://github.com/${MARKETPLACE_REPO}.git' '$TMP/mp' --quiet 2>/dev/null || true"
-    if [ -d "$TMP/mp" ]; then
-      run "(cd '$TMP/mp' && bash scripts/generate-cursor-rules.sh)"
-      count=0
-      for f in "$TMP/mp/cursor-rules"/*.mdc; do
-        [ -f "$f" ] || continue
-        base=$(basename "$f")
-        target="$CURSOR_RULES/$base"
-        run "cp '$f' '$target'"
-        count=$((count + 1))
-      done
-      ok "   Installed $count .mdc rules (local generate) to $CURSOR_RULES"
-    else
-      warn "   Could not clone ${MARKETPLACE_REPO}"
-    fi
-  fi
-  echo
+  source "$SCRIPT_ROOT/install-cursor-global-hooks.sh"
+  install_cursor_global_hooks "$MARKETPLACE_REPO"
+  mkdir -p "$HOME/.cursor/rules"
+  for rule in "$MARKETPLACE_CACHE"/cursor-rules/simpl-*.mdc; do
+    [ -f "$rule" ] || { warn "No generated Cursor rules in cache"; exit 1; }
+    cp "$rule" "$HOME/.cursor/rules/"
+  done
+  ok "   Cursor hooks and rules installed from cache"
 fi
 
 # --- 4. Codex: global skills + AGENTS.md ----------------------------------
 if [ "$HAS_CODEX" = "true" ]; then
   say "4. Codex skills + AGENTS.md"
-  ensure_marketplace_cache
-  CODEX_SYNC="$MARKETPLACE_CACHE/scripts/shared-hooks/sync-codex-knowledge.js"
+  CODEX_SYNC="$SCRIPT_ROOT/shared-hooks/sync-codex-knowledge.js"
   if [ "$HAS_NODE" = "true" ] && [ -f "$CODEX_SYNC" ]; then
-    run "SIMPL_CODEX_FORCE=1 node '$CODEX_SYNC' '$MARKETPLACE_CACHE'"
+    SIMPL_CODEX_FORCE=1 node "$CODEX_SYNC" "$MARKETPLACE_CACHE"
     ok "   Skills symlinked to ~/.agents/skills + ~/.codex/skills, managed block in ~/.codex/AGENTS.md"
   else
     warn "   Needs Node — install Node and re-run to enable Codex skills"
@@ -231,7 +208,7 @@ if [ "$HAS_CODEX" = "true" ]; then
 fi
 
 # --- 5. AgentShield (optional, via npx) -----------------------------------
-if [ "$HAS_NODE" = "true" ]; then
+if command -v npx >/dev/null 2>&1; then
   say "5. AgentShield (security scanner)"
   if ! npx --no-install ecc-agentshield --version >/dev/null 2>&1; then
     say "   Will be fetched on first use via: npx ecc-agentshield scan"
@@ -241,6 +218,8 @@ if [ "$HAS_NODE" = "true" ]; then
   fi
   echo
 fi
+
+bash "$SCRIPT_ROOT/doctor.sh"
 
 # --- 6. Summary -----------------------------------------------------------
 say "Done"
@@ -256,7 +235,7 @@ Next steps:
         /plugin install simpl_tracker-context@simpl
 
   3. On a library repo you maintain (after marketplace cache exists):
-        bash ~/.claude/plugins/cache/simpl_knowledge/library-repo-template/scripts/bootstrap.sh <repo-name>
+        bash ~/.simpl_knowledge/cache/library-repo-template/scripts/bootstrap.sh <repo-name>
      Or ask the agent: /bootstrap-repo-context
 
 Cursor: sessionStart runs session-refresh (sha-based; emits rule version into context).

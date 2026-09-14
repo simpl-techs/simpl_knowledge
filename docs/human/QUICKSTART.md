@@ -50,6 +50,10 @@ Verifica accesso: `gh repo view simpl-techs/simpl_knowledge`.
 
 Lo script rileva da solo quali strumenti hai (Claude Code, Cursor, Codex) e configura solo quelli. È idempotente: rieseguilo per forzare un refresh.
 
+Prerequisiti: Git, Node e Python 3 disponibili nel terminale, più accesso Git al repository privato. Le regole Cursor arrivano dalla cache Git autenticata. `--dry-run` mostra il piano senza scrivere file. Il bootstrap termina con `doctor.sh`: un errore restituisce un codice diverso da zero. `install-team.sh` usa lo stesso installer.
+
+La cache condivisa è `~/.simpl_knowledge/cache`. Il bootstrap sposta la vecchia `~/.claude/plugins/cache/simpl_knowledge` in un backup e aggiorna i link: la pulizia automatica della cache plugin Claude può cancellare file da quel vecchio percorso. I PC già configurati devono eseguire questo bootstrap una volta dopo il merge della migrazione.
+
 ## Passo 2 — Claude Code (già fatto dallo script)
 
 `team-bootstrap.sh` aggiunge il marketplace, installa i tre plugin globali e accende `autoUpdate`. Non serve digitare `/plugin`.
@@ -70,6 +74,8 @@ come scriviamo i commit qui?
 
 L'agent deve citare lo skill `git-workflow`. Se non lo cita → [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
+`bash scripts/doctor.sh` verifica soltanto gli strumenti rilevati: cache aggiornata e pulita, contenuti degli hook e delle regole, versioni e auto-update Claude, tutti i link Codex e marker completi in `AGENTS.md`. Una collisione con una skill personale viene conservata e segnalata come installazione incompleta. Un doctor verde verifica i file e la configurazione; la domanda all'agente verifica che li stia usando.
+
 ---
 
 ## Segreti (Doppler)
@@ -88,7 +94,7 @@ I secret del team stanno su Doppler, non in un `.env` pieno di chiavi. Installa 
 | **Claude Code** | SessionStart `plugin-refresh`: self-heal del clone + `claude plugin update` se le versioni sono indietro. `autoUpdate: true` sul marketplace. Nuove versioni attive alla sessione successiva. | Niente. Se `doctor.sh` segnala ancora stale: `bash scripts/team-bootstrap.sh`. |
 | **Codex** | Gli skill in `~/.agents/skills` e `~/.codex/skills` sono symlink alla cache: quando `session-refresh` (chat Cursor o Claude) aggiorna la cache, il contenuto è già nuovo. Lo stesso hook rilinka gli skill aggiunti o rinominati e riscrive il blocco in `~/.codex/AGENTS.md`. | Niente, se usi anche Cursor o Claude. Se usi **solo** Codex: `bash scripts/team-bootstrap.sh` quando vuoi allineare. |
 
-**In sintesi:** Cursor, Claude Code e Codex si aggiornano da soli. Unico comando per un PC nuovo: `bash scripts/team-bootstrap.sh`.
+Chi usa solo Codex deve rilanciare il bootstrap per aggiornare la cache. Con Cursor o Claude l'aggiornamento avviene dalle loro sessioni; il plugin globale Claude aggiorna anche la cache condivisa fuori dai repo dotati di hook locali. Le installazioni precedenti al supporto di auto-update richiedono un bootstrap una volta dopo il pull di `main`. Per un PC nuovo: `bash scripts/team-bootstrap.sh`.
 
 ---
 
@@ -97,7 +103,7 @@ I secret del team stanno su Doppler, non in un `.env` pieno di chiavi. Installa 
 1. `cd` nel tuo repo libreria.
 2. Esegui:
    ```bash
-   bash ~/.claude/plugins/cache/simpl_knowledge/library-repo-template/scripts/bootstrap.sh <repo-name>
+   bash ~/.simpl_knowledge/cache/library-repo-template/scripts/bootstrap.sh <repo-name>
    ```
 3. Compila `.agent/SKILL.md` (rimuovi i placeholder `REPLACE-ME`), commit, push.
 4. Al merge in `main`, il workflow `sync-skill-to-marketplace` apre PR sul repo centrale. Dopo il merge della PR, Cursor e Claude Code ricevono l’update alla sessione successiva.
