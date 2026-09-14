@@ -13,6 +13,12 @@ description: |
 
 `simpl_core` is the shared Python business layer for the simpl platform. It contains reusable domain models, repositories, and services for autopilot, outreach, CRM, email, notifications, reports, ROI / capital allocation (`simpl_core.roi`), and related platform workflows.
 
+Request accounting uses the coordinated tracker migration and library release.
+`simpl_ia` captures each model response; `simpl_core` binds agent/node/pipeline
+and business attribution. `track_cost` suppresses duplicate run aggregates when
+request evidence exists. Unknown prices remain visible; never synthesize costs
+from an unmatched provider-export difference.
+
 ## Installation
 
 ```bash
@@ -124,6 +130,38 @@ Rules that bite consumers:
   content in place and re-running a seed migration are both silent no-ops.
 - Routing must be total: every routing position needs an unconditional catch-all,
   or startup fails.
+
+### Streaming producers
+
+A `streaming_producer` node runs its agent once, emitting `StreamEvent`s onto a
+`StreamChannel` as it goes, then closes the turn with a terminal `message_final`
+(or `error`) event. There is no blocking critic and no fix loop. The framework owns
+the event vocabulary and the channel; the bridge that forwards events onto SSE or a
+WebSocket is yours — wire it through the `stream_channel_for` / `stream_produce_for`
+factories on `NodeCoordinator`.
+
+Two node fields exist only on this kind:
+
+- `framework_produce: true` lets the framework run the agent itself through
+  `execute_agent_stream` when no consumer produce is wired, with the agent's model
+  policy in force. It is an opt-in: with no consumer produce and no opt-in the node
+  fails closed before any model is resolved, because that produce sends the
+  prompt row to a live model with live tools and a walk with no wiring — an eval,
+  a replay — must not do that by default.
+- `stream_field: <name>` makes `token_delta` events carry only that output field's
+  text, recovered from the JSON as it streams (text, fenced, or output-tool
+  arguments alike). Without it, deltas carry the model's raw output text — JSON
+  for a structured turn. The field must be a `str` of the agent's `output_schema`;
+  startup warns by name when it is not.
+
+An `llm_agent` bounds a streamed turn with `stream_timeout_seconds` (default ten
+minutes) — the whole answer, tool round trips included — while `timeout_seconds`
+bounds only the *opening* of each model's stream. A streamed turn runs at the
+provider's default temperature and never re-asks the model: a schema-invalid
+payload ends the turn. Once `message_final` has been delivered the run is recorded
+with that output even if a cancellation lands during close.
+
+Full guide: `docs/agent_framework/08-streaming-output.md`.
 
 Full guide: `docs/agent_framework/`.
 
