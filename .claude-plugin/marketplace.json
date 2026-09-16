@@ -10,7 +10,7 @@
       "name": "simpl-standards",
       "source": "./plugins/simpl-standards",
       "description": "Cross-cutting standards for all simpl projects: coding conventions, git workflow, testing policy, Python environment toolchain, repo docs and env-var consistency, Doppler secrets.",
-      "version": "0.13.0",
+      "version": "0.13.1",
       "keywords": [
         "standards",
         "conventions",
@@ -46,7 +46,7 @@
       "name": "simpl_tracker-context",
       "source": "./plugins/simpl_tracker-context",
       "description": "Integration context for simpl-tracker (`simpl_tracker`). Auto-synced from simpl-techs/simpl_tracker.",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "keywords": [
         "simpl_tracker-context",
         "simpl-tracker",
