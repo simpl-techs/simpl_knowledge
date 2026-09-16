@@ -55,7 +55,7 @@ make check   # lint + type + unit tests
 ## Release process
 
 1. Update `CHANGELOG.md` under `[Unreleased]` → rename to `[x.y.z]`
-2. Bump version in `pyproject.toml` / `package.json`
+2. Confirm the version in `pyproject.toml` / `package.json` — every merged PR already bumped it (`git-workflow` → *Version bumps*); the tag matches the current value, no extra bump here
 3. Tag: `git tag vX.Y.Z && git push --tags`
 4. GitHub Action `release.yml` builds and publishes
 
