@@ -48,6 +48,13 @@ When adding API behavior, place HTTP route code under `src/simpl_api/api`, reusa
 - Do not run real external provider calls in tests unless explicitly marked/configured.
 - Do not give a challenge endpoint a product guard, or a product endpoint `require_challenge_participant`. The two contexts are separate types precisely so the substitution does not typecheck.
 
+## Operational alerts
+
+- `simpl_api.startup.agent_framework_failed` posts to Discord #error when the agent framework wiring fails at startup. The deploy does not come up.
+- Agent framework failures reach #warning once. Chat alerts carry `user_id`, `customer_id`, `conversation_id` and `turn_id`; challenge alerts carry `participant_id`, `contest_id`, `scenario_id` and `turn_id`; Sales Domain wake alerts carry `user_id`.
+- `agent_framework.engine.validator_failed` in `pipeline_ops_agent` is promoted to #error. The rule is registered additively, so a process that also embeds simpl-outreach keeps both apps' rules.
+- Requires simpl_tracker `f581b40` or later (notify API version 3, report-once through `raise ... from`, the `__simpl_notify__` silent marker) and simpl_core `855253e` or later (`add_alert_rules`, `labels` on the Sales Domain wrappers).
+
 ## Testing
 
 No work in `simpl_api` should be considered complete until the full repo test suite has been run successfully. Targeted tests help during iteration, but they do not replace the final full-repo run. [per simpl-testing-policy]
@@ -70,5 +77,9 @@ poetry run ruff check .
 
 - Source: `https://github.com/simpl-techs/simpl_api`
 - App routes: `src/simpl_api/api`
+- ROI admin: `src/simpl_api/api/v1/admin/roi.py` (domain in `simpl_core.roi`). People/expenses routes use `require_owner`.
+- Managed Operations fleet: `GET /api/v1/admin/managed/operations/fleet` in `src/simpl_api/api/v1/admin/managed.py`, logic in `src/simpl_api/services/operations_fleet.py`. Scope defaults to everyone active at a customer with an active managed engagement; `engagedOnly=true` narrows it to the people pinned to the engagement. Deactivated users are never included. Per person it returns `autopilot` (state working/failing/idle/not_running/off, last run, blocker), `pipeline` (7-day reviews), `limits` (account stage, daily company supply, invite/message/email limits, mailbox status), `days` (7 UTC day buckets: suggested, reviewed, claimed, sends and failures per channel, accepted invites, replies, limiter counters and that day's capacity), `activity` (the window's sums) and `queue` (message drafts vs requests). Customers and the summary roll up `days`, `limits` and `activity`.
+- Dashboard roles: `src/simpl_api/api/v1/admin/platform_roles.py`. Hierarchy: owner > admin > staff. `is_admin` is derived.
+- ROI time survey (token, not JWT): `src/simpl_api/api/v1/roi_survey.py`
 - Agent code: `src/simpl_api/agents`
 - Internal conventions: `.agent/INTERNAL.md`
