@@ -13,6 +13,12 @@ description: |
 
 `simpl_core` is the shared Python business layer for the simpl platform. It contains reusable domain models, repositories, and services for autopilot, outreach, CRM, email, notifications, reports, ROI / capital allocation (`simpl_core.roi`), and related platform workflows.
 
+Request accounting uses the coordinated tracker migration and library release.
+`simpl_ia` captures each model response; `simpl_core` binds agent/node/pipeline
+and business attribution. `track_cost` suppresses duplicate run aggregates when
+request evidence exists. Unknown prices remain visible; never synthesize costs
+from an unmatched provider-export difference.
+
 ## Installation
 
 ```bash
@@ -125,7 +131,228 @@ Rules that bite consumers:
 - Routing must be total: every routing position needs an unconditional catch-all,
   or startup fails.
 
+### Streaming producers
+
+A `streaming_producer` node runs its agent once, emitting `StreamEvent`s onto a
+`StreamChannel` as it goes, then closes the turn with a terminal `message_final`
+(or `error`) event. There is no blocking critic and no fix loop. The framework owns
+the event vocabulary and the channel; the bridge that forwards events onto SSE or a
+WebSocket is yours — wire it through the `stream_channel_for` / `stream_produce_for`
+factories on `NodeCoordinator`.
+
+Two node fields exist only on this kind:
+
+- `framework_produce: true` lets the framework run the agent itself through
+  `execute_agent_stream` when no consumer produce is wired, with the agent's model
+  policy in force. It is an opt-in: with no consumer produce and no opt-in the node
+  fails closed before any model is resolved, because that produce sends the
+  prompt row to a live model with live tools and a walk with no wiring — an eval,
+  a replay — must not do that by default.
+- `stream_field: <name>` makes `token_delta` events carry only that output field's
+  text, recovered from the JSON as it streams (text, fenced, or output-tool
+  arguments alike). Without it, deltas carry the model's raw output text — JSON
+  for a structured turn. The field must be a `str` of the agent's `output_schema`;
+  startup warns by name when it is not.
+
+An `llm_agent` bounds a streamed turn with `stream_timeout_seconds` (default ten
+minutes) — the whole answer, tool round trips included — while `timeout_seconds`
+bounds only the *opening* of each model's stream. A streamed turn runs at the
+provider's default temperature and never re-asks the model: a schema-invalid
+payload ends the turn. Once `message_final` has been delivered the run is recorded
+with that output even if a cancellation lands during close.
+
+Full guide: `docs/agent_framework/08-streaming-output.md`.
+
 Full guide: `docs/agent_framework/`.
+
+### Alerting
+
+Every exception the framework handles is classified in one place,
+`simpl_core.agent_framework.alerting`, and handed to `simpl_tracker`:
+
+- **`#warning`** hears every exception the framework catches, converts into a
+  fail-closed status, or lets escape a public entry point — once.
+- **`#error`** is for work that stopped or a gate that went missing: boot gates
+  failing, a malformed pipeline / validator / routing row dropped, a node whose
+  author chose `escalate`, `block` or `error`, an active config version with no good
+  version to fall back to — and whatever your rules promote.
+- **Log only**: policy doing its job (a validator rejecting content, an exhausted fix
+  loop, an unmatched route, a transient error still being retried) and any
+  `ExpectedInterruption`.
+
+Register your promotions once at bootstrap, beside handler registration:
+
+```python
+from simpl_core.agent_framework import AlertRule, add_alert_rules
+
+add_alert_rules(
+    # The ops checks exist to be seen: page on them.
+    AlertRule(
+        event="agent_framework.engine.validator_failed",
+        pipeline_id="pipeline_ops_agent",
+        severity="error",
+    ),
+)
+```
+
+- **Rules.** The first matching rule wins, and every field a rule sets must match:
+  `event`, `exception` (by `isinstance`), `pipeline_id` (the innermost pipeline of
+  the run), `node_id_prefix`. `group_by` adds run-context keys to the alert
+  fingerprint. A `silent` rule needs a `reason`.
+- **Rules belong to the process.** `add_alert_rules` appends only the rules not
+  installed yet, compared by value, after the ones already there, and never touches
+  the other settings. Every app registers its own promotions with it, the shared
+  `pipeline_ops_agent` rule included, and a host that embeds another app keeps both
+  apps' rules whichever bootstraps first. `alert_rules()` returns what is installed.
+- **Process settings.** `configure_alerting` changes only what it is given:
+  `enabled=False` keeps the logs and sends no alerts, `shared_dedup=False` keeps the
+  tracker's own dedup store, and `rules=` replaces every installed rule, other apps'
+  included, so pass it only for a deliberate full replace.
+- **Expected interruptions.** Subclass `ExpectedInterruption` for a failure nobody
+  can act on (a dropped extension channel whose work re-queues itself). It is
+  recorded on its node run and logged, never alerted, and never reported as a crash.
+  The node run's `error` carries `"expected": true` (so does a cancelled node's), and a
+  failed fan-out whose every branch was one logs
+  `agent_framework.coordinator.fan_out_interrupted` instead of `fan_out_all_failed`.
+  Every subclass inherits `__simpl_notify__ = False`, which `simpl_tracker` reads: the
+  exception stays silent when you log it yourself with `error=exc` too, even as another
+  exception's `__cause__`. Only an explicit `notify="warning"` or `notify="error"` posts
+  it.
+- **Fan-out branches.** Each branch in a gather join's `gathered` dict carries
+  `error_type` (the exception class it ended on, or `None`) and `expected`, beside
+  `error`; read those instead of matching on the message. The fan-out's own
+  `produced` adds `expected_error_branch_count`.
+- **Run identifiers.** Pass your own ids as `labels={"user_id": ..., "session_id": ...}`
+  to `resolve_engine_entry`, `walk_graph`, `execute_agent` or `execute_agent_stream`.
+  The Sales Domain wrappers take `labels` too and hand them to every entry point they
+  call: `run_sales_domain_for_user`, `run_sales_domain_pipeline`, `run_framework_walk`
+  (which also binds them around its `finalize`), `open_sales_domain_runtime`,
+  `resolve_admission_route`, and `TriggerRegistry.wake_agent` for its inline run.
+  Every alert raised inside the call carries them, including one from a nested walk,
+  a node run or a spawned task, and a label whose key ends in `_id` is counted as an
+  alert entity. Labels are never persisted. The framework binds `correlation_id`,
+  `pipeline_id`, `pipeline_run_id`, `node_id`, `node_run_id`, `agent_id` and the
+  config version itself; a label may not take those names. You no longer need
+  `bind_run_context` around a walk.
+- **Report once.** Before alerting on an exception you caught from the framework,
+  check `already_reported(exc)`: `True` means the tracker accepted an alert for it, or
+  for an exception it was raised `from`, on `#warning` or `#error`. An alert the tracker
+  refused (no notifier, a refused send) or failed to deliver does not count, so your own
+  alert still applies. `resolve_engine_entry`, `walk_graph`, `execute_agent`,
+  `execute_agent_stream`, `Loader.validate_boot` and `PlanRunner.run` report an
+  escaping exception as `agent_framework.run.crashed` (or `run.cancelled`, one per
+  pipeline) and re-raise it unchanged. Within one run, alerts group by incident under
+  its outermost node run. A later event there only logs when it carries the same
+  exception as an earlier alert (or one raised `from` it), or when it carries no
+  exception and is an outcome of that failure, such as `error_terminal`,
+  `node_error_terminal` or `transient_error_exhausted`. Exception class never decides: a
+  different failure posts even when it raises the same class, and so does anything more
+  severe. Exact repeats reach the tracker, which counts them in one message. A failure
+  raised through a node's retries alerts once, as `transient_error_exhausted`. Only an
+  alert that reached an operator groups: one the tracker refused, or accepted and then
+  failed to deliver, clears its run's group, so the next outcome there posts. An outcome
+  that already folded while that alert was still queued or in flight is not posted
+  again; delivery is not durable.
+- **Step trace.** `walk_graph` writes `pipeline_run_steps` as each step finishes, and
+  once more when the walk ends, even when it raised. It is on by default for a root walk
+  whose node runs go to the database (`DbNodeRunRecorder`) and that has a
+  `pipeline_run_id`. Pass `step_recorder=DbStepRecorder(db)` (or any `StepRecorder`)
+  to trace elsewhere, or `step_recorder=None` to turn it off. `error` is SQL NULL on
+  success and `{"type", "message", "expected"}` on failure; a failed write alerts as
+  `agent_framework.step_recorder.write_failed` and the recorder keeps writing. Delete a
+  step recorder of your own.
+- **Shared dedup.** The framework installs the Postgres dedup store itself on its first
+  walk with a database (a `DbNodeRunRecorder`), once per notifier, so a recurring
+  failure is one thread across flow runs; `configure_alerting(shared_dedup=False)` opts
+  out. Processes also agree on who posts: one of them posts a new alert, or its
+  re-post or escalation, and the others only count it. Only a process that does not run
+  the framework calls `install_alert_dedup_store`.
+- **Config fallbacks** are reported by the framework
+  (`agent_framework.config_ledger.fallback_applied` / `fallback_exhausted`) for every
+  config key. A fallback handler you register runs after that report and no longer
+  needs to alert.
+- **Tracker version.** Routing an alert to a channel other than its log level's, and
+  carrying the exception on warnings, need
+  `simpl_tracker.logging.NOTIFY_API_VERSION >= 2`. Against an older tracker only
+  events whose channel matches their log level notify. On version 2 and later every
+  framework call passes an explicit `notify=` (`False` for log only), so a tracker
+  default that notifies exceptions never overrides the classification. A tracker with
+  `ignore_callsite_modules` names the framework caller, not the alerting package, as
+  each line's callsite. A tracker whose log calls answer with a bool tells the framework
+  whether it accepted each alert, and the framework counts an alert as reported only
+  then; a tracker that answers nothing counts as accepting. Shared-dedup delivery claims
+  need a tracker that knows the `pending` dedup action and calls the store's `release`.
+  Posting a deferred alert once the other post failed needs a tracker that calls the
+  store's `recheck`; replacing a deleted message once needs one that passes `message_id`
+  to `forget`; clearing a lost alert's group needs
+  `simpl_tracker.notifications.add_undelivered_listener`. Against an older tracker a
+  `pending` alert counts as sent, a deleted message's row is forgotten outright, and a
+  lost alert's group keeps its rank.
+- **What you delete.** Config-fallback handlers, per-item Discord alerts that repeat
+  what the framework already reported (or guard them with `already_reported`), and
+  your own step recorder. What stays yours: `labels=`, your `ExpectedInterruption`
+  subclasses, and the rules that promote an event to `#error`.
+- **Renamed events.** `agent_framework_tool_failed` →
+  `agent_framework.tool_audit.tool_failed`; `tool_audit.unresolved_agent_id` and
+  `tool_audit.missing_agent_run` → `agent_framework.tool_audit.*`;
+  `plan_review_notification_failed` →
+  `agent_framework.plan_lifecycle.review_notification_failed`.
+
+`EVENTS` lists every event with its kind, default severity and reason, and
+`testing.strict_run` derives its deny list from the same registry.
+
+#### Alert dedup across processes
+
+The tracker's notifier collapses repeats of one alert: the first occurrence posts,
+repeats edit that message, a count of 10, 100 or 1000 posts again, and a warning still
+recurring an hour after it began escalates once to `#error`. Its own store lives in
+process memory, which two Cloud Run jobs never share. The framework keeps that state in
+Postgres instead (`agent_framework.alert_fingerprints`, migration
+`20260914_af_alert_fingerprints.sql`), so every process shares one count and one
+Discord message per alert.
+
+- **No wiring for a framework consumer.** The first `walk_graph` whose node runs go to
+  the database (`DbNodeRunRecorder`) calls `ensure_alert_dedup_store(db)` with that
+  database, whatever its `step_recorder`. It reads the notifier through
+  `simpl_tracker.current_notifier()` and installs `PostgresDedupStore` on it when the
+  tracker is 0.5.0 or later, the notifier's config leaves dedup enabled, its store is
+  still the tracker's default `InMemoryDedupStore`, and you have not opted out. The store
+  takes the notifier's own `dedup_window_seconds`, `repost_thresholds` and
+  `escalate_after_seconds`, so your tracker YAML's `notifications.dedup` settings apply.
+  It decides once per notifier: a notifier that a later `configure_from_yaml` puts in
+  place gets the store too, a walk that runs before the tracker is configured leaves the
+  decision to the next walk, and every later walk costs a lookup. A failure to install
+  never breaks the walk. One store per database and dedup settings serves every notifier
+  in the process.
+- **Opting out.** `configure_alerting(shared_dedup=False)` keeps the tracker's own
+  store. A store you install on the notifier yourself is also left alone.
+- **A process that notifies without walking the framework**, and only such a process,
+  calls `install_alert_dedup_store(database_url)` after configuring the tracker, and
+  again after any later `configure_from_yaml` / `configure_from_block`, which builds a
+  fresh notifier. It returns `False` when the tracker predates 0.5.0, no notifier is
+  configured, or the store cannot be built.
+- **Database.** `ensure_alert_dedup_store` takes a URL or your `DatabaseManager` (it
+  uses the URL the manager's engine connects with). The connecting role needs
+  `SELECT, INSERT, UPDATE, DELETE` on the table. The store opens its own small engine
+  on its own thread, and works over the direct host and either Supabase pooler.
+- **Delivery claims.** Counting an occurrence and claiming its delivery happen in one
+  short transaction. When the tracker's rule says post, re-post or escalate, the row
+  takes a claim (`claim_token`, `claim_expires_at`, 180 seconds). Any other process
+  counting that fingerprint meanwhile sends nothing new, or edits the existing message
+  when it lost a re-post or escalation. A post completes the claim only while the claim
+  is still its own, so a claim taken over after it expired keeps the newer message. A
+  post that was not sent gives its claim back at once. A process that dies mid-post
+  holds back that fingerprint's next message until the claim expires. A process that
+  sent nothing because another held the claim keeps its alert deferred and asks the
+  store again (`PostgresDedupStore.recheck`, which never counts the occurrence twice): it
+  edits the message once one exists, and posts under a claim of its own when the other
+  post failed or its claim expired. When an edit finds the Discord message deleted,
+  `forget(fingerprint, message_id=...)` drops the row only while it still holds that
+  message, so two processes that both hit the deleted message replace it once.
+- **Failure.** The store never raises into the notifier. When the database fails or
+  stalls (5 s), that call dedups in memory, the database is retried after 30 s, and the
+  outage is logged once on the stdlib `simpl_core.agent_framework.alerting.dedup_store`
+  logger. At exit it flushes queued alerts through itself before closing.
 
 ### Publishing a config version
 
@@ -200,6 +427,8 @@ When `send_from_email` is set, `get_connected_email_service()` applies it automa
 For Outlook replies, consumers with a persisted conversation should pass both `threadId` and the latest stored `replyMessageId`. The adapter validates that message against Outlook before replying. `EmailNotFoundError` means Outlook definitively reports the requested conversation or reply target unavailable. An unscoped inbox or sent-items page that Outlook cannot retrieve raises `EmailMailboxPageUnavailableError`; mailbox sync logs the page, preserves its cursor, and retries it later. Runtime, connection, and malformed-response failures remain `IntegrationError` for the caller to surface.
 
 Outlook gives a sent draft a new message id once it lands in Sent Items, so the `provider_message_id` that `send_email` returns is not the id mailbox sync later lists. `EmailDTO.internet_message_id` carries the RFC 5322 Message-ID, which survives the move. When persisting an Outlook send, pass it as `record_sent_email_message(..., internet_message_id=...)`: ingestion then recognizes the synced copy in the same thread and does not store the message twice.
+
+`JourneyLogRepository.claim_pending_email_actions*` claims only due `PENDING` rows with `channel = 'email'` **and** an `action_type` in `EMAIL_SEND_ACTION_TYPES` (`send_message`). The outreach agent writes its `schedule_followup` wake-ups and other bookkeeping rows on the lead's channel with no message; they are timeline records, not sends, and the claim leaves them `PENDING`. A new kind of sendable row must be added to that tuple before any sender will pick it up.
 
 `sales_outreach.message.provider_metadata` holds identifiers, envelope, and send provenance only: the keys in `simpl_core.services.email.utils.MESSAGE_PROVIDER_METADATA_KEYS`. Subject and body are never copied into it; read them by decrypting `encrypted_subject` and `encrypted_body`. Ingestion drops any payload key outside that set, so a consumer that needs a new field in `provider_metadata` adds it to the set first.
 
@@ -447,6 +676,81 @@ result = await run_with_db_retry(
   it can lose while queueing. `simpl_core.agent_framework.retry` does exactly
   that.
 - `simpl_core.sales_domain.db_retry` is a back-compat alias for this module.
+
+## Scraping contracts, object storage and operator notifications
+
+Three small public surfaces back `simpl_scraping`; any consumer may read them.
+
+### Scraping contracts
+
+`simpl_core.models.scraping` and `simpl_core.repositories.scraping`, schema in
+`migrations/20260911_scraping_page_contracts.sql` and
+`migrations/20260915_scraping_page_deletion.sql`:
+
+- `ScrapingPage` (`scraping.pages`): one row per `(canonical_url, representation)`.
+  `latest_version_id` names the newest observed raw response.
+- `ScrapingPageVersion` (`scraping.page_versions`): immutable. It stores a reference to
+  the object holding the response (bucket, key, version id, stored SHA-256 and size),
+  never the body. The database rejects UPDATE.
+- `ScrapingExtractionPublication` (`scraping.extraction_publications`): one receipt per
+  extraction job.
+- `ScrapingExtractedEntity` (`scraping.extracted_entities`): the latest validated state
+  per `(entity_type, entity_key)`. That pair is the unique key `data_consumer` sinks
+  name in `conflict_on`, and `source_observed_at` is the column for an `update_where`
+  guard.
+
+The repositories take an `AsyncSession` and never commit, so a caller can record an
+observation inside its own transaction:
+
+```python
+async with db.session_scope() as session:
+    pages = ScrapingPageRepository(session)
+    page_id = await pages.ensure_page(canonical_url=url, host=host)
+    observation = await pages.record_observation(page_id=page_id, version=new_version)
+    await session.commit()
+```
+
+Identical content reuses the existing version. The latest pointer only moves forward
+in `observed_at` order, so a late commit of an older fetch cannot roll a page back.
+
+Pages and versions may be deleted. Deleting a page deletes its versions; deleting the
+version `latest_version_id` names moves the pointer to the newest remaining raw
+response, or clears it. A receipt's `page_version_id` and an entity's
+`source_page_version_id` read `None` once their version is gone. Stored objects are
+not deleted with the rows.
+
+`simpl_scraping`'s queue schema depends on these migrations being applied first.
+
+### Object storage
+
+`simpl_core.object_storage` talks to S3-compatible storage (Wasabi, AWS S3, MinIO) over
+`httpx` with SigV4 signing and no SDK dependency. Every write sends its real payload
+SHA-256 so the server verifies it. Every read verifies a digest from the `ObjectRef`,
+an explicit value, or the object's stored `sha256` metadata.
+
+```python
+config = ObjectStorageConfig.from_env()
+async with S3ObjectStore(config) as store:
+    ref = await store.put_bytes(key, gzipped, content_type="text/html", content_encoding="gzip")
+    body = await store.get_bytes(ref)
+```
+
+`from_env` reads `OBJECT_STORAGE_ENDPOINT_URL`, `OBJECT_STORAGE_REGION`,
+`OBJECT_STORAGE_BUCKET`, `OBJECT_STORAGE_ACCESS_KEY_ID`,
+`OBJECT_STORAGE_SECRET_ACCESS_KEY` and optional `OBJECT_STORAGE_ADDRESSING_STYLE`.
+Persist the reference's fields, never a signed URL. A missing object raises
+`ObjectNotFoundError` and a corrupt one `ObjectChecksumMismatchError`; neither comes
+back as empty content. Keys with `.` or `..` segments are rejected.
+
+### Operator notifications
+
+`simpl_core.observability.TrackerOperatorNotifier` delivers `OperatorEvent`s to
+dedicated Discord webhook URLs through tracker (>= 0.5.0 reads URLs, not webhook
+blocks) and returns whether delivery succeeded, which an outbox needs before marking
+an incident delivered. Context passes `redact_context` first, and the event's
+`dedup_key` is tracker's fingerprint. `register_config_fallback_notifier` routes
+agent-framework config fallback to operators, and `unavailable_prefect_blocks` checks
+tracker JSON config blocks at startup without sending anything. Importing the module loads neither tracker, Prefect nor the agent framework.
 
 ## Common pitfalls
 
