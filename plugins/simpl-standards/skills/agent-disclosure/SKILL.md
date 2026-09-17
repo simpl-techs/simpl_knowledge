@@ -1,6 +1,6 @@
 ---
 name: agent-disclosure
-description: Consult at the start of a session whose task writes, changes or reviews code, tests, git history or infrastructure — defines how agents signal which simpl rules they are following. Does NOT apply to writing, design, research, analysis or conversation (a LinkedIn post, a deck, a summary) — skip it and do not load the standards skills for those.
+description: Coding sessions only (code, tests, git, infra) — how agents signal which simpl rules they follow. Skip it for writing, design, research or chat — no header, no standards skills.
 ---
 
 # Agent disclosure protocol
