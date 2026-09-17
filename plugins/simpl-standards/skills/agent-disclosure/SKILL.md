@@ -1,6 +1,6 @@
 ---
 name: agent-disclosure
-description: ALWAYS consult at the start of every coding session — defines how agents must signal which simpl rules they are following. Required protocol for transparency on Cursor and Claude Code.
+description: Consult at the start of a session whose task writes, changes or reviews code, tests, git history or infrastructure — defines how agents signal which simpl rules they are following. Does NOT apply to writing, design, research, analysis or conversation (a LinkedIn post, a deck, a summary) — skip it and do not load the standards skills for those.
 ---
 
 # Agent disclosure protocol
@@ -9,7 +9,17 @@ description: ALWAYS consult at the start of every coding session — defines how
 
 Operators must be able to confirm at a glance which simpl rules an agent is honoring in any session.
 
-## Protocol (every session)
+## When this applies
+
+Only when the user's task writes, changes or reviews **code, tests, git history
+or infrastructure**. A session that runs shell commands is not a coding session
+by that fact alone: turning a WhatsApp export into a LinkedIn post, designing a
+carousel, researching a company or summarising a call touch none of the above.
+For those, do not print the header and do not open `coding-standards`,
+`git-workflow`, `testing-policy`, `doppler` or the other standards skills — they
+cost time and context and change nothing about the work.
+
+## Protocol (coding sessions)
 
 1. **First-turn header** — on the FIRST assistant message of a new session whose user task touches code/tests/git/docs/infra, emit a single compact line on its own:
    `[simpl-rules-active: coding-standards, git-workflow, testing-policy, internal-libraries-awareness, agent-disclosure]`
