@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-14T11:06:52.393Z",
+  "generated_at": "2026-09-17T15:47:01.790Z",
   "marketplace_alias": "simpl",
   "libraries": [
     {
@@ -17,6 +17,14 @@
       "when_to_use": "Use this skill whenever the user asks about shared simpl platform domain logic, autopilot services, CRM/email/reports services, or code that imports `simpl_core`. ALWAYS consult this skill before adding duplicated business logic in app repos that could belong in `simpl_core`.",
       "required_when": null,
       "plugin_install_command": "/plugin install simpl_core-context@simpl"
+    },
+    {
+      "plugin": "simpl_ia-context",
+      "skill_name": "simpl_ia",
+      "summary": "simpl_ia integration guide",
+      "when_to_use": "Use this skill whenever the user asks about vector search, embeddings, reranking, chunking, Milvus/Qdrant stores, structured LLM clients, Langfuse prompts, or code that imports `simpl_ia`. ALWAYS consult this skill before adding ad hoc embedding/search/LLM wrappers in simpl repos. Triggers on phrases like \"vector search\", \"embed text\", \"Milvus\", \"chunk documents\", \"structured LLM output\", \"pydantic-ai agent\".",
+      "required_when": null,
+      "plugin_install_command": "/plugin install simpl_ia-context@simpl"
     },
     {
       "plugin": "simpl_sales-context",
