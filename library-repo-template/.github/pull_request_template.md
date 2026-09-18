@@ -22,7 +22,8 @@ If you used `/update-skill` during the session, mention it here so reviewers kno
 
 ## Checklist
 
+- [ ] Version bumped in `pyproject.toml` / `package.json` — PATCH by default; if MINOR or MAJOR, the reason is written under **Why** (no bump → not approved)
 - [ ] Tests added/updated
 - [ ] `make check` passes locally
 - [ ] No new runtime dependencies (or, if yes, justified in the PR description)
-- [ ] Breaking change? If yes, note in the PR title with `!` and add a `BREAKING CHANGE:` footer to the merge commit
+- [ ] Breaking change? If yes, note in the PR title with `!`, add a `BREAKING CHANGE:` footer to the merge commit, and bump MAJOR (MINOR while the repo is still `0.x.y`)

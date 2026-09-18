@@ -18,6 +18,7 @@
 
 - Branch off `main`. Use `feat/`, `fix/`, `chore/` prefixes.
 - Conventional Commits for commit messages. See `git-workflow` skill.
+- Every PR bumps the version (PATCH by default; MINOR/MAJOR need a written justification in the PR). See `git-workflow` → *Version bumps*.
 - Run `make check` before pushing.
 
 ## Before finishing a session
