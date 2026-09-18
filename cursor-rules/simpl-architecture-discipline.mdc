@@ -80,7 +80,7 @@ If the decision is about state/transactions/async, open `state-and-persistence` 
 ## Versioning and packaging
 
 - **Pin git/internal deps to explicit tags.** No floating refs (head, branch names) and no missing pins.
-- **Bump versions on every release.** Patch for additive/internal, minor for new public surface, major for breaking.
+- **Bump the version on every PR.** PATCH by default — including new public surface. MINOR only when the PR body justifies it, MAJOR only for breaking changes and only as a team decision. Full policy: `git-workflow` → *Version bumps*.
 - **Update transitive pins in lock-step.** When a shared package bumps, every package pinning it bumps and updates the pin in the same change.
 - **Commit lockfiles.** Reproducible builds across environments.
 - **One packaging metadata convention per package.** Mixing styles in the same manifest is a source of drift.

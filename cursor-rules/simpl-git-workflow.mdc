@@ -1,5 +1,5 @@
 ---
-description: "Our team's conventions for branches, commits, and pull requests. ALWAYS consult before any git branch create/switch, commit, or PR. Agents must stay on the already-checked-out branch unless the user e"
+description: "Our team's conventions for branches, commits, pull requests, and version bumps. ALWAYS consult before any git branch create/switch, commit, PR, or version change. Every PR bumps the version — PATCH by"
 globs: "**/*"
 alwaysApply: true
 ---
@@ -107,6 +107,7 @@ Footer examples (Linear):
   - [ ] .agent/INTERNAL.md updated if conventions changed
   ```
 
+- **Every PR bumps the version.** Reviewers do not approve a PR without a bump (see *Version bumps* below). PATCH by default; a MINOR or MAJOR bump needs its justification written under `## Why`.
 - Squash merge only. No rebase-merge, no merge-commit.
 - PRs under ~400 lines get reviewed same-day. Split bigger PRs.
 
@@ -140,44 +141,63 @@ Exception: when the user says explicitly "committa", "pusha", "fai il commit", "
 
 What to do instead: after editing, summarize what changed and which files, then stop. Let the user drive `git add` / `git commit` / `git push`.
 
-## Plugin / skill changes — version bump is MANDATORY
+## Version bumps — every PR bumps, PATCH by default
 
-If the commit touches anything under `plugins/<plugin-name>/` (skills, commands, hooks, agents, manifests), you MUST bump the version in BOTH:
+Applies to **every** simpl repo that carries a version: library and service repos (`pyproject.toml`, `package.json`) and the plugins in this marketplace (`plugin.json` + `marketplace.json`). Scheme: [SemVer](https://semver.org/) `MAJOR.MINOR.PATCH`.
+
+### The rules
+
+1. **Every PR bumps the version. No bump, no approval.** Docs-only, test-only, and dependency-only PRs included. The version counts what has merged, not what shipped a feature.
+2. **PATCH is the default.** `0.6.1` → `0.6.2`. A bug fix, a refactor, a new helper, a new option, a new public function, a dependency update, a doc or test change, a new or reworded rule in a skill — all PATCH. If the change is "a normal PR", it is PATCH.
+3. **PATCH does not roll over.** `0.6.23` → `0.6.24` is correct. A high patch number is never, by itself, a reason to bump MINOR.
+4. **MINOR must be justified, in writing, in the PR.** `0.6.23` → `0.7.0` only when the change is genuinely bigger than a normal PR: a new subsystem or module family, a new integration or pipeline, a substantial restructure of the public surface, a milestone the team wants to point at. Add one sentence under `## Why` saying why this is MINOR rather than PATCH. No sentence → the reviewer asks for PATCH.
+5. **MAJOR is a team decision, not a PR author's.** A breaking change to the public surface: rename or remove an exported symbol, change a contract consumers depend on. PR title carries `!`, merge commit carries a `BREAKING CHANGE:` footer. Pre-stable repos (`0.x.y`) bump MINOR for breaking changes instead; promotion to `1.0.0` is its own dedicated PR with team sign-off.
+6. **When unsure, PATCH.** Under-bumping costs nothing: the version still changed, caches still invalidate, and the next PR can go MINOR once the picture is clear. Over-bumping burns version space and makes the history lie about how big changes were.
+
+| Bump      | Example              | When                                                                                                                                                         |
+| --------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **PATCH** | `0.6.23` → `0.6.24`  | **Default.** Any normal PR: fix, refactor, new function or option, deps, docs, tests, a new or reworded rule inside an existing skill.                          |
+| **MINOR** | `0.6.23` → `0.7.0`   | Justified in the PR body. New subsystem, new integration, substantial public-surface restructure, a whole new skill/command/hook in a plugin. In `0.x.y`: also breaking changes. |
+| **MAJOR** | `1.4.2` → `2.0.0`    | Team decision. Breaking public surface, `!` in the title, `BREAKING CHANGE:` footer. Only meaningful once the repo is `>= 1.0.0`.                             |
+| **BETA `N`** | `2.0.0.36` → `2.0.0.37` | Only in a repo mid-rewrite with a fourth segment. Every PR bumps `N`; the other three are frozen until cut-over (see *Beta rewrites*). |
+
+### How to bump
+
+- **Poetry repos**: `poetry version patch` (or `minor` / `major`) — it rewrites `pyproject.toml` for you. Bump in the same PR as the change.
+- **npm repos**: `npm version patch --no-git-tag-version`, or edit `package.json` → `version`.
+- **Marketplace plugins**: edit `plugins/<name>/.claude-plugin/plugin.json` and the matching entry in `.claude-plugin/marketplace.json`. The two must match — CI checks it.
+- **Two PRs bumped from the same base** (conflict on the version line): take the higher of the two and add one PATCH.
+
+### Beta rewrites: a fourth segment
+
+A repo in the middle of a major rewrite that is not yet fully functional carries a **fourth segment**: `MAJOR.MINOR.PATCH.N`, e.g. `simpl_outreach` at `2.0.0.36` = beta iteration 36 of the v2 rewrite.
+
+- `N` is the beta counter. **Every PR bumps `N`** (`2.0.0.36` → `2.0.0.37`); the first three segments stay frozen. PATCH/MINOR/MAJOR levels do not apply while the fourth segment exists — there is only "one more beta".
+- A four-segment version is deliberate. Do not "normalize" it to three segments, and do not bump the third segment instead of the fourth.
+- When the team declares the rewrite functional, drop the fourth segment and resume normal bumps from there: `2.0.0.36` → `2.0.1` (not `2.0.0` — PEP 440 sorts `2.0.0.36` *above* `2.0.0`). That cut-over is its own PR, like promotion to `1.0.0`.
+
+### Agents
+
+- Bump PATCH as part of the change, in the same PR. Don't wait to be asked.
+- **Never escalate to MINOR or MAJOR on your own.** If you think the change might warrant it, bump PATCH and say so in chat: "bumped `0.6.23` → `0.6.24`; this could be MINOR because <reason> — tell me if you want `0.7.0`". The human decides and writes the justification.
+- Don't bump twice in one PR. If the branch already carries a bump since `main` (`git diff main -- pyproject.toml`), leave it.
+
+### Plugins in this marketplace — bump is checked by CI
+
+If the commit touches anything under `plugins/<plugin-name>/` (skills, commands, hooks, agents, manifests), you MUST bump in BOTH:
 
 1. `plugins/<plugin-name>/.claude-plugin/plugin.json` — `version` field.
 2. `.claude-plugin/marketplace.json` — the entry for that plugin's `version` field.
 
-### Versioning policy (semver, strict)
-
-We follow [SemVer](https://semver.org/) `MAJOR.MINOR.PATCH`. **Pick the bump level by the size and impact of the change**, not by gut feel:
-
-| Bump        | When to use                                                                                       | Examples                                                                                |
-| ----------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| **PATCH** (`0.1.0` → `0.1.1`) | Small fixes: typo, wording tweak, clarifying example, broken link, formatting, minor rule refinement. | Fix a sentence in a SKILL.md; correct a code-block language tag.                        |
-| **MINOR** (`0.1.1` → `0.2.0`) | Larger changes that add or substantially restructure content: new skill, new command, new hook, new section, new rule, removed obsolete rule. | Add a `python-environment` skill; add an entire new section to `coding-standards`.      |
-| **MAJOR** (`0.x.y` → `1.0.0`, or later `1.x.y` → `2.0.0`) | Breaking changes: rename or remove a skill/command, rename a public hook, change skill behavior in a way that breaks dependent repos, drop a supported flow. | Rename `git-workflow` to `git-conventions`; remove a long-standing skill consumers cite. |
-
-If you're unsure between two levels, **bump to the higher one**. Under-bumping is the failure mode (cache stays warm, stale content); over-bumping is harmless.
-
-### Pre-stable: stay in `0.x.y`
-
-**All plugins start at `0.1.0` and remain in the `0.x.y` range until they're declared stable.** We are not stable yet — none of the plugins ships to a frozen public API, and we still revise structure week-to-week.
-
-While in `0.x.y`:
-- The MINOR digit (`0.1.0` → `0.2.0`) is what we use for "real" releases with new content.
-- The PATCH digit covers small fixes (`0.1.0` → `0.1.1`).
-- "Breaking changes" within `0.x.y` still bump MINOR — we do **not** go to `1.0.0` for them. Promotion to `1.0.0` is a deliberate, separate decision (dedicated PR, team sign-off) that declares the plugin stable.
-
-Only after a plugin reaches `1.0.0` do MAJOR bumps become meaningful (and required for any breaking change).
-
 **Why this is non-negotiable**: Claude Code caches installed plugins under `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`. If the version doesn't change, `/plugin update` sees "same version" and serves the stale cache — your edit never reaches users. This has bitten us multiple times. No exceptions, even for typo fixes.
 
+A PATCH bump invalidates that cache exactly as well as a MINOR one, so the level rules above apply unchanged: PATCH for a fix, a rewording, or a new/changed rule inside an existing skill; MINOR only for a whole new skill/command/hook or a restructure, justified in the PR. All plugins start at `0.1.0` and stay in `0.x.y` until the team declares them stable in a dedicated PR.
+
 Pre-commit checklist when editing a plugin:
-- [ ] Picked the right bump level (PATCH / MINOR / MAJOR) per the table above.
-- [ ] Stayed inside `0.x.y` unless explicitly promoting to stable.
 - [ ] Bumped `plugins/<name>/.claude-plugin/plugin.json` version.
-- [ ] Bumped matching entry in `.claude-plugin/marketplace.json`.
-- [ ] Versions match between the two files.
+- [ ] Bumped the matching entry in `.claude-plugin/marketplace.json`; the two versions match.
+- [ ] PATCH, unless the PR body justifies MINOR.
+- [ ] Stayed inside `0.x.y` unless explicitly promoting to stable.
 
 ## Don't
 
@@ -188,4 +208,5 @@ Pre-commit checklist when editing a plugin:
 - Don't invent Linear or GitHub issue ids in commit messages or PR bodies.
 - Don't leave a matched Linear issue silent after substantive work — comment what/how/why, or say Linear was unreachable.
 - Don't amend a commit that's already been pushed to a shared branch without flagging to reviewers.
-- Don't edit a plugin without bumping its version (see section above).
+- Don't open a PR — in any repo — without a version bump; reviewers don't approve it.
+- Don't bump MINOR or MAJOR without a justification line in the PR body; when unsure, PATCH (see *Version bumps* above).
