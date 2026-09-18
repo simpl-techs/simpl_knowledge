@@ -1,0 +1,12 @@
+{
+  "name": "simpl_ia-context",
+  "version": "0.1.0",
+  "description": "Integration context for simpl_ia. Auto-synced from simpl-techs/simpl_ia.",
+  "author": {
+    "name": "simpl_ia maintainers"
+  },
+  "keywords": [
+    "simpl_ia",
+    "integration"
+  ]
+}
