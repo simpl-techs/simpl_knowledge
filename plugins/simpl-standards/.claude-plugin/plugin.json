@@ -5,5 +5,13 @@
   "author": {
     "name": "simpl Platform"
   },
-  "keywords": ["standards", "conventions", "simpl", "architecture", "persistence", "data-flow", "doppler"]
+  "keywords": [
+    "standards",
+    "conventions",
+    "simpl",
+    "architecture",
+    "persistence",
+    "data-flow",
+    "doppler"
+  ]
 }
