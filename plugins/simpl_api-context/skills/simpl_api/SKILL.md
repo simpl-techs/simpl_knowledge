@@ -39,7 +39,10 @@ When adding API behavior, place HTTP route code under `src/simpl_api/api`, reusa
 - Use Pydantic schemas for request/response contracts.
 - Keep environment variables documented in `README.md` and `.env.example` when adding new config.
 - Use existing agent/service patterns before introducing a new orchestration style.
+- Emails a user's SimpL agent sends go through the `email` channel plugin and `services/channels/agent_email.py`: a plain email in the agent's words, one link into SimpL, signed as the user's own agent persona. Pass `brain.notify_user` a `body` (and optionally `subject`, `route`); don't build HTML.
+- A seller's active hours, when the extension may send, are `outreach_prefs.active_hours` = `{"start": "HH:MM", "stop": "HH:MM", "timezone": "<IANA name>"}` (start inclusive, stop exclusive, start before stop). A missing field takes 07:00 / 19:00 / UTC, and an unset or invalid window runs on 07:00-19:00 UTC. `sales.resolve_active_hours(prefs jsonb[, at timestamptz])` resolves it: the extension task RPC gates on it, and `GET`/`PATCH /api/v1/app/preferences` return its answer as `active_hours_effective` (`start`, `stop`, `timezone`, `source` = `configured` | `unset` | `invalid`, `is_open_now`). `PATCH` merges `active_hours` one level deep, `null` resets it, and a value the resolver calls invalid, or a zone not spelled exactly as in IANA, is refused with 422. Read the window through the resolver (`services/active_hours.py`) instead of re-parsing the JSON. Review-answer follow-ups (`review_response_service._next_business_morning`) schedule at the start of the seller's window, 09:00 Europe/Rome without one, like simpl_core's retry triggers (simpl_core >= 0.8.2).
 - Authenticate product routes with `auth.get_current_user`, which also refuses SimpL Challenge entrants; scope them with `simpl_api.guards`, whose `resolve_user_context` repeats that refusal against the database. Both are single places, so a new endpoint written against the ordinary dependencies inherits them. Do not reimplement either check per endpoint.
+- Approval routes (journey-log `set-pending`, managed approve, Agent API draft approve and `bulk-approve`) and invite execution return the status the database settled on. simpl_core's dispatch authority rule can send an approved row back to `PENDING_APPROVAL` (`payload.authority.block_reason`) or cancel it, so callers must not assume `PENDING`; `bulk-approve` lists such rows under `withheld`, and invite execution answers 409.
 
 ## Common pitfalls
 
@@ -47,6 +50,13 @@ When adding API behavior, place HTTP route code under `src/simpl_api/api`, reusa
 - Do not add undocumented environment variables.
 - Do not run real external provider calls in tests unless explicitly marked/configured.
 - Do not give a challenge endpoint a product guard, or a product endpoint `require_challenge_participant`. The two contexts are separate types precisely so the substitution does not typecheck.
+
+## Operational alerts
+
+- `simpl_api.startup.agent_framework_failed` posts to Discord #error when the agent framework wiring fails at startup. The deploy does not come up.
+- Agent framework failures reach #warning once. Chat alerts carry `user_id`, `customer_id`, `conversation_id` and `turn_id`; challenge alerts carry `participant_id`, `contest_id`, `scenario_id` and `turn_id`; Sales Domain wake alerts carry `user_id`.
+- `agent_framework.engine.validator_failed` in `pipeline_ops_agent` is promoted to #error. The rule is registered additively, so a process that also embeds simpl-outreach keeps both apps' rules.
+- Requires simpl_tracker `f581b40` or later (notify API version 3, report-once through `raise ... from`, the `__simpl_notify__` silent marker) and simpl_core `855253e` or later (`add_alert_rules`, `labels` on the Sales Domain wrappers).
 
 ## Testing
 
@@ -70,5 +80,9 @@ poetry run ruff check .
 
 - Source: `https://github.com/simpl-techs/simpl_api`
 - App routes: `src/simpl_api/api`
+- ROI admin: `src/simpl_api/api/v1/admin/roi.py` (domain in `simpl_core.roi`). People/expenses routes use `require_owner`.
+- Managed Operations fleet: `GET /api/v1/admin/managed/operations/fleet` in `src/simpl_api/api/v1/admin/managed.py`, logic in `src/simpl_api/services/operations_fleet.py`. Scope defaults to everyone active at a customer with an active managed engagement; `engagedOnly=true` narrows it to the people pinned to the engagement; `allCustomers=true` covers every active person at every active customer, managed or not. `POST`/`DELETE /admin/managed/engagements/{engagement_id}/users/{user_id}` pin or unpin one person (the invoiced seats follow the engagement's own `seat_count`, untouched here). Deactivated users and users of deactivated customers are never included. Per person it returns `autopilot` (state working/failing/idle/not_running/off, last run, blocker), `pipeline` (7-day reviews), `limits` (account stage, daily company supply, invite/message/email limits, mailbox status), `days` (7 UTC day buckets: suggested, reviewed, claimed, sends and failures per channel, accepted invites, replies, limiter counters and that day's capacity), `activity` (the window's sums), `alerts` (`kind`, `severity` critical/warning, `title`, `detail`) and `queue` (message drafts vs requests). Customers and the summary roll up `days`, `limits`, `activity` and `alerted_people`; the summary's own `alerts` hold fleet-wide problems such as no companies generated today.
+- Dashboard roles: `src/simpl_api/api/v1/admin/platform_roles.py`. Hierarchy: owner > admin > staff. `is_admin` is derived.
+- ROI time survey (token, not JWT): `src/simpl_api/api/v1/roi_survey.py`
 - Agent code: `src/simpl_api/agents`
 - Internal conventions: `.agent/INTERNAL.md`
