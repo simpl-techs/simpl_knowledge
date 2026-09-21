@@ -10,7 +10,7 @@
       "name": "simpl-standards",
       "source": "./plugins/simpl-standards",
       "description": "Cross-cutting standards for all simpl projects: coding conventions, git workflow, testing policy, Python environment toolchain, repo docs and env-var consistency, Doppler secrets.",
-      "version": "0.13.2",
+      "version": "0.13.7",
       "keywords": [
         "standards",
         "conventions",
@@ -46,7 +46,7 @@
       "name": "simpl_tracker-context",
       "source": "./plugins/simpl_tracker-context",
       "description": "Integration context for simpl-tracker (`simpl_tracker`). Auto-synced from simpl-techs/simpl_tracker.",
-      "version": "0.1.2",
+      "version": "0.1.3",
       "keywords": [
         "simpl_tracker-context",
         "simpl-tracker",
@@ -78,7 +78,7 @@
       "name": "simpl_api-context",
       "source": "./plugins/simpl_api-context",
       "description": "Integration context for simpl_api. Auto-synced from simpl-techs/simpl_api.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "keywords": [
         "simpl_api",
         "integration",
@@ -89,9 +89,31 @@
       "name": "simpl_core-context",
       "source": "./plugins/simpl_core-context",
       "description": "Integration context for simpl_core. Auto-synced from simpl-techs/simpl_core.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "keywords": [
         "simpl_core",
+        "integration",
+        "simpl"
+      ]
+    },
+    {
+      "name": "simpl_ia-context",
+      "source": "./plugins/simpl_ia-context",
+      "description": "Integration context for simpl_ia. Auto-synced from simpl-techs/simpl_ia.",
+      "version": "0.1.0",
+      "keywords": [
+        "simpl_ia",
+        "integration",
+        "simpl"
+      ]
+    },
+    {
+      "name": "simpl_flow-context",
+      "source": "./plugins/simpl_flow-context",
+      "description": "Integration context for simpl_flow. Auto-synced from simpl-techs/simpl_flow.",
+      "version": "0.1.0",
+      "keywords": [
+        "simpl_flow",
         "integration",
         "simpl"
       ]
