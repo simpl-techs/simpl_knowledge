@@ -121,10 +121,25 @@ config: a provider entry called "openai" pointed at a gateway bills the gateway.
 **The wrapper fails open, the guard fails closed.** `CostRecordingModel` steps
 aside when no tracker is installed, so adding it can never take a service down;
 `require_request_accounting` is what refuses to start a service that would spend
-untracked. Once running, a request whose intent cannot be persisted is refused
-rather than made — and every such refusal, every receipt lost after a paid
-response, and every receipt still undelivered at shutdown is announced on the
-error channel. Silence means recorded.
+untracked. Every refusal, every receipt lost after a paid response, and every
+receipt still undelivered at shutdown is announced on the error channel. Silence
+means recorded.
+
+**A request whose intent cannot be saved is made anyway and reported.** An
+unreachable ledger is our problem, not a reason to stop answering, and the charge
+is usually not even lost: the completion receipt alone records it, so a ledger
+that recovers before the response lands still captures the spend. Only one still
+unreachable then loses it, and that reports again as `reconciliation_required`.
+The event to watch for is `llm_accounting.dispatched_unrecorded`.
+
+**A service where no spend may go unrecorded opts into refusing** with
+`cost_tracking.block_when_unrecordable: true` in `tracker.yaml`. Then the request
+is refused and reported as `llm_accounting.blocked_unrecordable`, and an
+unreachable ledger stops that service. Choose it only where stopping costs less
+than a missing row.
+
+Neither setting is silent, and neither excuses a missing or disabled tracker —
+that is still a refusal to start.
 
 ## Reconciling the ledger against provider billing
 
