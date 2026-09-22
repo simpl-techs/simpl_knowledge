@@ -678,10 +678,109 @@ has not been promoted. Everything before promotion is API-driven:
 the only lock path that ignores execution mode, and releases it whether the
 sequence succeeds or fails. It raises `CrmDryRunNotFoundError` for an unknown
 scope or report and `CrmDryRunConflictError` for a live scope, an
-already-applied report, a disabled scope, a scope with no workflow or pipeline,
-or a scope whose lock is held — the same preconditions the scheduler's claim
+already-applied report, a disabled scope, a scope with no workflow or with
+neither a pipeline nor a flow, or a scope whose lock is held — the same preconditions the scheduler's claim
 query imposes, so applying never performs writes promotion would not. A report
 is applied at most once; a fresh plan needs a fresh dry run.
+
+## CRM flows
+
+A scope may declare a *flow* in `crm_export_config.config["flow"]`: which CRM
+records Simpl creates and moves through a pipeline, when each is created, which
+stage it sits in, and what it is named and stamped with. A new customer's CRM
+process is then configuration rather than code. A scope without a flow keeps
+the stage-mapping push (`crm_pipeline_config.stage_mappings`) unchanged.
+
+```json
+{
+  "flow": {
+    "version": 1,
+    "objects": {
+      "companies": {"kind": "identity"},
+      "contacts": {"kind": "identity"},
+      "deals": {
+        "kind": "process",
+        "grain": "company",
+        "pipeline": "3600251101",
+        "associations": [
+          {"to": "companies", "label": "deal_to_company"},
+          {"to": "contacts", "label": "deal_to_contact"}
+        ],
+        "create_when": {"status_in": ["Meeting Booked"]},
+        "driven_by": "qualifying_contacts",
+        "stage_policy": "follow_status",
+        "stages": [
+          {"stage": "5722854627", "when": {"status_in": ["Meeting Booked"]}},
+          {"stage": "4933628109", "when": {"status_in": ["Not Interested"]}}
+        ],
+        "name": "Simpl - {company.name}",
+        "create_properties": {"source": "Simpl"}
+      }
+    }
+  }
+}
+```
+
+- **Objects** are keyed by the provider's object type. `identity` objects
+  (HubSpot `companies`, `contacts`) are matched and linked through
+  `ensure_external_entity_link_without_overwrite`, never overwritten. `process`
+  objects are Simpl-owned; HubSpot supports `deals` today. HubSpot `leads` needs
+  OAuth scopes the Composio-managed app cannot grant, so it has no spec yet.
+- **`grain`**: one record per Simpl contact (`contact`) or per company (`company`).
+- **`stages`** are ordered most advanced first; the first rule that holds wins.
+  `stage_policy` is `follow_status` (every change applies), `forward_only`
+  (never moves to a rule listed lower) or `set_on_create`.
+- **`driven_by`** (company grain): `latest_contact_change` follows whichever
+  connection changed status last, as company sync always has;
+  `qualifying_contacts` follows the contacts that met `create_when`, and a
+  recorded driver keeps moving the record after it stops qualifying.
+- **Conditions**: `status_in` (workflow status names or `status_mapping_id`s: a
+  name matches that one stage, a mapping id matches its whole category,
+  customer sub-stages included; archived stages are refused),
+  `outreach_sent` (an outbound message in a thread the contact shares with its
+  owner; a connection request is not a message), `replied` (an inbound one),
+  and `all` / `any` / `not`.
+- **Templates** (`name`, string property values): literal text plus `{path}`;
+  `{a|b}` takes the first non-empty value. Paths are listed in
+  `simpl_core.services.crm.flow.TEMPLATE_PATHS`. A name that renders empty skips
+  creation with reason `name_unresolved`. Names and `create_properties` are sent
+  only at creation; `on_enter` properties go with a stage change.
+
+Flows are configured internally; the self-serve screens keep editing the
+standard stage mapping. To give a customer a custom setup:
+
+1. Write the flow as JSON (the file may hold the flow or `{"flow": {...}}`).
+2. Check it read-only against the scope and preview what it would do:
+   `python scripts/check_crm_flow.py --config-id <scope> --flow flow.json --since <date>`.
+   It prints `VALID` with the flow hash, or `INVALID` with the offending path,
+   then counts every outcome and lists the proposed writes with names and
+   stages. It never calls the CRM and stores nothing.
+3. Store it with the statement `--print-sql` prints (a `jsonb_set` on
+   `crm_export_config.config`), after review.
+4. Run the scope's dry run from the admin screens, apply it, verify in the
+   CRM, and promote, exactly as for a standard scope.
+
+Check a flow before saving it: `parse_flow(raw)` checks structure, and
+`validate_flow(flow, provider_class=..., status_names=..., status_mapping_ids=...,
+sync_direction=...)` checks it against the provider and the scope's workflow.
+Both raise `FlowConfigError`, whose `path` names the offending part. A flow
+scope must use `sync_direction = 'push'`; flows do not pull yet.
+
+`ReconciliationService.run_scope_sequence` pushes a flow scope through
+`CrmFlowEngine`, and `CrmDryRunService.run` plans it with the same planner. The
+report lists `would_create_object`, `would_set_object_stage`,
+`would_associate_object` and `would_skip_object` entries (each with
+`object_type`, `reason`, and for writes the stage before and after and the
+rendered name), counts not-due outcomes as `would_skip_object_not_due`, and
+stores the flow and its `flow_hash` in `configuration_snapshot`.
+
+Owned records live in `integration.crm_object_link` (migration
+`20260916_crm_flow_object_links.sql`), keyed by a Simpl key also written to a
+hidden unique CRM property, so a create that was never recorded is adopted on
+the next run. A company's deal is mirrored into
+`crm_export_record.external_deal_id`, which pull, engagement sync and the link
+screens still read; a deal created before the scope had a flow is adopted from
+there, and one without a Simpl key belongs to the customer and is never written.
 
 ## Transient database failures
 
