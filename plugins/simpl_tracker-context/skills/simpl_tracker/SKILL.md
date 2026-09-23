@@ -61,8 +61,18 @@ def call_ai(prompt: str, user_id: str | None = None):
 - Assert wiring at boot with `simpl_tracker.notifier_status().configured`; its `failed_deliveries` counts accepted alerts that were never delivered, and `deferred` the alerts waiting right now on another process's delivery claim. Set `notifications.strict: true` (or `SIMPL_TRACKER_STRICT_NOTIFICATIONS=1`) to raise `NotificationConfigError` on dead webhook config.
 
 - For request accounting, use `simpl_tracker.llm_model.CostRecordingModel` and
-  `simpl_tracker.llm_accounting.LLMAccountingScope`. Enable `request_accounting`
-  only after the coordinated schema/library release. See the README contract.
+  `simpl_tracker.llm_accounting.LLMAccountingScope`. Since 0.6.0
+  `request_accounting` is on by default; only `SIMPL_REQUEST_ACCOUNTING=false`
+  switches it off. See the README contract.
+- Since 0.6.0 every POST to a billable provider endpoint is also seen at the httpx
+  boundary (`simpl_tracker.transport`, installed on import). A request no
+  `CostRecordingModel` wrapped is still recorded (`capture='transport'`, process
+  named by the scope or `unwrapped:<caller>`), and logs
+  `llm_accounting.unwrapped_call` once per call site: wrap it for attribution. A
+  request whose caller timed out or was cancelled keeps running in the background
+  and is recorded with its real usage as outcome `abandoned`; the caller still gets
+  its own timeout. Self-hosted endpoints go in `cost_tracking.llm_hosts`
+  (`{host: provider}`). `SIMPL_TRANSPORT_ACCOUNTING=false` switches it off.
 - `CostEntry.cost_usd` and `TrackingResult.cost_usd` may be `None` for unknown LLM
   prices. Never replace unknown amounts with a fabricated zero.
 - Drain `simpl_tracker.llm_accounting.drain_llm_receipts()` during graceful shutdown.
@@ -93,7 +103,8 @@ Tests marked `real_api` require real provider keys and should not be run by defa
 Do not invent a per-repo arrangement. Every service records LLM spend the same
 way, and everything it needs is exported from `simpl_tracker` directly:
 
-1. **`tracker.yaml`** with `cost_tracking.request_accounting: ${SIMPL_REQUEST_ACCOUNTING:-true}`.
+1. **`tracker.yaml`** with `cost_tracking` enabled. `request_accounting` defaults to
+   true since 0.6.0, and `configure_from_yaml` runs the startup guard itself.
 2. **Wrap the model where it is built**, at the one place the service constructs
    a pydantic-ai model:
 
@@ -112,8 +123,19 @@ way, and everything it needs is exported from `simpl_tracker` directly:
    receipt suppresses the decorator's run-level row, so the charge is never
    counted twice. A service without those decorators opens the scope itself,
    around the agent run.
-4. **Guard and drain.** `require_request_accounting("<service>")` at startup and
-   `drain_llm_receipts()` at shutdown.
+4. **Drain.** `drain_llm_receipts()` at shutdown; it also waits for abandoned
+   requests still finishing. `require_request_accounting("<service>")` still
+   works, but `configure_from_yaml` already calls it for the configured repo.
+
+A call site that forgets step 2 is no longer lost: the transport records it and
+names it `unwrapped:<caller>`. Step 2 is what gives it a process name and a
+pre-dispatch intent tied to the model call.
+
+**Code that writes a run total after `agent.run`** (a direct `track_llm_call` from
+a result, outside `@track_cost`) must total only
+`simpl_tracker.unrecorded_responses(result)`: since 0.6.0 every request to a known
+provider already has its own receipt, and totalling the whole run counts it twice.
+To attribute those receipts, run the agent inside an `LLMAccountingScope`.
 
 `billing_provider` is decided by the host that answers, never by the label in a
 config: a provider entry called "openai" pointed at a gateway bills the gateway.
