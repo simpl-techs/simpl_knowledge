@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Set one secret on every Doppler project that uses it (prd + dev + stg).
+# Set one secret on every Doppler project that uses it (prd + dev + stg, or the
+# configs named after @ in key-targets.txt, e.g. KEY@prd).
 # The value is read from stdin or a hidden prompt and is never printed.
 #
 # Usage:
@@ -19,10 +20,15 @@ if [[ $# -ne 1 ]]; then
 fi
 
 KEY="$1"
-line="$(awk -v key="$KEY" '$1 == key { $1=""; sub(/^ /,""); print; exit }' "$MAP")"
-if [[ -z "$line" ]]; then
+entry="$(awk -v key="$KEY" '{ name = $1; sub(/@.*/, "", name) } name == key { print; exit }' "$MAP")"
+if [[ -z "$entry" ]]; then
   echo "unknown key $KEY — add it to $MAP" >&2
   exit 1
+fi
+first="${entry%%[[:space:]]*}"
+line="${entry#"$first"}"
+if [[ "$first" == *@* ]]; then
+  IFS=',' read -r -a CONFIGS <<<"${first#*@}"
 fi
 
 read -r -a PROJECTS <<<"$line"

@@ -40,6 +40,7 @@ For *where code lives*: `architecture-discipline`. For *transactions, async, obs
 
 - **Internal failures escalate; they never produce a silent no-op.** A failure handled only by a log line plus a no-action return is silently discarded — the affected entity sits in production looking healthy, no retry path picks it up, no operator sees it. The two acceptable outcomes are **bounded retry** (with an explicit attempt cap and per-attempt error signal — see `state-and-persistence`) or a **structured handoff** to a reviewer queue.
 - **Logging is not surfacing.** Log lines, chat-channel pings, and metrics are observability — none of them produce a follow-up action. Surfacing means the failure ends up in a persistent row, queue, or status that a retry path or a human will actually pick up.
+- **Exception: a cost that could not be recorded is not the work's failure.** The work succeeded, so it never raises, retries the work or blocks. It is reported on the cost-tracking channel, and provider reconciliation is the persistent record that catches what the channel misses (see `state-and-persistence` → Observability).
 - **Escalation outputs obey the same invariants as primary outputs.** A handoff payload (review request, retry record, error envelope) carries the same coherence guarantees as a normal DTO. "Something went wrong, decide for me" is offloading, not surfacing.
 
 ## Test and fixture data discipline
