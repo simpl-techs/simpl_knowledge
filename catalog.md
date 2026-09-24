@@ -1,6 +1,6 @@
 # simpl internal libraries catalog
 
-Auto-generated at `2026-09-24T13:06:53.202Z`. Do not edit by hand: every library sync regenerates it, or run `node scripts/ci/generate-catalog.js`.
+Auto-generated at `2026-09-24T13:26:24.621Z`. Do not edit by hand: every library sync regenerates it, or run `node scripts/ci/generate-catalog.js`.
 
 Each entry summarizes an integration plugin (`*-context`). Install the plugin in Claude Code for the full SKILL. Until then, use this file to decide whether a library fits the current task.
 
@@ -67,8 +67,8 @@ Each entry summarizes an integration plugin (`*-context`). Install the plugin in
 ## simpl_tracker-context
 
 - **Skill**: `simpl_tracker`
-- **Summary**: simpl_tracker integration guide
-- **When to use**: Use this skill whenever the user asks about cost tracking, logging with notifications, Langfuse tracing, Cloud Run compute/session tracking, or code that imports `simpl_tracker`. ALWAYS consult before adding ad hoc cost, logging, or notification wrappers in simpl repos, and before creating or deploying any Cloud Run service, worker pool or job.
-- **Required when**: Any code deployed to Google Cloud (Cloud Run service, worker pool, job, Prefect flow on Cloud Run) must record its compute through simpl_tracker (track_instance_lifetime for services and worker pools, @track_compute for jobs) and its LLM spend through request receipts, before merging.
+- **Summary**: Mandatory cost ledger for every simpl service. Records LLM spend per request, paid data-provider calls and Cloud Run compute in Supabase, reports any untracked cost on its own Discord channel, and ships structured logging, Discord notifications and Langfuse helpers.
+- **When to use**: Any code that spends money: a model call (pydantic-ai, OpenAI, OpenRouter, DeepSeek, Cheaper Inference or any other provider), an LLM batch job, a paid enrichment or scraping API, or compute on Google Cloud (Cloud Run service, worker pool, job, Prefect flow). Also when adding logging with Discord alerts or Langfuse tracing, or when checking recorded costs against a provider's billing export.
+- **Required when**: Always. Every cost a simpl service incurs is recorded through simpl_tracker before merging: LLM spend through CostRecordingModel request receipts (attributed by @track_cost or an LLMAccountingScope; batch results through @track_batch_cost), paid data providers through @track_cost, and Google Cloud compute through track_instance_lifetime (services, worker pools) or @track_compute (jobs, Prefect flows). No custom cost tables and no untracked paid calls.
 - **Install full context (Claude Code)**: `/plugin install simpl_tracker-context@simpl`
 - **Skill path in cache**: `~/.simpl_knowledge/cache/plugins/simpl_tracker-context/skills/`

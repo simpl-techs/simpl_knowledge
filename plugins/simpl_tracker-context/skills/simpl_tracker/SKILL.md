@@ -1,8 +1,13 @@
 ---
 name: simpl_tracker
 description: |
-  Use this skill whenever the user asks about cost tracking, logging with notifications, Langfuse tracing, Cloud Run compute/session tracking, or code that imports `simpl_tracker`. ALWAYS consult before adding ad hoc cost, logging, or notification wrappers in simpl repos, and before creating or deploying any Cloud Run service, worker pool or job.
-required_when: Any code deployed to Google Cloud (Cloud Run service, worker pool, job, Prefect flow on Cloud Run) must record its compute through simpl_tracker (track_instance_lifetime for services and worker pools, @track_compute for jobs) and its LLM spend through request receipts, before merging.
+  Every cost at simpl goes through simpl_tracker, always: LLM calls, paid APIs, Cloud Run compute. ALWAYS load it before code that calls a model or a paid API, or deploys to Cloud Run. Load it when the user asks to track cost or spend, add an LLM call or a new provider (OpenAI, OpenRouter, DeepSeek, Cheaper Inference, enrichment or scraping APIs), create or deploy a Cloud Run service, worker pool or job, log with Discord alerts, add Langfuse tracing, or reconcile costs against a provider bill, and whenever code imports `simpl_tracker`. Never add ad hoc cost tables, cost wrappers or notification helpers.
+summary: |
+  Mandatory cost ledger for every simpl service. Records LLM spend per request, paid data-provider calls and Cloud Run compute in Supabase, reports any untracked cost on its own Discord channel, and ships structured logging, Discord notifications and Langfuse helpers.
+when_to_use: |
+  Any code that spends money: a model call (pydantic-ai, OpenAI, OpenRouter, DeepSeek, Cheaper Inference or any other provider), an LLM batch job, a paid enrichment or scraping API, or compute on Google Cloud (Cloud Run service, worker pool, job, Prefect flow). Also when adding logging with Discord alerts or Langfuse tracing, or when checking recorded costs against a provider's billing export.
+required_when: |
+  Always. Every cost a simpl service incurs is recorded through simpl_tracker before merging: LLM spend through CostRecordingModel request receipts (attributed by @track_cost or an LLMAccountingScope; batch results through @track_batch_cost), paid data providers through @track_cost, and Google Cloud compute through track_instance_lifetime (services, worker pools) or @track_compute (jobs, Prefect flows). No custom cost tables and no untracked paid calls.
 ---
 
 # simpl_tracker integration guide
@@ -12,7 +17,18 @@ required_when: Any code deployed to Google Cloud (Cloud Run service, worker pool
 
 ## What this library is
 
-`simpl_tracker` provides shared cost tracking decorators, structured logging, Discord notifications, infrastructure compute tracking, runtime detection, and Langfuse helpers for simpl Python services.
+`simpl_tracker` is where simpl records what it spends. Every cost a service incurs goes through it; there is no per-repo alternative:
+
+| Cost | Record it with |
+| --- | --- |
+| LLM / model calls | `CostRecordingModel` where the model is built, attributed by `@track_cost(service="ai_llm", ...)` or an `LLMAccountingScope` (see *Recording LLM spend* below) |
+| LLM batch APIs | `@track_batch_cost(process=...)` on the code that retrieves the results |
+| Paid data providers | `@track_cost(service="data_enrichment", ...)` or `@track_cost(service="web_scraping", ...)` with `provider` and `sku` |
+| Cloud Run compute | `track_instance_lifetime(process_name=...)` for services and worker pools, `@track_compute(process=...)` for jobs and Prefect flows |
+
+A cost that fits none of these rows is added to simpl_tracker first, not recorded somewhere else.
+
+It also provides structured logging, Discord notifications, runtime detection, Langfuse helpers and reconciliation against provider billing for simpl Python services.
 
 ## Installation
 

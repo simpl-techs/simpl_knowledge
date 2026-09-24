@@ -1,6 +1,6 @@
 {
   "name": "simpl_tracker-context",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "How to integrate the internal simpl-tracker library (`simpl_tracker`): events, API, patterns.",
   "author": {
     "name": "simpl-tracker maintainers"

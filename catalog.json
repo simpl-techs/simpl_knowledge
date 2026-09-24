@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-24T13:06:53.202Z",
+  "generated_at": "2026-09-24T13:26:24.621Z",
   "marketplace_alias": "simpl",
   "libraries": [
     {
@@ -61,9 +61,9 @@
     {
       "plugin": "simpl_tracker-context",
       "skill_name": "simpl_tracker",
-      "summary": "simpl_tracker integration guide",
-      "when_to_use": "Use this skill whenever the user asks about cost tracking, logging with notifications, Langfuse tracing, Cloud Run compute/session tracking, or code that imports `simpl_tracker`. ALWAYS consult before adding ad hoc cost, logging, or notification wrappers in simpl repos, and before creating or deploying any Cloud Run service, worker pool or job.",
-      "required_when": "Any code deployed to Google Cloud (Cloud Run service, worker pool, job, Prefect flow on Cloud Run) must record its compute through simpl_tracker (track_instance_lifetime for services and worker pools, @track_compute for jobs) and its LLM spend through request receipts, before merging.",
+      "summary": "Mandatory cost ledger for every simpl service. Records LLM spend per request, paid data-provider calls and Cloud Run compute in Supabase, reports any untracked cost on its own Discord channel, and ships structured logging, Discord notifications and Langfuse helpers.",
+      "when_to_use": "Any code that spends money: a model call (pydantic-ai, OpenAI, OpenRouter, DeepSeek, Cheaper Inference or any other provider), an LLM batch job, a paid enrichment or scraping API, or compute on Google Cloud (Cloud Run service, worker pool, job, Prefect flow). Also when adding logging with Discord alerts or Langfuse tracing, or when checking recorded costs against a provider's billing export.",
+      "required_when": "Always. Every cost a simpl service incurs is recorded through simpl_tracker before merging: LLM spend through CostRecordingModel request receipts (attributed by @track_cost or an LLMAccountingScope; batch results through @track_batch_cost), paid data providers through @track_cost, and Google Cloud compute through track_instance_lifetime (services, worker pools) or @track_compute (jobs, Prefect flows). No custom cost tables and no untracked paid calls.",
       "plugin_install_command": "/plugin install simpl_tracker-context@simpl"
     }
   ]
