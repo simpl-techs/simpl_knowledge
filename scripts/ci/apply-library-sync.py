@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 import re
 import subprocess
 import sys
@@ -27,7 +28,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-PUBLISH_ATTEMPTS = 5
+PUBLISH_ATTEMPTS = 10
 BOT_NAME = "simpl_knowledge-bot"
 BOT_EMAIL = "bot@simpl.farm"
 
@@ -255,7 +256,8 @@ def publish(args: argparse.Namespace, labels: set[str]) -> None:
             print(f"OK: {args.repo_name}-context v{new_ver} pushed to simpl_knowledge main")
             return
         print(f"Push attempt {attempt}/{PUBLISH_ATTEMPTS} rejected: {push.stderr.strip()}", file=sys.stderr)
-        time.sleep(attempt * 3)
+        # Jitter so concurrent syncs stop colliding on the same retry beat.
+        time.sleep(attempt * 3 + random.uniform(0, 3))
 
     raise SystemExit(f"Could not push to simpl_knowledge main after {PUBLISH_ATTEMPTS} attempts")
 
