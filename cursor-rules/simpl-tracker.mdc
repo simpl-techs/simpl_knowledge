@@ -1,177 +1,110 @@
 ---
-description: "Use this skill whenever the user asks about cost tracking, logging with notifications, Langfuse tracing, Cloud Run compute/session tracking, or code that imports `simpl_tracker`. ALWAYS consult before"
-globs: "**/*.py,**/*.ts,**/*.tsx,**/*.js"
+description: "Use this skill whenever the user asks to track events, log analytics, record user actions, implement telemetry, or integrate with our internal `simpl-tracker` library. ALWAYS consult this skill before"
+globs: "**/*.py,**/*.ts,**/*.tsx,**/*tracker*"
 alwaysApply: false
 ---
 
 
-# simpl_tracker integration guide
+# simpl-tracker integration guide
 
-> **Maintained by**: the `simpl_tracker` repo, auto-synced to simpl_knowledge.
+> **Maintained by**: the `simpl_tracker` repo (GitHub `simpl-techs/simpl_tracker`), auto-synced to this marketplace. Last synced from `simpl-techs/simpl_tracker@main`.
 > **Source of truth**: `simpl-techs/simpl_tracker/.agent/SKILL.md`
 
-## What this library is
+## What simpl-tracker is
 
-`simpl_tracker` provides shared cost tracking decorators, structured logging, Discord notifications, infrastructure compute tracking, runtime detection, and Langfuse helpers for simpl Python services.
+A minimal, typed event tracker used by every service we run. One method: `track(event_name, properties)`. Flushes to our warehouse via batched HTTP. No external analytics vendors — everything stays in our Postgres.
 
 ## Installation
 
 ```bash
-poetry add "simpl-tracker @ git+https://github.com/simpl-techs/simpl_tracker.git@main"
+# Python
+pip install git+https://github.com/simpl-techs/simpl_tracker.git
+
+# Node (if your service consumes the published package from this repo)
+npm install git+https://github.com/simpl-techs/simpl_tracker.git
 ```
 
-For local development against a sibling checkout:
+Pin to a tagged release when available — we follow SemVer strictly.
 
-```bash
-poetry add --editable ../simpl_tracker
-```
-
-Restore the Git dependency before committing unless the PR intentionally changes dependency wiring.
-
-## Basic usage
+## Basic usage (the 90% case)
 
 ```python
-from simpl_tracker import configure_from_yaml, LOG, track_cost
+from simpl_tracker import Tracker
 
-configure_from_yaml(supabase_client=existing_client)
-LOG.info("Service started", repo="simpl-api", notify=True)
+tracker = Tracker.from_env()  # reads TRACKER_API_URL + TRACKER_SERVICE_NAME
 
-@track_cost(service="ai_llm", process="planner_agent")
-def call_ai(prompt: str, user_id: str | None = None):
-    return ai_client.run(prompt)
+tracker.track(
+    "user_signup",
+    {"user_id": user.id, "plan": "free", "referrer": referrer or "direct"}
+)
 ```
 
-## Rules and conventions
+That's it. Batching, retries, and error handling are internal. The call is non-blocking (async under the hood).
 
-- Prefer `configure_from_yaml()` once at process startup. Do not configure tracking inside hot paths.
-- Use `LOG` or `get_logger(__name__)` instead of raw `print` or per-module logging setup.
-- Logging wrappers: a module that forwards to `LOG` calls `simpl_tracker.ignore_callsite_modules("<its module prefix>")` once, before or after configuration, so `filename` / `func_name` / `lineno` name its caller. An app that builds its own structlog chain must add the same prefix to its `CallsiteParameterAdder(additional_ignores=...)`.
-- Use `track_cost`, `track_batch_cost`, and `track_compute` instead of custom cost table writes.
-- Notification failures must remain fail-safe; they should log but not block the workload.
-- Discord webhooks are raw URLs from env (`DISCORD_ERROR_WEBHOOK_URL`, `DISCORD_WARNING_WEBHOOK_URL`, `DISCORD_SUCCESS_WEBHOOK_URL`), interpolated in `tracker.yaml`. Do not load Prefect `DiscordWebhook` blocks.
-- Notify API version 3 (`simpl_tracker.logging.NOTIFY_API_VERSION`). Every level method takes `notify: bool | "info" | "warning" | "error"` (default `NOTIFY_DEFAULT`), `error: BaseException | str | None`, `notify_fingerprint` and `notify_entities`. `True` maps the level to its channel; a string picks the channel; `False` always silences. An exception `error=` reaches every channel with its traceback. Every level method and `notify_*` helper returns a `bool`: `True` when the alert was accepted (queued, or delivered with `async_delivery` off) or skipped only because report-once found its exception already announced on that channel or a higher one; `False` when no channel applies, the silent marker applies, there is no notifier, notifications are suppressed, the service is disabled or closed, or `send` refused or raised. Accepted is not delivered.
-- Exceptions notify by default: with `notifications.default_notify: exceptions` (the default), a `warning` / `error` / `exception` call carrying an exception object (`error=exc`, or the active one in `exception()`) posts to #warning with no `notify=`. `notifications.default_notify: off` or env `SIMPL_TRACKER_DEFAULT_NOTIFY=off` (env wins) turns it off. **Upgrade impact:** bumping to 0.5.0 makes every existing `LOG.exception` / `error=exc` call post to #warning, so add `notify=False` where a failure is expected, mark the exception class `__simpl_notify__ = False`, or set `default_notify: off`.
-- The notification context merges bound `structlog.contextvars`, `bind()` values and the call's kwargs, with `extra={...}` flattened.
-- Report once: the logger skips a notify for an exception object already announced on any channel, or raised `from` one that was (the explicit `__cause__` chain, up to 10 links). `__context__` is never followed, so an exception raised while an announced one is being handled still posts. An exception group counts as announced when the group was, or when every exception in it was (each by the same rules, nested groups included). Only an explicit higher string channel (`notify="error"` after a warning) posts it again; `notify=True` and the `notify_*` helpers never do. Only the exception passed is marked, and an accepted alert that is never delivered releases its mark again (a mark a higher channel set meanwhile stays). Boundary alerts need no check: `LOG.notify_error(msg, error=exc)` posts nothing for an exception the framework already announced, or for `AppError(...)` raised `from` it. `simpl_tracker.notifications.was_notified(exc)` reports the mark along the same chain.
-- Silencing expected exceptions: an exception whose class or instance sets `__simpl_notify__ = False` is logged, but the default policy, `notify=True` and the `notify_*` helpers never notify it. The same holds when a marked exception is the `__cause__` of the logged one, never its `__context__`. An explicit string channel (`notify="warning"` / `"error"`) still posts. A non-empty exception group whose exceptions are all silent (nested groups included) is silent too. The tracker only reads the attribute, so a library sets it on its own base class without importing simpl_tracker.
-- Delivery is asynchronous: `send()` queues and a daemon thread posts. Exit flushes for up to 5 s; call `simpl_tracker.flush_notifications()` before `os._exit`. In tests, use `NotificationConfig(async_delivery=False)` or `service.flush()`. An accepted alert that still fails (the backend reports failure after its own retries, delivery raises, it is dropped from a full queue, a deferred alert's claim never resolves or the deferred list overflows, or its message keeps disappearing) is not retried: its report-once mark is released, it is logged at ERROR on the stdlib `simpl_tracker` logger (level, message, error type, fingerprint, reason; never the webhook URL), it is counted in `notifier_status().failed_deliveries`, and every undelivered listener is called. `flush()` means processed, not delivered, and never waits for deferred alerts.
-- Undelivered listeners: `simpl_tracker.add_undelivered_listener(callback)` / `remove_undelivered_listener(callback)`, also exported from `simpl_tracker.notifications`. Registration is process-wide, idempotent and independent of the notifier. `callback(context)` runs once per lost alert, with a read-only mapping of that alert's notification context (top-level kwargs such as `root_node_run_id` included), on the thread that settles it and with notifications suppressed. Each item folded into a failed batch edit fires on its own; delivered, accepted-pending and still-deferred alerts never fire. A raising listener is logged at WARNING and the others still run. Use it to drop state that assumed the alert arrived.
-- A wrapper that replaces `NotificationService.send` must accept and forward `fingerprint=` and `entities=` keywords. Otherwise the tracker drops them for that wrapper and alerts fall back to the default fingerprint.
-- Dedup edits the first message while a fingerprint keeps recurring within the window, posts a fresh message at 100 and 1000 occurrences, and escalates a warning still recurring after an hour to the error channel once. It is in-process by default.
-- Supplying a DedupStore (shared dedup for short-lived processes): pass `configure_from_yaml(dedup_store=store)` / `configure_from_block(name, dedup_store=store)`, or call `simpl_tracker.install_dedup_store(store)` after configuration. It swaps the store on the notifier already installed, returns False when there is none, and is safe while alerts are queued. A store implements `hit` / `record_post` / `forget(fingerprint, *, message_id=None)`, plus optional `release` and `recheck`, and reuses `simpl_tracker.notifications.dedup_action`. A store shared across processes claims delivery atomically when it decides `post` / `repost` / `escalate`; while the claim is live it answers other processes `"pending"` (no message exists yet; `DedupHit.claim_expires_at` set) or `"edit"` (one does), `record_post` completes the claim, and `release(fingerprint)` or expiry frees it. The service calls `release` after a post the store authorised was not sent or raised. With async delivery and a store that defines `recheck(fingerprint, *, level, service_name, entities, now)`, a `"pending"` alert is deferred unsettled (its mark stays live) and its fingerprint rechecked at `min(claim_expires_at, now + 15 s)`, never sooner than 1 s. `recheck` never counts the occurrence again and answers `"edit"` (a message exists: every deferred alert is delivered, plus one best-effort count edit), `"pending"` (a live claim elsewhere, with `claim_expires_at`), or `"post"` (claimed for this process, a missing or expired row restarting at count 1: one post settles them all); never `"repost"` / `"escalate"`. Deferred for more than 600 s, or evicted past 1024 waiting alerts (oldest first), they end undelivered; close and exit settle what is left as delivered with one WARNING. Synchronously, or without `recheck`, `"pending"` is accepted as before. After a Discord 404 the service calls `forget(fingerprint, message_id=<the message it edited>)`, so a newer message or a claim is kept (a `forget` without the keyword is called without it), rereads with `recheck` (or `hit`) and follows the answer, for at most 2 rounds per alert. `release` and `recheck` are read with `getattr`, so stores without them still install. A wrapper around the notifier must delegate attribute access to the `NotificationService` or define `set_dedup_store(store)` that forwards to it. Read the installed notifier with `simpl_tracker.current_notifier()` (returned as installed, possibly a wrapper, or `None`; read-only), never `simpl_tracker.logging._GLOBAL_NOTIFIER`. Its read-only `config` gives `dedup_enabled`, `dedup_window_seconds`, `repost_thresholds`, `escalate_after_seconds` and `service_name` for sizing a shared store.
-- Assert wiring at boot with `simpl_tracker.notifier_status().configured`; its `failed_deliveries` counts accepted alerts that were never delivered, and `deferred` the alerts waiting right now on another process's delivery claim. Set `notifications.strict: true` (or `SIMPL_TRACKER_STRICT_NOTIFICATIONS=1`) to raise `NotificationConfigError` on dead webhook config.
+## Event naming rules (STRICT)
 
-- For request accounting, use `simpl_tracker.llm_model.CostRecordingModel` and
-  `simpl_tracker.llm_accounting.LLMAccountingScope`. Enable `request_accounting`
-  only after the coordinated schema/library release. See the README contract.
-- `CostEntry.cost_usd` and `TrackingResult.cost_usd` may be `None` for unknown LLM
-  prices. Never replace unknown amounts with a fabricated zero.
-- Drain `simpl_tracker.llm_accounting.drain_llm_receipts()` during graceful shutdown.
-- Request receipts bypass legacy required-ID skipping; missing attribution is
-  retained. Their delivery is idempotent and suppresses enclosing run totals.
+- Always `snake_case` past tense: `user_signup`, `checkout_completed`, `file_uploaded`.
+- ❌ Never: `UserSignup`, `signup`, `user-signup`, `userSignedUp`.
+- Payload keys also `snake_case`.
+- No PII in event names. User email in a property is OK if needed; in the name, never.
 
-## Common pitfalls
+## Required properties on every event
 
-- Do not use the older `Tracker.from_env()` event-tracker API wording; this repo exposes cost/logging/tracing helpers.
-- A missing webhook URL mutes that notification level and must never raise. If notifications are enabled and no URL resolved at all, startup logs an error (strict mode raises).
-- `*_webhook_block_name` keys are dead since 0.4.0; they log an error naming the `*_webhook_url` replacement.
-- A test that asserts on a backend right after a notify must set `async_delivery=False` or call `flush()` first.
-- Do not require `user_id` or `ulc_id` unless the repo config explicitly does so.
+These are auto-added by `Tracker.from_env()` — you don't pass them:
+- `service` (string): the service emitting the event
+- `env` (string): `prod` / `staging` / `dev`
+- `timestamp` (ISO 8601): UTC
+- `session_id` (string): set via `tracker.with_session(session_id)` for request-scoped tracking
+
+You only supply your custom properties.
+
+## When integrating into a new service
+
+1. Add `simpl_tracker` to dependencies (Poetry/pip from `simpl-techs/simpl_tracker`).
+2. Set `TRACKER_API_URL` and `TRACKER_SERVICE_NAME` in the service's env config.
+3. Instantiate **one** `Tracker` per process. Reuse it. Don't `from_env()` inside hot paths.
+4. For web services: bind `session_id` per-request using the framework's context middleware. In FastAPI:
+   ```python
+   from simpl_tracker import Tracker
+   from simpl_tracker.fastapi import TrackerMiddleware
+
+   app.add_middleware(TrackerMiddleware, tracker=tracker)
+   # now `request.state.tracker.track(...)` is session-scoped
+   ```
+
+## Common pitfalls to avoid
+
+- **Don't** instantiate `Tracker()` per request. Use a module-level singleton.
+- **Don't** await on `tracker.track()` expecting it to have flushed. It hasn't. Use `tracker.flush()` explicitly if you need sync guarantees (only in tests and shutdown hooks).
+- **Don't** track events inside a database transaction's commit callback. Events fire on a separate async queue.
+- **Don't** pass rich objects as properties. Serialize to primitives first. `user.to_dict()` yes, `user` no.
 
 ## Testing
 
-```bash
-conda activate simpl_tracker
-poetry install
-poetry run pytest
-poetry run ruff check .
+Use the `MockTracker` from `simpl_tracker.testing`:
+```python
+from simpl_tracker.testing import MockTracker
+
+def test_signup_emits_event():
+    tracker = MockTracker()
+    service = SignupService(tracker=tracker)
+    service.signup(email="a@b.com", plan="free")
+    tracker.assert_called_once_with("user_signup", plan="free")
 ```
 
-Tests marked `real_api` require real provider keys and should not be run by default.
-
-## Recording LLM spend: the same four things in every repo
-
-Do not invent a per-repo arrangement. Every service records LLM spend the same
-way, and everything it needs is exported from `simpl_tracker` directly:
-
-1. **`tracker.yaml`** with `cost_tracking.request_accounting: ${SIMPL_REQUEST_ACCOUNTING:-true}`.
-2. **Wrap the model where it is built**, at the one place the service constructs
-   a pydantic-ai model:
-
-   ```python
-   from simpl_tracker import CostRecordingModel
-
-   model = CostRecordingModel(
-       OpenAIChatModel(name, provider=provider),
-       provider=billing_provider,   # the account billed, from the host that answers
-       api_key=api_key, base_url=base_url,
-   )
-   ```
-
-3. **Attribution.** `@track_cost(service="ai_llm", process=...)` already opens an
-   `LLMAccountingScope`, so a decorated call site needs nothing further — and the
-   receipt suppresses the decorator's run-level row, so the charge is never
-   counted twice. A service without those decorators opens the scope itself,
-   around the agent run.
-4. **Guard and drain.** `require_request_accounting("<service>")` at startup and
-   `drain_llm_receipts()` at shutdown.
-
-`billing_provider` is decided by the host that answers, never by the label in a
-config: a provider entry called "openai" pointed at a gateway bills the gateway.
-
-**The wrapper fails open, the guard fails closed.** `CostRecordingModel` steps
-aside when no tracker is installed, so adding it can never take a service down;
-`require_request_accounting` is what refuses to start a service that would spend
-untracked. Every refusal, every receipt lost after a paid response, and every
-receipt still undelivered at shutdown is announced on the error channel. Silence
-means recorded.
-
-**A request whose intent cannot be saved is made anyway and reported.** An
-unreachable ledger is our problem, not a reason to stop answering, and the charge
-is usually not even lost: the completion receipt alone records it, so a ledger
-that recovers before the response lands still captures the spend. Only one still
-unreachable then loses it, and that reports again as `reconciliation_required`.
-The event to watch for is `llm_accounting.dispatched_unrecorded`.
-
-**A service where no spend may go unrecorded opts into refusing** with
-`cost_tracking.block_when_unrecordable: true` in `tracker.yaml`. Then the request
-is refused and reported as `llm_accounting.blocked_unrecordable`, and an
-unreachable ledger stops that service. Choose it only where stopping costs less
-than a missing row.
-
-Neither setting is silent, and neither excuses a missing or disabled tracker —
-that is still a refusal to start.
-
-## Reconciling the ledger against provider billing
-
-`simpl_tracker.reconciliation` classifies ledger rows against a provider's own export:
-`aligned`, `missing_in_ledger`, `missing_at_provider`, `amount_differs`, and the
-unrecorded amount per group. It is pure and has no dependencies beyond the standard
-library; the exports, database and arguments live in `scripts/reconcile_providers.py`:
-
-```bash
-doppler run -- python scripts/reconcile_providers.py \
-    --openrouter ~/Downloads/openrouter.csv --deepseek ~/Downloads/deepseek.zip \
-    --from 2026-08-20 --to 2026-09-18 --out report.json
-```
-
-The script is read-only and needs `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
-OpenRouter matches per request, on the `generation_id` the tracker stores in
-`external_request_id`. DeepSeek publishes daily totals and bills on Europe/Rome days,
-so the ledger is bucketed into Rome days and compared on tokens as well as cost —
-tokens are what separate a wrong rate from a request that never reached the ledger.
-
-A number that agrees on cost but not on tokens is not reconciled. Report the
-difference; do not append an export to the ledger to close it.
+Never use the real tracker in tests. It won't fail the test but will pollute the dev warehouse.
 
 ## What this library does NOT do
 
-- Does not own business workflow logic. Use `simpl_core` or the app repo.
-- Does not define database ORM primitives. Use `simpl_orm`.
-- Does not replace Langfuse itself; it provides simpl wrappers and propagation helpers.
+- Does not handle user analytics UI/dashboards (see `analytics-dashboard` repo)
+- Does not do A/B testing (see `flagsmith` integration)
+- Does not do error/exception tracking (that's Sentry)
+- Does not provide real-time streaming (events flush every 10s or 100 events)
 
-## Where to go next
+If the user's request is really about one of the above, point them there instead of forcing simpl-tracker.
+
+## If you're stuck
 
 - Source: `https://github.com/simpl-techs/simpl_tracker`
-- Consumer config example: `config/tracker.yaml` in app repos
-- Internal conventions: `.agent/INTERNAL.md`
+- Recent examples of integration: search for `tracker.track(` in `simpl-techs/web-app` or `simpl-techs/api-gateway`
+- Owner: @alice on Slack

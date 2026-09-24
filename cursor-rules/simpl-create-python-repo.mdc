@@ -15,7 +15,7 @@ Bootstrap a **new** Python repo from [`simpl-techs/simpl_scaffold`](https://gith
 
 **Not the same thing** as [`repo-context-bootstrap`](../repo-context-bootstrap/SKILL.md): that skill applies `library-repo-template/` to an **existing** git repo (`.agent/`, hooks, marketplace sync drift). Cookiecutter scaffolding is for a **fresh** codebase layout from `simpl_scaffold`.
 
-After the generated project exists, if the repo must join `simpl_knowledge` workflows (`.agent/`, sync PRs), use `repo-context-bootstrap` only **after explicit user confirmation**.
+After the generated project exists, if the repo must join `simpl_knowledge` workflows (`.agent/`, SKILL.md sync), use `repo-context-bootstrap` only **after explicit user confirmation**.
 
 ## Before running Cookiecutter
 
