@@ -1,5 +1,5 @@
 ---
-description: "Use this skill whenever the user asks about cost tracking, logging with notifications, Langfuse tracing, Cloud Run compute/session tracking, or code that imports `simpl_tracker`. ALWAYS consult before"
+description: "Every cost at simpl goes through simpl_tracker, always: LLM calls, paid APIs, Cloud Run compute. ALWAYS load it before code that calls a model or a paid API, or deploys to Cloud Run. Load it when the "
 globs: "**/*.py,**/*.ts,**/*.tsx,**/*.js"
 alwaysApply: false
 ---
@@ -12,7 +12,18 @@ alwaysApply: false
 
 ## What this library is
 
-`simpl_tracker` provides shared cost tracking decorators, structured logging, Discord notifications, infrastructure compute tracking, runtime detection, and Langfuse helpers for simpl Python services.
+`simpl_tracker` is where simpl records what it spends. Every cost a service incurs goes through it; there is no per-repo alternative:
+
+| Cost | Record it with |
+| --- | --- |
+| LLM / model calls | `CostRecordingModel` where the model is built, attributed by `@track_cost(service="ai_llm", ...)` or an `LLMAccountingScope` (see *Recording LLM spend* below) |
+| LLM batch APIs | `@track_batch_cost(process=...)` on the code that retrieves the results |
+| Paid data providers | `@track_cost(service="data_enrichment", ...)` or `@track_cost(service="web_scraping", ...)` with `provider` and `sku` |
+| Cloud Run compute | `track_instance_lifetime(process_name=...)` for services and worker pools, `@track_compute(process=...)` for jobs and Prefect flows |
+
+A cost that fits none of these rows is added to simpl_tracker first, not recorded somewhere else.
+
+It also provides structured logging, Discord notifications, runtime detection, Langfuse helpers and reconciliation against provider billing for simpl Python services.
 
 ## Installation
 
