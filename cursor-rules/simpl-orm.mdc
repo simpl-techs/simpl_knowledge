@@ -1,0 +1,126 @@
+---
+description: "Use this skill whenever the user asks about PostgreSQL/Supabase database access, SQLModel models, async repositories, database sessions, pagination, RLS context, or code that imports `simpl_orm`. ALWA"
+globs: "**/*.py,**/*.ts,**/*.tsx,**/*.js"
+alwaysApply: false
+---
+
+
+# simpl_orm integration guide
+
+> **Maintained by**: the `simpl_orm` repo, auto-synced to simpl_knowledge.
+> **Source of truth**: `simpl-techs/simpl_orm/.agent/SKILL.md`
+
+## What this library is
+
+`simpl_orm` is the shared async ORM layer for simpl PostgreSQL/Supabase projects. It combines SQLModel, SQLAlchemy 2.0 asyncio, asyncpg, repository factories, pagination, and RLS user context helpers.
+
+## Installation
+
+```bash
+poetry add "simpl-orm @ git+https://github.com/simpl-techs/simpl_orm.git@main"
+```
+
+## Basic usage
+
+```python
+from sqlmodel import Field
+from simpl_orm import BaseModel, DatabaseManager
+
+class User(BaseModel, table=True):
+    __tablename__ = "users"
+    __table_args__ = {"schema": "public"}
+    email: str = Field(unique=True)
+    name: str
+
+async def main() -> None:
+    db = DatabaseManager()
+    await db.initialize()
+    factory = db.setup_factory(require_schema=True, allow_public_schema=True)
+    factory.register(User)
+    async with db.session_scope() as session:
+        users = db.repository(User, session)
+        await users.create({"email": "test@example.com", "name": "Test"})
+    await db.shutdown()
+```
+
+## Choosing a driver
+
+`DatabaseManager` talks to Postgres through two independent drivers, and they cannot share connections. In direct mode the default therefore opens two pools — an asyncpg one and a SQLAlchemy one.
+
+Set `driver` when your process only uses one of them, and the other pool is never opened:
+
+```python
+from simpl_orm.config.settings import DatabaseSettings
+from simpl_orm import DatabaseManager
+
+# ORM-only service: session_scope()/repositories, no raw queries.
+db = DatabaseManager(settings=DatabaseSettings(driver="sqlalchemy"))
+```
+
+| `driver` | What you can call |
+| --- | --- |
+| `both` (default) | everything |
+| `sqlalchemy` | `session_scope()`, `get_session()`, repositories, `create_tables()`/`drop_tables()` |
+| `asyncpg` | `acquire()`, `transaction()`, `execute()`, `fetch()`/`fetchrow()`/`fetchval()`, `executemany()` |
+
+Calling a surface your driver does not provide raises `DriverNotEnabledError` (a subclass of `simpl_orm.exceptions.ConnectionError`) with a message naming the setting to change. `driver` is independent of `connection_mode`: pooler modes still never open a local pool, whichever driver you pick.
+
+## Sizing the pool
+
+Direct mode is the only mode that pools locally; the pooler modes hand a
+connection per scope to Supavisor and ignore every dial below.
+
+| Setting | Default | Applies to |
+| --- | --- | --- |
+| `pool_min_size` | 10 | asyncpg only — connections kept warm |
+| `pool_max_size` | 20 | both — the ceiling, and what SQLAlchemy retains |
+| `pool_timeout` | 30.0 | SQLAlchemy only — seconds a checkout waits for a free connection |
+
+`pool_min_size` reaches asyncpg alone, because a SQLAlchemy `QueuePool` has no
+floor to set: it opens connections lazily and keeps `pool_size` of them. The
+engine is therefore sized from `pool_max_size` with no overflow, so the ceiling
+is unchanged and every connection under it is retained rather than re-opened.
+
+Lower `pool_timeout` when the caller has a deadline of its own — a lease to
+renew, a request to answer. A checkout that waits past that deadline has
+already lost the work it was waiting for, and queueing longer only deepens the
+contention it is queued behind. It raises `sqlalchemy.exc.TimeoutError`, which
+`session_scope()` re-raises wrapped in `TransactionError` (reachable through
+`__cause__`). Treat it as backpressure and shed the work: it is a statement
+about concurrency, not a transient fault, so retrying it in place adds load to
+a pool that is already full.
+
+## Rules and conventions
+
+- Use async sessions and repositories. Do not introduce sync SQLAlchemy patterns in async services.
+- Set `driver` to the single API surface your process uses; leave it at `both` only when you genuinely call both.
+- Define explicit schemas with `__table_args__` unless the model is intentionally public schema.
+- Use `set_rls_user_context` when queries must run under a Supabase/RLS user context.
+- Use `paginate`/`Page` for reusable pagination contracts.
+
+## Common pitfalls
+
+- Do not create one `DatabaseManager` per request. Initialize once and reuse per process.
+- Do not bypass repository/session boundaries with ad hoc connection handling in consumers.
+- Do not change base model behavior without checking all repos that define SQLModel entities.
+
+## Testing
+
+```bash
+conda activate simpl_orm
+poetry install
+poetry run pytest
+poetry run ruff check .
+```
+
+## What this library does NOT do
+
+- Does not define simpl business services. Use `simpl_core`.
+- Does not expose FastAPI routes. Use `simpl_api`.
+- Does not run workflow jobs. Use `simpl_flow`.
+
+## Where to go next
+
+- Source: `https://github.com/simpl-techs/simpl_orm`
+- Usage docs: `USAGE.md` and `examples/basic_usage.py` when present
+- Internal conventions: `.agent/INTERNAL.md`
