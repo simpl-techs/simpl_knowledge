@@ -175,6 +175,30 @@ Rules that bite consumers:
 - Routing must be total: every routing position needs an unconditional catch-all,
   or startup fails.
 
+### Turning the audit off
+
+`audit: false` on a `pipeline` or an `agent_definition` stops the audit rows for
+work nobody reads back, such as a context stage that loads the same tables on every
+walk. It is declared in the ledger like any other field, so it takes a new version.
+
+- A pipeline that opts out writes no `node_runs`, `agent_runs`, `tool_call_runs`,
+  `validation_runs`, `memory_runs` or `pipeline_run_steps` for anything it runs.
+  The subgraph or fan-out node that runs it from an audited parent keeps its own
+  node run.
+- An agent that opts out writes nothing under the node that runs it. That node's
+  own run stays, because it is the pipeline's record. Called from another node (a
+  fan-out branch, a join, a validator), it loses its `agent_runs` row and nothing
+  else.
+- Nothing inside an unaudited run can turn audit back on.
+- The node still runs, routes, alerts and uses the cache as before. Run ids are still
+  minted, so alerts and cost records can name a node run that has no row.
+
+A consumer that writes its own rows against a node run (say, a column pointing at
+`node_runs`) checks `simpl_core.agent_framework.audit_enabled()` first. The
+framework's own writers already do.
+
+Full guide: `docs/agent_framework/11-operating-it.md#turning-the-audit-off`.
+
 ### Streaming producers
 
 A `streaming_producer` node runs its agent once, emitting `StreamEvent`s onto a
