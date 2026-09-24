@@ -61,8 +61,18 @@ def call_ai(prompt: str, user_id: str | None = None):
 - Assert wiring at boot with `simpl_tracker.notifier_status().configured`; its `failed_deliveries` counts accepted alerts that were never delivered, and `deferred` the alerts waiting right now on another process's delivery claim. Set `notifications.strict: true` (or `SIMPL_TRACKER_STRICT_NOTIFICATIONS=1`) to raise `NotificationConfigError` on dead webhook config.
 
 - For request accounting, use `simpl_tracker.llm_model.CostRecordingModel` and
-  `simpl_tracker.llm_accounting.LLMAccountingScope`. Enable `request_accounting`
-  only after the coordinated schema/library release. See the README contract.
+  `simpl_tracker.llm_accounting.LLMAccountingScope`. Since 0.6.0
+  `request_accounting` is on by default; only `SIMPL_REQUEST_ACCOUNTING=false`
+  switches it off. See the README contract.
+- Since 0.6.0 every POST to a billable provider endpoint is also seen at the httpx
+  boundary (`simpl_tracker.transport`, installed on import). A request no
+  `CostRecordingModel` wrapped is still recorded (`capture='transport'`, process
+  named by the scope or `unwrapped:<caller>`), and logs
+  `llm_accounting.unwrapped_call` once per call site: wrap it for attribution. A
+  request whose caller timed out or was cancelled keeps running in the background
+  and is recorded with its real usage as outcome `abandoned`; the caller still gets
+  its own timeout. Self-hosted endpoints go in `cost_tracking.llm_hosts`
+  (`{host: provider}`). `SIMPL_TRANSPORT_ACCOUNTING=false` switches it off.
 - `CostEntry.cost_usd` and `TrackingResult.cost_usd` may be `None` for unknown LLM
   prices. Never replace unknown amounts with a fabricated zero.
 - Drain `simpl_tracker.llm_accounting.drain_llm_receipts()` during graceful shutdown.
@@ -93,7 +103,8 @@ Tests marked `real_api` require real provider keys and should not be run by defa
 Do not invent a per-repo arrangement. Every service records LLM spend the same
 way, and everything it needs is exported from `simpl_tracker` directly:
 
-1. **`tracker.yaml`** with `cost_tracking.request_accounting: ${SIMPL_REQUEST_ACCOUNTING:-true}`.
+1. **`tracker.yaml`** with `cost_tracking` enabled. `request_accounting` defaults to
+   true since 0.6.0, and `configure_from_yaml` runs the startup guard itself.
 2. **Wrap the model where it is built**, at the one place the service constructs
    a pydantic-ai model:
 
@@ -112,8 +123,19 @@ way, and everything it needs is exported from `simpl_tracker` directly:
    receipt suppresses the decorator's run-level row, so the charge is never
    counted twice. A service without those decorators opens the scope itself,
    around the agent run.
-4. **Guard and drain.** `require_request_accounting("<service>")` at startup and
-   `drain_llm_receipts()` at shutdown.
+4. **Drain.** `drain_llm_receipts()` at shutdown; it also waits for abandoned
+   requests still finishing. `require_request_accounting("<service>")` still
+   works, but `configure_from_yaml` already calls it for the configured repo.
+
+A call site that forgets step 2 is no longer lost: the transport records it and
+names it `unwrapped:<caller>`. Step 2 is what gives it a process name and a
+pre-dispatch intent tied to the model call.
+
+**Code that writes a run total after `agent.run`** (a direct `track_llm_call` from
+a result, outside `@track_cost`) must total only
+`simpl_tracker.unrecorded_responses(result)`: since 0.6.0 every request to a known
+provider already has its own receipt, and totalling the whole run counts it twice.
+To attribute those receipts, run the agent inside an `LLMAccountingScope`.
 
 `billing_provider` is decided by the host that answers, never by the label in a
 config: a provider entry called "openai" pointed at a gateway bills the gateway.
@@ -162,6 +184,43 @@ tokens are what separate a wrong rate from a request that never reached the ledg
 
 A number that agrees on cost but not on tokens is not reconciled. Report the
 difference; do not append an export to the ledger to close it.
+
+### Cheaper Inference: priced from its catalog, settled from its export
+
+Cheaper Inference sends no amount on its answers and sets its price per request, so its
+calls are costed twice by `scripts/cheaper_inference_costs.py` (dry run by default,
+`--apply` writes; exits 1 when an export row is unreadable or a bill fails to settle):
+
+```bash
+doppler run --config dev -- python scripts/cheaper_inference_costs.py pricing --apply
+doppler run --config dev -- python scripts/cheaper_inference_costs.py settle --apply
+doppler run --config dev -- python scripts/cheaper_inference_costs.py settle --since 2026-09-01 --apply
+```
+
+`pricing` syncs the gateway's ZDR catalog into `provider_pricing`: calls are estimated
+at those rates when recorded. The first sync opens every price from 2026-09-01, so
+calls recorded before it are estimated too; a moved price opens from the day of the
+sync and keeps the model's other pricing tiers.
+
+`settle` brings the ledger to what the usage export says each request was billed, as
+OpenRouter's answers carry their amount: a receipt takes the billed amount, matched on
+the `x-ci-request-id` it carries as `external_request_id`, and a billed request no
+receipt names gets an export row at that amount (`metadata.backfill`), which the
+receipt replaces if it lands later. The window runs from the start of `--since` (two
+days ago by default; an early date backfills) to 30 minutes ago. Each applied run then
+reconciles the window per request, like OpenRouter's, without the export rows, and
+stores it in `provider_reconciliation`, which `reconciliation_alert.py` watches.
+`.github/workflows/cheaper-inference-costs.yml` runs `settle --apply` hourly and
+`pricing --apply` daily; nothing else needs to schedule them.
+
+Every recorder names a Cheaper Inference request by `x-ci-request-id`: the transport
+for unwrapped and abandoned requests, and `CostRecordingModel` through the transport,
+whatever the client reports as the response id. The logic is in
+`simpl_tracker.cheaper_inference` (`plan_pricing`, `apply_pricing`, `read_bills`,
+`apply_settlement`, `reconcile`) for a scheduled job to call. Both commands need
+`CHEAPER_INFERENCE_API_KEY` (`usage:read` scope for `settle`), `SUPABASE_URL` and
+`SUPABASE_SERVICE_ROLE_KEY`; `settle` needs migration
+`20260923190000_cheaper_inference_settlement`.
 
 ## What this library does NOT do
 
