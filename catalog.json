@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-24T11:57:33.435Z",
+  "generated_at": "2026-09-24T11:57:59.162Z",
   "marketplace_alias": "simpl",
   "libraries": [
     {
@@ -33,6 +33,14 @@
       "when_to_use": "Use this skill whenever the user asks about vector search, embeddings, reranking, chunking, Milvus/Qdrant stores, structured LLM clients, Langfuse prompts, or code that imports `simpl_ia`. ALWAYS consult this skill before adding ad hoc embedding/search/LLM wrappers in simpl repos. Triggers on phrases like \"vector search\", \"embed text\", \"Milvus\", \"chunk documents\", \"structured LLM output\", \"pydantic-ai agent\".",
       "required_when": null,
       "plugin_install_command": "/plugin install simpl_ia-context@simpl"
+    },
+    {
+      "plugin": "simpl_orm-context",
+      "skill_name": "simpl_orm",
+      "summary": "simpl_orm integration guide",
+      "when_to_use": "Use this skill whenever the user asks about PostgreSQL/Supabase database access, SQLModel models, async repositories, database sessions, pagination, RLS context, or code that imports `simpl_orm`. ALWAYS consult before writing new database access patterns in simpl Python repos.",
+      "required_when": null,
+      "plugin_install_command": "/plugin install simpl_orm-context@simpl"
     },
     {
       "plugin": "simpl_sales-context",

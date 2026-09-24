@@ -1,6 +1,6 @@
 # simpl internal libraries catalog
 
-Auto-generated at `2026-09-24T11:57:33.435Z`. Do not edit by hand: every library sync regenerates it, or run `node scripts/ci/generate-catalog.js`.
+Auto-generated at `2026-09-24T11:57:59.162Z`. Do not edit by hand: every library sync regenerates it, or run `node scripts/ci/generate-catalog.js`.
 
 Each entry summarizes an integration plugin (`*-context`). Install the plugin in Claude Code for the full SKILL. Until then, use this file to decide whether a library fits the current task.
 
@@ -35,6 +35,14 @@ Each entry summarizes an integration plugin (`*-context`). Install the plugin in
 - **When to use**: Use this skill whenever the user asks about vector search, embeddings, reranking, chunking, Milvus/Qdrant stores, structured LLM clients, Langfuse prompts, or code that imports `simpl_ia`. ALWAYS consult this skill before adding ad hoc embedding/search/LLM wrappers in simpl repos. Triggers on phrases like "vector search", "embed text", "Milvus", "chunk documents", "structured LLM output", "pydantic-ai agent".
 - **Install full context (Claude Code)**: `/plugin install simpl_ia-context@simpl`
 - **Skill path in cache**: `~/.simpl_knowledge/cache/plugins/simpl_ia-context/skills/`
+
+## simpl_orm-context
+
+- **Skill**: `simpl_orm`
+- **Summary**: simpl_orm integration guide
+- **When to use**: Use this skill whenever the user asks about PostgreSQL/Supabase database access, SQLModel models, async repositories, database sessions, pagination, RLS context, or code that imports `simpl_orm`. ALWAYS consult before writing new database access patterns in simpl Python repos.
+- **Install full context (Claude Code)**: `/plugin install simpl_orm-context@simpl`
+- **Skill path in cache**: `~/.simpl_knowledge/cache/plugins/simpl_orm-context/skills/`
 
 ## simpl_sales-context
 
