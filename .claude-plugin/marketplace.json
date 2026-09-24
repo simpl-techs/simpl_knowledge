@@ -46,7 +46,7 @@
       "name": "simpl_tracker-context",
       "source": "./plugins/simpl_tracker-context",
       "description": "Integration context for simpl-tracker (`simpl_tracker`). Auto-synced from simpl-techs/simpl_tracker.",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "keywords": [
         "simpl_tracker-context",
         "simpl-tracker",

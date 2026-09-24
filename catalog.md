@@ -1,6 +1,6 @@
 # simpl internal libraries catalog
 
-Auto-generated at `2026-09-24T11:57:59.162Z`. Do not edit by hand: every library sync regenerates it, or run `node scripts/ci/generate-catalog.js`.
+Auto-generated at `2026-09-24T13:06:53.202Z`. Do not edit by hand: every library sync regenerates it, or run `node scripts/ci/generate-catalog.js`.
 
 Each entry summarizes an integration plugin (`*-context`). Install the plugin in Claude Code for the full SKILL. Until then, use this file to decide whether a library fits the current task.
 
@@ -66,9 +66,9 @@ Each entry summarizes an integration plugin (`*-context`). Install the plugin in
 
 ## simpl_tracker-context
 
-- **Skill**: `simpl-tracker`
-- **Summary**: Typed event tracker with batched HTTP flush to our warehouse; one method track(event_name, properties). No third-party analytics vendors.
-- **When to use**: User or task needs product/analytics events, funnel metrics, feature usage, or structured logs shipped to the org warehouse from Python or Node services.
-- **Required when**: Python or Node backend code that records billable or infra-cost-related usage (API calls, model tokens, compute units) must attribute spend via simpl-tracker patterns described in this skill — install this context plugin and follow it before merging.
+- **Skill**: `simpl_tracker`
+- **Summary**: simpl_tracker integration guide
+- **When to use**: Use this skill whenever the user asks about cost tracking, logging with notifications, Langfuse tracing, Cloud Run compute/session tracking, or code that imports `simpl_tracker`. ALWAYS consult before adding ad hoc cost, logging, or notification wrappers in simpl repos, and before creating or deploying any Cloud Run service, worker pool or job.
+- **Required when**: Any code deployed to Google Cloud (Cloud Run service, worker pool, job, Prefect flow on Cloud Run) must record its compute through simpl_tracker (track_instance_lifetime for services and worker pools, @track_compute for jobs) and its LLM spend through request receipts, before merging.
 - **Install full context (Claude Code)**: `/plugin install simpl_tracker-context@simpl`
 - **Skill path in cache**: `~/.simpl_knowledge/cache/plugins/simpl_tracker-context/skills/`
