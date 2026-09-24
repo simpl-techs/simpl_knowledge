@@ -954,12 +954,22 @@ renders it and the extension fetches it with the seller's session.
 
 - `search_people(context, company_linkedin_id, keyword)` reads the people search page
   filtered to one company (`people_search`).
-- `list_company_people(context, company_vanity_name)` reads the first page of the
-  company's People tab, `/company/<vanity name>/people/` (`company_people`, migration
-  `20260924_company_people_operation.sql`, gateway `simpl_proxy >= 0.1.2`). Pass the
-  name from `sales.company.linkedin_url`, decoded, not the numeric company id. Its
-  batch's `keyword` is `COMPANY_PEOPLE_LABEL`; the page has no location, and cards in
-  the right rail are skipped.
+- `list_company_people(context, company_linkedin_id, company_vanity_name)` lists a
+  company's members. LinkedIn serves some accounts its old Ember app and others the new
+  frontend, and two reads answer this:
+  - `company_people_api`: the People tab's voyager search, by numeric company id.
+    It answered on both apps, so it is the default.
+  - `company_people`: the `/company/<vanity name>/people/` page, which lists members
+    only on the new frontend.
+  The read that last answered for the user is kept in
+  `extension_proxy.user_operation_variant` and tried first. A misfit (the page served as
+  the old app's shell, the API ignoring its filters or refusing the query) tries the
+  other read in the same call and remembers it. A failure that says nothing about the
+  account (throttling, a provider error) returns as it is, with no switch. When
+  neither fits, none is remembered for 24 h and the call returns `None`. Each read
+  reserves its own pacing slot, so callers do not. Pass the vanity name decoded from
+  `sales.company.linkedin_url` (`linkedin_company_vanity_name`), or `None` to skip the
+  page. The batch's `keyword` is `COMPANY_PEOPLE_LABEL`; neither read gives a location.
 
 Both return a `LinkedInSearchResultBatch`. A page that is not the expected screen, or a
 provider error, comes back as a batch with `error` set, and its raw body stays in the
