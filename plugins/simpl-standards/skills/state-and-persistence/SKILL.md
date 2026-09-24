@@ -1,6 +1,6 @@
 ---
 name: state-and-persistence
-description: simpl-wide rules for state machines, idempotency, database sessions/transactions/locking, async/IO discipline, bounded execution, and observability. ALWAYS consult when touching status/state fields, writing repositories, opening transactions, claiming work in queue-style tables, holding sessions across awaits, retrying external IO, fanning out concurrent calls, adding background workers, or instrumenting commands with logs/metrics.
+description: simpl-wide rules for state machines, idempotency, database sessions/transactions/locking, async/IO discipline, bounded execution, and observability. ALWAYS consult when touching status/state fields, writing repositories, opening transactions, claiming work in queue-style tables, holding sessions across awaits, retrying external IO, fanning out concurrent calls, adding background workers, instrumenting commands with logs/metrics, or deploying anything to Google Cloud (cost tracking is mandatory and must never block).
 ---
 
 # State and persistence discipline
@@ -59,6 +59,15 @@ For *where* code lives (services vs repositories, packaging, dependency directio
 - **Every command emits a structured log with a correlation id.** Free-text logs without identifiers are write-only noise.
 - **Persist progress, don't hold it in memory.** State a downstream operator might want to inspect lives in the DB or an event bus, not in a process variable.
 - **Bounded retries log on cap-reached.** When a budget is exhausted, surface it explicitly with the entity id and the reason.
+- **Every workload deployed to Google Cloud MUST record its costs through simpl_tracker: compute and LLM spend.** Google bills every Cloud Run instance whether or not the code says so; a workload that records nothing is an invoice line with nothing behind it in `cost_tracking`.
+  - Cloud Run **services and worker pools**: call `track_instance_lifetime(process_name=...)` once at startup (FastAPI lifespan, worker main) and `close()` it on shutdown. They are billed for the instance's whole life, idle included; per-request or per-task sessions undercount.
+  - Cloud Run **jobs and Prefect flows**: `@track_compute(process=...)` on the entry point.
+  - LLM spend: every request leaves a receipt (`require_request_accounting` at startup); see the `simpl_tracker` skill.
+  - `tracker.yaml` has `cost_tracking.enabled: true` and `infra_tracking.enabled: true`; Doppler provides `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `DISCORD_COST_TRACKING_WEBHOOK_URL`.
+  - Every `gcloud run deploy` / `worker-pools deploy` sets the label `simpl_repo=<repo>` so the GCP billing export attributes the cost.
+  - Never write `cost_tracking.infra_compute_session` rows yourself.
+- **An untracked cost is reported, NEVER a failure.** Nothing may refuse a request, refuse to start, fail a run, block a deploy or wait on the ledger because a cost could not be recorded. Report it instead with `simpl_tracker.report_tracking_gap(event, message, fingerprint=...)`, which posts to the dedicated cost-tracking Discord channel (`DISCORD_COST_TRACKING_WEBHOOK_URL`), deduplicates and never raises; TypeScript apps post to the same webhook the same way (`simpl_sales/lib/cost/tracking-alerts.ts`). Any new "cost not recorded" path goes through it, not through `raise`, `throw` or a bare log line.
+  - The deploy runs `scripts/check-compute-tracking.py` (from `library-repo-template/`) as the first Cloud Build step. It only warns and always exits 0; the running service reports the same gap on the channel.
 
 ## Does NOT do
 

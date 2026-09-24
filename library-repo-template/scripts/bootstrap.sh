@@ -64,7 +64,7 @@ chmod +x .claude/hooks/session-start-refresh.sh .claude/hooks/sync-cursor-intern
 
 # --- scripts/ (repo root) ---
 mkdir -p scripts
-for f in "sanitize-commit-digest.py"; do
+for f in "sanitize-commit-digest.py" "check-compute-tracking.py"; do
   if [ -f "scripts/$f" ]; then
     echo "  ⚠ scripts/$f already exists — skipping"
   else

@@ -26,4 +26,5 @@ If you used `/update-skill` during the session, mention it here so reviewers kno
 - [ ] Tests added/updated
 - [ ] `make check` passes locally
 - [ ] No new runtime dependencies (or, if yes, justified in the PR description)
+- [ ] Deploys to Google Cloud? Compute and LLM costs are recorded through simpl_tracker (`track_instance_lifetime` / `@track_compute`, request receipts), and a cost that cannot be recorded is reported with `report_tracking_gap`, never raised
 - [ ] Breaking change? If yes, note in the PR title with `!`, add a `BREAKING CHANGE:` footer to the merge commit, and bump MAJOR (MINOR while the repo is still `0.x.y`)
