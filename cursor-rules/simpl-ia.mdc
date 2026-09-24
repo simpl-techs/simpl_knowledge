@@ -87,8 +87,12 @@ agent = client.make_agent(output_type=MySchema, system_prompt="...")
 result = await client.run(agent=agent, user_prompt="...")
 ```
 
-Providers: `openai`, `deepseek`, `openrouter`, `cheaper_inference` (OpenRouter
-models are `vendor/model` slugs). `client.selected_target_metadata(result)`
+Providers: `openai`, `deepseek`, `openrouter` (models are `vendor/model` slugs),
+`cheaper_inference` (Cheaper Inference's gateway; bare model ids such as
+`glm-5.3-flash`, a slug is refused; the endpoint defaults to
+`https://api.cheaperinference.com/v1`, so a binding needs only the key),
+`typesafe` (Jev via OpenRouter, below).
+`client.selected_target_metadata(result)`
 reports which chain member answered (`model`, `provider`, `reasoning`,
 `fallback_index`) and the name it answered under (`served_model`). With an
 `attempt_log` passed to `make_agent`, the member is credited by chain position,
@@ -103,7 +107,9 @@ endpoint is native either way; OpenRouter is native for a tool-less agent and
 **tool** for an agent with tools (`require_parameters` stays a routing filter
 and never puts `response_format: json_schema` next to `tools`, which the
 upstreams behind that route answer without ever calling a tool); `deepseek` is
-always prompted. The resolved mode is on every attempt-log entry and on
+always prompted; `cheaper_inference` is always **tool** (the gateway answers a
+`response_format` with a 503 on some upstreams, so `native` is refused there and
+its prompted mode sends the schema in the prompt only). The resolved mode is on every attempt-log entry and on
 `selected_target_metadata(result).output_mode`;
 `client.resolved_output_modes(tools_present=...)` reports it per target without a
 request, for policy tests.
@@ -114,6 +120,93 @@ way than the policy does. A text-only agent's chain falls back on errors only; a
 spec with a schema to fail (a model, `list[Model]`, a union, a `ToolOutput`, `[str,
 Model]`) keeps the invalid-output guard, which validates answers exactly as pydantic-ai
 does for that spec, with the agent's `validation_context`.
+
+### Decisions on Jev (`provider="typesafe"`)
+
+TypeSafe's Jev is a *decision* model, not a language model: it answers the
+output type's fields as typed questions about the user prompt (a yes/no with
+its probability, a pick from a `Literal`/`Enum`, a rubric level) in a few
+hundred milliseconds, and generates no text. Use it for routing, triage,
+classification, gating and moderation -- one-second human judgements -- with a
+language model behind it for whatever it hands off. It is served **through
+OpenRouter only**, on the OpenRouter key and bill; `typesafe` is a separate
+provider name because the endpoint (`/v1/systemone`) and SDK are separate, not
+because the account is. Full detail in `docs/provider_routing.md`,
+"TypeSafe (Jev)".
+
+```python
+from simpl_ia.agents import DecisionThresholds, ModelPolicy, ModelTarget
+
+
+class Triage(BaseModel):
+    """Route a support message."""  # the docstring is the goal Jev weighs routes by
+
+    urgent: bool = Field(description="Does this need a reply within the hour?")
+    team: Literal["billing", "technical", "other"] = Field(
+        description="Which team should handle this?"
+    )
+
+
+policy = ModelPolicy(
+    name="typesafe/jev-1.13",  # or `jev-1.13`, `jev-latest`, `typesafe/jev-1.13-20260917`
+    provider="typesafe",
+    decision_thresholds=DecisionThresholds(boolean=0.7),  # what `True` has to mean
+    fallbacks=[ModelTarget(name="gpt-5-mini", provider="openai")],
+)
+# No `typesafe` binding and no base_url: the target takes the OpenRouter key and the
+# gateway root. Bind `typesafe` explicitly for a proxy in front of OpenRouter -- an
+# `openrouter` binding that points at a proxy never lends its key to Jev.
+bindings = [
+    ProviderBinding(
+        provider="openrouter",
+        credentials=ProviderCredentials(api_key=os.environ["OPENROUTER_API_KEY"]),
+    ),
+    ProviderBinding(provider="openai", credentials=ProviderCredentials(api_key=...)),
+]
+client = StructuredLLMClient.from_policy(bind_policy_credentials(policy, bindings))
+agent = client.make_agent(output_type=Triage, system_prompt="<context to judge>")
+result = await client.run(agent=agent, user_prompt="I was charged twice.")
+result.output                                        # Triage(urgent=True, team="billing")
+result.response.provider_details["confidence"]       # {"urgent": 0.7, "team": 0.8}
+```
+
+Rules that follow from what Jev is:
+
+- **The question lives on the output type**, in `Field(description=...)`, the
+  model's docstring and `client.run(..., instructions=...)`. The **system prompt
+  is material Jev judges** (sent as history beside the user prompt), so keep it
+  to context and keep the state small: irrelevant detail is a distractor.
+- **Every field must be a question Jev can answer**: `bool`, `Literal`/`Enum`
+  of strings, `float` with `ge=0, le=1`, `list` of a `Literal`/`Enum`, an
+  `IntEnum` rubric described per level, `Literal[...] | None`, or a nested model
+  of these. A `str`, an unbounded number or a date is refused with `UserError`
+  before any request -- no fallback runs, it is a wrong output type. Extract
+  free text with a language model, and let Jev decide about it.
+- **Do not ask Jev to compute**: it does not count, compare dates or do
+  arithmetic reliably. Do that in code and ask about the result. Add an `other`
+  / `None` option where a taxonomy may not cover every input, and test option
+  orderings -- reordering `Literal` members can shift answers.
+- **Thresholds are policy**: `decision_thresholds.boolean` (default 0.5) and
+  `.tool_call` (default 0.6). Tune on labelled examples against a dated snapshot
+  (`typesafe/jev-1.13-20260917`), the only name that cannot change model under you.
+- **Names are OpenRouter's**: `typesafe/jev-1.13` (or `jev-1.13`), a dated snapshot,
+  or `jev-latest`. TypeSafe's own `jev-1.13.0`, `jev-preview` and
+  `typesafe/jev-latest` do not exist there and are refused at policy load.
+- `reasoning`, `output_mode="native"` and `output_mode="prompted"` are refused on
+  a `typesafe` target; `temperature` is ignored; `run_stream` yields the whole
+  answer as one event.
+- In a chain, a tool call Jev cannot fill (`ToolCallProposed`) and any API
+  failure advance to the next member; a language-model primary failing hands
+  the step to a Jev fallback. Only the hand-offs cost a language-model call.
+  **Jev last or alone with tools** raises `ToolCallProposed` to the caller
+  whenever it prefers a tool it cannot fill: put a language model behind it.
+- A chain with **two Jev members** (`jev-latest` beside the release it resolves
+  to) must pass `attempt_log` to `make_agent`: by name the two are indistinguishable.
+- Cost is recorded under the **`openrouter`** provider at the `usage.cost`
+  OpenRouter reports, with its generation id and `TypeSafe` as the upstream, so
+  Jev calls reconcile against the OpenRouter export like any other. An answer
+  that reports no cost falls back to `simpl_tracker`'s rate rows ($0.042/M input,
+  output free).
 
 ### Streaming a turn
 
@@ -160,7 +253,9 @@ It differs from `run` in what it refuses to do, not in what it resolves:
 
 - **Don't** `from simpl_ia import MilvusStore` in code paths that must stay pymilvus-free — first access loads pymilvus at import time.
 - **Don't** import `simpl_ia.inference.embedders` without the `[ml]` extra — lazy loaders raise `ImportError` with the install hint.
-- **Don't** import `simpl_ia.agents` without `[agents]` — it needs `pydantic-ai`, Langfuse, and `simpl-tracker`.
+- **Don't** import `simpl_ia.agents` without `[agents]` — it needs `pydantic-ai` (with its `typesafe` extra), Langfuse, and `simpl-tracker`.
+- **Don't** point `provider="typesafe"` at `api.typesafe.ai` or at `https://openrouter.ai/api/v1` — the first is refused (Jev is served through OpenRouter here), the second is the chat root and the SDK appends `/v1/systemone` to whatever it is given. Leave `base_url` unset and the gateway root applies.
+- **Don't** put the question for a Jev member in the system prompt — Jev judges it as material. Field descriptions, the output type's docstring and `instructions` are what it is asked.
 - **Don't** assume `simpl_ia.core.vector_stores.EmbedderMetadata` and `simpl_ia.core.providers.metadata.EmbedderMetadata` are the same class — they are distinct types for different layers.
 - **Don't** leave the HTTP timeout at its 60 s default for models that queue before answering — a call that stays silent that long is dropped and falls back. `AI_LLM_TIMEOUT_SECONDS`, `AI_SLOW_MODEL_TIMEOUT_SECONDS` and `AI_SLOW_MODEL_MARKERS` (see the README) raise it or move a model into the slow class without a release.
 
@@ -180,6 +275,7 @@ Mock external embedding/vector APIs at the provider boundary; do not require liv
 - Does not own platform business logic or HTTP routes — use `simpl_core` / `simpl_api`.
 - Does not own shared ORM models — use `simpl_orm`.
 - Does not own cost tracking or Discord notifications — use `simpl_tracker` (though `[agents]` depends on it for tracing).
+- Does not price a `cheaper_inference` call at the call: the gateway sends no amount, so the answer carries the gateway's request id (`provider_response_id`) and the amount is matched from its usage export by that id.
 - Does not replace Prefect workflow orchestration — use `simpl_flow`.
 
 ## Where to go next
