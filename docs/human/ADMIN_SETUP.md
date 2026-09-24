@@ -80,7 +80,7 @@ Su **ogni** repo libreria che esegue i workflow agent (`simpl_core`, `simpl_api`
 
 Dopo che questo repo è su `main` con il workflow abilitato:
 
-1. **Automatico:** il workflow [.github/workflows/release-cursor-rules.yml](.github/workflows/release-cursor-rules.yml) gira su ogni push a `main` che modifica `plugins/**/SKILL.md`, `scripts/generate-cursor-rules.sh` o lo stesso workflow. Genera gli `.mdc`, crea uno zip con ordine deterministico e pubblica o aggiorna la release. Se lo zip è identico all’asset già in release (stesso SHA-256), non carica nulla.
+1. **Automatico:** il workflow [.github/workflows/release-cursor-rules.yml](.github/workflows/release-cursor-rules.yml) gira su ogni push a `main` che modifica `plugins/**/SKILL.md`, `scripts/generate-cursor-rules.sh`, `scripts/cursor_rule_names.py` o lo stesso workflow. Genera gli `.mdc` (fallisce se due skill finirebbero nello stesso `.mdc`), crea uno zip con ordine deterministico e pubblica o aggiorna la release. Se lo zip è identico all’asset già in release (stesso SHA-256), non carica nulla.
 
 2. **Prima volta / forzatura:** GitHub → **Actions** → **Release Cursor rules** → **Run workflow** (trigger `workflow_dispatch`).
 

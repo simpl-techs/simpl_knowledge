@@ -70,14 +70,20 @@ function findPrimarySkillMd(pluginDir) {
   if (!fs.existsSync(skillsRoot)) return null;
   const subs = fs
     .readdirSync(skillsRoot, { withFileTypes: true })
-    .filter((d) => d.isDirectory())
+    .filter((d) => d.isDirectory() && fs.existsSync(path.join(skillsRoot, d.name, 'SKILL.md')))
     .map((d) => d.name)
     .sort();
-  for (const sub of subs) {
-    const p = path.join(skillsRoot, sub, 'SKILL.md');
-    if (fs.existsSync(p)) return p;
+  if (subs.length === 0) return null;
+  // Library sync writes skills/<repo>/, so any sibling is a leftover from an older layout.
+  const synced = path.basename(pluginDir).replace(/-context$/, '');
+  const primary = subs.includes(synced) ? synced : subs[0];
+  if (subs.length > 1) {
+    console.warn(
+      `generate-catalog: WARNING ${path.basename(pluginDir)} has ${subs.length} skills (${subs.join(', ')}); ` +
+        `cataloguing skills/${primary}. Delete the stale copy.`,
+    );
   }
-  return null;
+  return path.join(skillsRoot, primary, 'SKILL.md');
 }
 
 function buildEntry(pluginName, pluginDir, marketplaceAlias) {

@@ -39,6 +39,7 @@ describe('library sync releases', () => {
       execFileSync('git', ['clone', '--quiet', root, checkout]);
       execFileSync('git', ['-C', checkout, 'update-ref', 'refs/remotes/origin/main', 'HEAD']);
       fs.copyFileSync(path.join(root, 'scripts/ci/validate-agent-infra.sh'), path.join(checkout, 'scripts/ci/validate-agent-infra.sh'));
+      fs.copyFileSync(path.join(root, 'scripts/cursor_rule_names.py'), path.join(checkout, 'scripts/cursor_rule_names.py'));
       writeSkill(temp, 'example-library', 'Fixture content.');
       const standardsFile = path.join(checkout, 'plugins/simpl-standards/.claude-plugin/plugin.json');
       const before = read(standardsFile).version.split('.').map(Number);

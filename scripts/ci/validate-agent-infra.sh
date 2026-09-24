@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Validate hooks.json schema, plugin/marketplace version alignment, and version bumps
-# when plugins/<name>/ changes in a PR.
+# Validate hooks.json schema, plugin/marketplace version alignment, one SKILL.md per
+# Cursor rule file, and version bumps when plugins/<name>/ changes in a PR.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -19,7 +19,7 @@ CLAUDE_EVENTS=(
   SubagentStart SubagentStop PreCompact PermissionRequest
 )
 
-python3 - <<'PY'
+python3 - "$ROOT/scripts" <<'PY'
 import json, os, subprocess, sys
 from pathlib import Path
 
@@ -108,6 +108,13 @@ for path in sorted(root.rglob("hooks.json")):
         validate_cursor(path, data)
     else:
         validate_claude(path, data)
+
+# --- Cursor rules: two skills must never map to the same .mdc ---
+sys.dont_write_bytecode = True  # a library sync commits this checkout with `git add -A`
+sys.path.insert(0, sys.argv[1])
+from cursor_rule_names import collisions, skill_rules
+
+errors.extend(collisions(skill_rules(root)))
 
 # --- marketplace vs plugin.json versions ---
 mp_path = root / ".claude-plugin" / "marketplace.json"

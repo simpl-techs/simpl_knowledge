@@ -76,7 +76,7 @@ Config di riferimento: [config/simpl.json](config/simpl.json).
 
 ## CI
 
-`bash scripts/ci/validate-agent-infra.sh` validates hooks and matching plugin versions.
+`bash scripts/ci/validate-agent-infra.sh` validates hooks, matching plugin versions, and that no two skills map to the same `cursor-rules/*.mdc` (library syncs run it before pushing, so a stale skill copy blocks the sync instead of silently overwriting a rule).
 Use `VALIDATE_BASE_REF=main` to check release bumps against the PR base, including local pending edits.
 `node --test tests/*.test.js` exercises bootstrap, refresh and library sync in disposable homes and clones; GitHub labels and Claude updates are mocked at the CLI/API boundary. No network, credentials or npm packages are required.
 Library sync increments `simpl-standards` whenever it updates the bundled `CHANGES.md`, in addition to the integration plugin version.
