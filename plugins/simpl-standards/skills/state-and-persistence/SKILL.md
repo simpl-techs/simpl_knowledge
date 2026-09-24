@@ -1,6 +1,6 @@
 ---
 name: state-and-persistence
-description: simpl-wide rules for state machines, idempotency, database sessions/transactions/locking, async/IO discipline, bounded execution, and observability. ALWAYS consult when touching status/state fields, writing repositories, opening transactions, claiming work in queue-style tables, holding sessions across awaits, retrying external IO, fanning out concurrent calls, adding background workers, or instrumenting commands with logs/metrics.
+description: simpl-wide rules for state machines, idempotency, database sessions/transactions/locking, async/IO discipline, bounded execution, and observability. ALWAYS consult when touching status/state fields, writing repositories, opening transactions, claiming work in queue-style tables, holding sessions across awaits, retrying external IO, fanning out concurrent calls, adding background workers, instrumenting commands with logs/metrics, or deploying anything to Google Cloud (cost tracking is mandatory and must never block).
 ---
 
 # State and persistence discipline
@@ -59,6 +59,21 @@ For *where* code lives (services vs repositories, packaging, dependency directio
 - **Every command emits a structured log with a correlation id.** Free-text logs without identifiers are write-only noise.
 - **Persist progress, don't hold it in memory.** State a downstream operator might want to inspect lives in the DB or an event bus, not in a process variable.
 - **Bounded retries log on cap-reached.** When a budget is exhausted, surface it explicitly with the entity id and the reason.
+- **Every workload deployed to Google Cloud MUST record its costs through simpl_tracker: compute and LLM spend.** Google bills every Cloud Run instance whether or not the code says so; a workload that records nothing is an invoice line with nothing behind it in `cost_tracking`.
+  - Cloud Run **services and worker pools**: call `track_instance_lifetime(process_name=...)` once at startup (FastAPI lifespan, worker main) and `close()` it on shutdown. They are billed for the instance's whole life, idle included; per-request or per-task sessions undercount.
+  - Cloud Run **jobs and Prefect flows**: `@track_compute(process=...)` on the entry point.
+  - LLM spend: every request leaves a receipt (`require_request_accounting` at startup); see the `simpl_tracker` skill.
+  - `tracker.yaml` has `cost_tracking.enabled: true` and `infra_tracking.enabled: true`; Doppler provides `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `DISCORD_COST_TRACKING_WEBHOOK_URL`.
+  - Every `gcloud run deploy` / `worker-pools deploy` sets the label `simpl_repo=<repo>` so the GCP billing export attributes the cost.
+  - Never write `cost_tracking.infra_compute_session` rows yourself.
+- **An untracked cost is reported, NEVER a failure.** Nothing may refuse a request, refuse to start, fail a run, block a deploy or wait on the ledger because a cost could not be recorded. Report it instead with `simpl_tracker.report_tracking_gap(event, message, fingerprint=...)`, which posts to the dedicated cost-tracking Discord channel (`DISCORD_COST_TRACKING_WEBHOOK_URL`), deduplicates and never raises; TypeScript apps post to the same webhook the same way (`simpl_sales/lib/cost/tracking-alerts.ts`). Any new "cost not recorded" path goes through it, not through `raise`, `throw` or a bare log line.
+  - **Recording a cost is bounded and off the critical path.** One short attempt before the work (simpl_tracker: at most 2 s before an LLM request is dispatched), then the work goes ahead and the record is retried in the background. Never a retry loop, a lock or a full queue that makes a request, a flow or a shutdown wait.
+  - **Scheduled cost jobs report too, and exit 0.** Scripts and GitHub Actions that settle, reconcile or backfill costs post what they could not record to the channel and exit 0 (`simpl_tracker/scripts/reconciliation_alert.py`, `cheaper_inference_costs.py`). A red run nobody watches is not a report. A dry run only prints. Workflows get `DISCORD_COST_TRACKING_WEBHOOK_URL` as a repository secret.
+  - **What an alert carries.** `event` names the gap as `<area>.<gap>` (`llm_accounting.no_tracker`, `compute_tracking.missing`, `cheaper_inference.settle_incomplete`). `fingerprint` is stable per problem and service (`f"{event}:{service}"`), so a repeat updates one message instead of flooding the channel. `message` says which cost is missing and how to fix it. No secrets, tokens, PII or raw payloads.
+  - **Where the webhook lives.** Doppler `prd` only (`scripts/doppler/key-targets.txt`, `KEY@prd`), so local and staging runs never post; GitHub repository secrets for workflows; Vercel through the Doppler sync. Never in code or in a repo. When it is unset, simpl_tracker falls back to the service's #error channel.
+  - **Tests.** A new "cost not recorded" path gets a test that the gap is reported and that the caller does not raise, is not refused and does not wait.
+  - The deploy runs `scripts/check-compute-tracking.py` (from `library-repo-template/`) as the first Cloud Build step. It only warns and always exits 0; the running service reports the same gap on the channel.
+  - The channel is not the only net. `cost_tracking.provider_reconciliation` compares the ledger with what each provider billed, and `reconciliation-alert.yml` posts its drift to the same channel. That catches the spend no in-process check sees.
 
 ## Does NOT do
 

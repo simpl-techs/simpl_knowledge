@@ -68,10 +68,10 @@ From a `simpl_knowledge` clone, after workplace `doppler login` (maintainers onl
 |---|---|
 | `scripts/doppler/setup-dev.sh` | Dev: scope a `dev` token to the current directory |
 | `scripts/doppler/create-tokens.sh` | Create read-only tokens from `projects.txt` / `prd-runtime.txt` |
-| `scripts/doppler/set-secret.sh KEY` | One key onto every project in `key-targets.txt` |
+| `scripts/doppler/set-secret.sh KEY` | One key onto every project in `key-targets.txt` (prd, dev, stg, or only the configs after `@`, e.g. `KEY@prd`) |
 | `scripts/doppler/gcp-secret.sh` | Secret Manager + IAM; `SERVICE`, `SECRET_NAME`, `TOKEN_FILE` required |
 | `scripts/doppler/prefect-blocks.sh` | Prefect Secret blocks from `*-prd` token files |
-| `scripts/doppler/mirror-prd-to-dev.sh` | Copy `prd` → `dev` (keeps an existing `OPENAI_API_KEY` on `dev`) |
+| `scripts/doppler/mirror-prd-to-dev.sh` | Copy `prd` → `dev` (keeps an existing `OPENAI_API_KEY` on `dev`; skips `@prd` keys) |
 
 Use `set-secret.sh`, not a one-off script per vendor key.
 
@@ -93,6 +93,7 @@ Use `set-secret.sh`, not a one-off script per vendor key.
 - Cloud Run still serving old values: Doppler change without a new revision.
 - Growth (or any service) mounted the wrong GCP secret: each service has its own secret name.
 - Leaving new keys in `.env` after they exist in Doppler `dev` — local and team configs drift.
+- `DISCORD_COST_TRACKING_WEBHOOK_URL` in `dev`: every local run posts its cost-tracking gaps to the production channel. It is `@prd` in `key-targets.txt`. To rotate it: `scripts/doppler/set-secret.sh DISCORD_COST_TRACKING_WEBHOOK_URL`, then the `simpl_tracker` repository secret, then redeploy (Cloud Run reads Doppler at revision start).
 
 ## Testing
 

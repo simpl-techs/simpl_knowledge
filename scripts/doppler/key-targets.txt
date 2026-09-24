@@ -1,5 +1,7 @@
 # One secret → the Doppler projects that actually read it.
 # Used by set-secret.sh. Do not put values here.
+# KEY@prd (or KEY@prd,stg) limits the configs it is set on; without it: prd, dev, stg.
+# A key limited to prd is also never copied to dev by mirror-prd-to-dev.sh.
 SUPABASE_SERVICE_ROLE_KEY  simpl_outreach simpl_sales simpl_dashboard simpl_flow
 SUPABASE_URL  simpl_api simpl_outreach simpl_flow simpl_scraping simpl_growth simpl_ops simpl_google_extension
 SUPABASE_DB_PASSWORD  simpl_api simpl_outreach simpl_flow simpl_scraping simpl_growth simpl_ops simpl_google_extension
@@ -20,3 +22,6 @@ STRIPE_WEBHOOK_SECRET  simpl_sales
 DISCORD_ERROR_WEBHOOK_URL  simpl_api simpl_outreach simpl_flow
 DISCORD_WARNING_WEBHOOK_URL  simpl_api simpl_outreach simpl_flow
 DISCORD_SUCCESS_WEBHOOK_URL  simpl_api simpl_outreach simpl_flow
+# Cost-tracking alerts (simpl_tracker report_tracking_gap): prd only, so local and
+# staging runs never post to the channel.
+DISCORD_COST_TRACKING_WEBHOOK_URL@prd  simpl_api simpl_ops simpl_growth simpl_google_extension simpl_flow simpl_outreach simpl_scraping simpl_sales
