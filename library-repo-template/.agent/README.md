@@ -20,8 +20,7 @@ Internal-only conventions for working *inside* this repo. Stays local, never syn
 2. Before opening the PR, run `/update-skill` inside Claude Code — it will read your diff and update `.agent/SKILL.md` if the public surface changed.
 3. You review the updated `.agent/SKILL.md` diff in your PR, same as any other file.
 4. On merge to `main`:
-   - `sync-skill-to-marketplace.yml` opens a PR in the marketplace with the new SKILL.md.
-   - That PR is reviewed (usually a formality) and merged.
+   - `sync-skill-to-marketplace.yml` pushes the new SKILL.md straight to the marketplace `main` (no PR). A red run means nothing was published.
    - Teammates' agents see the new version on next `/plugin marketplace update`.
 
 ## Weekly safety net
@@ -37,7 +36,7 @@ Someone on the team reviews it — usually takes 5-10 minutes — and merges or 
 Configure under **Settings → Secrets and variables → Actions** (org secrets if available, otherwise **repository secrets** on each library repo):
 
 - `DEEPSEEK_API_KEY` — for `auto-update-skill` (aider + DeepSeek).
-- `SIMPL_KNOWLEDGE_PAT` — fine-grained PAT with write access to `simpl-techs/simpl_knowledge` (for `sync-skill-to-marketplace`).
+- `SIMPL_KNOWLEDGE_PAT` — fine-grained PAT with Contents write access to `simpl-techs/simpl_knowledge` (for `sync-skill-to-marketplace`).
 
 Optional **repository variable**: `SKILL_AGENT_MODEL` (default `deepseek/deepseek-chat`).
 

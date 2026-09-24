@@ -185,7 +185,7 @@ jobs:
             - [ ] House style preserved
             - [ ] `description` still triggers correctly
 
-            Merge if good; close if not. After merge, `sync-skill-to-marketplace` opens a PR on `simpl-techs/simpl_knowledge`.
+            Merge if good; close if not. After merge, `sync-skill-to-marketplace` publishes it to `simpl-techs/simpl_knowledge` main.
 
             _Generated in CI. Digest was sanitized before prompting._
           labels: |

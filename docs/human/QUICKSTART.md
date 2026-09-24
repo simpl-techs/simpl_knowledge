@@ -106,7 +106,7 @@ Chi usa solo Codex deve rilanciare il bootstrap per aggiornare la cache. Con Cur
    bash ~/.simpl_knowledge/cache/library-repo-template/scripts/bootstrap.sh <repo-name>
    ```
 3. Compila `.agent/SKILL.md` (rimuovi i placeholder `REPLACE-ME`), commit, push.
-4. Al merge in `main`, il workflow `sync-skill-to-marketplace` apre PR sul repo centrale. Dopo il merge della PR, Cursor e Claude Code ricevono l’update alla sessione successiva.
+4. Al merge in `main`, il workflow `sync-skill-to-marketplace` pubblica lo skill direttamente su `main` del repo centrale (nessuna PR). Cursor e Claude Code ricevono l’update alla sessione successiva.
 
 ---
 

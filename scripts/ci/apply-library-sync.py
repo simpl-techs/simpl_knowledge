@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
 """
-Apply upstream library .agent/SKILL.md into simpl_knowledge marketplace checkout.
-Bumps SemVer on integration plugin, registers plugin in marketplace.json if new,
-appends provenance.jsonl and CHANGES.md reference.
+Sync an upstream library .agent/SKILL.md into the simpl_knowledge marketplace
+and publish it straight to main (no PR).
+
+Bumps SemVer on the integration plugin, registers the plugin in marketplace.json
+if new, appends provenance.jsonl and a CHANGES.md line, validates, commits and
+pushes to origin/main. A push rejected because another library synced first is
+retried on the fresh main: versions are recomputed there, never rebased.
+A SKILL.md already identical on main is a no-op.
+
+--no-publish only applies the files to the checkout (tests, local dry runs).
 
 Run from GitHub Actions with GITHUB_TOKEN (read PR labels for the merge commit).
 """
@@ -14,10 +21,15 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+
+PUBLISH_ATTEMPTS = 5
+BOT_NAME = "simpl_knowledge-bot"
+BOT_EMAIL = "bot@simpl.farm"
 
 
 def _get_json(url: str, token: str) -> list | dict:
@@ -44,38 +56,52 @@ def _format_semver(t: tuple[int, int, int]) -> str:
     return f"{t[0]}.{t[1]}.{t[2]}"
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--library-root", type=Path, required=True)
-    ap.add_argument("--marketplace-root", type=Path, required=True)
-    ap.add_argument("--repo-name", required=True, help="Short repo name (directory name)")
-    ap.add_argument("--full-repo", required=True, help="owner/name of library repo")
-    ap.add_argument("--sha", required=True)
-    args = ap.parse_args()
+def _git(root: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
 
-    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-    if not token:
-        print("No GITHUB_TOKEN / GH_TOKEN", file=sys.stderr)
-        sys.exit(1)
 
+def _git_ok(root: Path, *args: str) -> str:
+    result = _git(root, *args)
+    if result.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
+    return result.stdout
+
+
+def _pr_labels(full_repo: str, sha: str, token: str) -> set[str]:
+    labels: set[str] = set()
+    try:
+        pulls = _get_json(f"https://api.github.com/repos/{full_repo}/commits/{sha}/pulls", token)
+        if isinstance(pulls, list):
+            for pr in pulls:
+                for lab in pr.get("labels") or []:
+                    labels.add(str(lab.get("name", "")).lower())
+    except urllib.error.HTTPError as e:
+        print(f"Could not list PRs for commit (default patch bump): {e}", file=sys.stderr)
+    return labels
+
+
+def apply_sync(args: argparse.Namespace, labels: set[str]) -> str | None:
+    """Write the SKILL and every derived file; return the new plugin version, or None if already current."""
     repo_name: str = args.repo_name
     plugin_name = f"{repo_name}-context"
     skill_src = args.library_root / ".agent" / "SKILL.md"
     if not skill_src.is_file():
-        print(f"Missing {skill_src}", file=sys.stderr)
-        sys.exit(1)
+        raise FileNotFoundError(f"Missing {skill_src}")
 
     mp_root: Path = args.marketplace_root
     plugin_dir = mp_root / "plugins" / plugin_name
     skill_dir = plugin_dir / "skills" / repo_name
-    skill_dir.mkdir(parents=True, exist_ok=True)
     skill_dst = skill_dir / "SKILL.md"
-    skill_dst.write_text(skill_src.read_text(encoding="utf-8"), encoding="utf-8")
-
     manifest = plugin_dir / ".claude-plugin" / "plugin.json"
-    manifest.parent.mkdir(parents=True, exist_ok=True)
-    org = args.full_repo.split("/")[0]
     new_plugin = not manifest.is_file()
+    skill_text = skill_src.read_text(encoding="utf-8")
+    if not new_plugin and skill_dst.is_file() and skill_dst.read_text(encoding="utf-8") == skill_text:
+        return None
+
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    skill_dst.write_text(skill_text, encoding="utf-8")
+
+    manifest.parent.mkdir(parents=True, exist_ok=True)
     if new_plugin:
         manifest.write_text(
             json.dumps(
@@ -93,19 +119,6 @@ def main() -> None:
         )
 
     # PR labels -> semver bump
-    labels: set[str] = set()
-    try:
-        pulls = _get_json(
-            f"https://api.github.com/repos/{args.full_repo}/commits/{args.sha}/pulls",
-            token,
-        )
-        if isinstance(pulls, list):
-            for pr in pulls:
-                for lab in pr.get("labels") or []:
-                    labels.add(str(lab.get("name", "")).lower())
-    except urllib.error.HTTPError as e:
-        print(f"Could not list PRs for commit (default patch bump): {e}", file=sys.stderr)
-
     data = json.loads(manifest.read_text(encoding="utf-8"))
     ma, mi, pa = _parse_semver(data["version"])
     if new_plugin:
@@ -203,7 +216,79 @@ def main() -> None:
         raise ValueError("simpl-standards is missing from marketplace.json")
     mp_path.write_text(json.dumps(mp, indent=2) + "\n", encoding="utf-8")
 
-    print(f"OK: {plugin_name} v{new_ver}")
+    return new_ver
+
+
+def publish(args: argparse.Namespace, labels: set[str]) -> None:
+    """Apply on the latest origin/main and push; on a lost push race, start over from the new main."""
+    mp_root: Path = args.marketplace_root
+    # Every retry discards the tree, so it must hold nothing but our own output.
+    if _git_ok(mp_root, "status", "--porcelain").strip():
+        raise SystemExit(f"{mp_root} has local changes; publish needs a clean simpl_knowledge checkout")
+
+    for attempt in range(1, PUBLISH_ATTEMPTS + 1):
+        _git_ok(mp_root, "fetch", "--quiet", "origin", "main")
+        _git_ok(mp_root, "checkout", "--quiet", "--force", "--detach", "FETCH_HEAD")
+        _git_ok(mp_root, "clean", "-fdq")
+
+        new_ver = apply_sync(args, labels)
+        if new_ver is None:
+            print(f"{args.repo_name}: SKILL.md already current on simpl_knowledge main, nothing to publish.")
+            return
+
+        env = {k: v for k, v in os.environ.items() if k not in ("VALIDATE_BASE_REF", "GITHUB_BASE_REF")}
+        env["GITHUB_WORKSPACE"] = str(mp_root)
+        validation = subprocess.run(["bash", str(mp_root / "scripts/ci/validate-agent-infra.sh")], env=env)
+        if validation.returncode != 0:
+            raise SystemExit("validate-agent-infra failed; nothing pushed to simpl_knowledge main")
+
+        _git_ok(mp_root, "add", "-A")
+        _git_ok(
+            mp_root,
+            "-c", f"user.name={BOT_NAME}",
+            "-c", f"user.email={BOT_EMAIL}",
+            "commit", "--quiet",
+            "-m", f"sync({args.repo_name}): update SKILL.md from upstream {args.sha[:7]}",
+        )
+        push = _git(mp_root, "push", "--quiet", "origin", "HEAD:main")
+        if push.returncode == 0:
+            print(f"OK: {args.repo_name}-context v{new_ver} pushed to simpl_knowledge main")
+            return
+        print(f"Push attempt {attempt}/{PUBLISH_ATTEMPTS} rejected: {push.stderr.strip()}", file=sys.stderr)
+        time.sleep(attempt * 3)
+
+    raise SystemExit(f"Could not push to simpl_knowledge main after {PUBLISH_ATTEMPTS} attempts")
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--library-root", type=Path, required=True)
+    ap.add_argument("--marketplace-root", type=Path, required=True)
+    ap.add_argument("--repo-name", required=True, help="Short repo name (directory name)")
+    ap.add_argument("--full-repo", required=True, help="owner/name of library repo")
+    ap.add_argument("--sha", required=True)
+    ap.add_argument(
+        "--no-publish",
+        action="store_true",
+        help="Only write the files into the checkout: no validate, commit or push",
+    )
+    args = ap.parse_args()
+
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if not token:
+        print("No GITHUB_TOKEN / GH_TOKEN", file=sys.stderr)
+        sys.exit(1)
+
+    labels = _pr_labels(args.full_repo, args.sha, token)
+    if not args.no_publish:
+        publish(args, labels)
+        return
+
+    new_ver = apply_sync(args, labels)
+    if new_ver is None:
+        print(f"{args.repo_name}: SKILL.md already current, nothing to apply.")
+    else:
+        print(f"OK: {args.repo_name}-context v{new_ver}")
 
 
 if __name__ == "__main__":

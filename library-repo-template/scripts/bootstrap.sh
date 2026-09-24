@@ -122,7 +122,7 @@ echo "  1. Edit .agent/SKILL.md — fill in the placeholders with YOUR library's
 echo "  2. Edit .agent/INTERNAL.md — document the internal conventions for this repo."
 echo "  3. Set Actions secrets (org-wide if you have org secrets; otherwise per repo):"
 echo "       DEEPSEEK_API_KEY — auto-update-skill (aider + DeepSeek)"
-echo "       SIMPL_KNOWLEDGE_PAT — sync-skill-to-marketplace (PRs to simpl_knowledge)"
+echo "       SIMPL_KNOWLEDGE_PAT — sync-skill-to-marketplace (pushes to simpl_knowledge main)"
 echo "  4. Commit and push:"
 echo "       git add .agent/ .claude/ .cursor/ .github/ scripts/ requirements-agent-ci.txt CLAUDE.md"
 echo "       git commit -m 'chore(agent): bootstrap agent context'"

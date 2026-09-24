@@ -60,8 +60,8 @@ Il developer riceve il contenuto in tre modi:
 ## Da repo libreria agli agent del team
 
 1. Nel repo della libreria, la **fonte pubblica** è `.agent/SKILL.md` (INTERNAL resta locale).
-2. Su merge in `main` che tocca `SKILL.md`, **`sync-skill-to-marketplace`** (dal template) crea/aggiorna il plugin `*-context` in **`simpl-techs/simpl_knowledge`** tramite PR.
-3. Dopo merge nel marketplace, **Claude Code** aggiorna i plugin al SessionStart (`plugin-refresh`), **Cursor** sincronizza **`simpl-*.mdc`** da `cursor-rules/` (commit CI su `main`) o dalla release **`cursor-rules-rolling`**, e **Codex** legge gli stessi skill via symlink nella cache.
+2. Su merge in `main` che tocca `SKILL.md`, **`sync-skill-to-marketplace`** (dal template) crea/aggiorna il plugin `*-context` in **`simpl-techs/simpl_knowledge`** con push diretto su `main` (nessuna PR; se un'altra libreria ha pushato prima, riprova sul `main` aggiornato).
+3. Appena il sync è su `main`, **Claude Code** aggiorna i plugin al SessionStart (`plugin-refresh`), **Cursor** sincronizza **`simpl-*.mdc`** da `cursor-rules/` (commit CI su `main`) o dalla release **`cursor-rules-rolling`**, e **Codex** legge gli stessi skill via symlink nella cache.
 4. **`catalog.md` / `catalog.json`** riassumono ogni `*-context` così gli agent evitano duplicazioni.
 
 ## Esempio concreto

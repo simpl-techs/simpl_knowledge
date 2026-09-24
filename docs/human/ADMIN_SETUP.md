@@ -42,7 +42,7 @@ GitHub → Settings → Developer settings → Personal access tokens → **Fine
 
 - Resource owner: `simpl-techs`.
 - Repository access: **Only select repositories** → `simpl_knowledge`.
-- Permissions: **Contents** = read & write, **Pull requests** = read & write.
+- Permissions: **Contents** = read & write (il sync pusha direttamente su `main`).
 
 Salva il token, ti serve al passo 5.
 
@@ -131,7 +131,7 @@ Per ogni libreria interna che vuoi includere:
    ```
 3. Compila `.agent/SKILL.md` (rimuovi i placeholder `REPLACE-ME`).
 4. Verifica i secret Actions: con **org secrets** (`SIMPL_KNOWLEDGE_PAT`, `DEEPSEEK_API_KEY`) ereditati dal repo; senza piano org, imposta gli stessi nomi come **repository secrets** su ogni repo libreria. Controlla che esista `requirements-agent-ci.txt` in root (il bootstrap lo copia dal template).
-5. Commit, push, merge. Al merge in `main`, `sync-skill-to-marketplace.yml` apre PR sul repo centrale.
+5. Commit, push, merge. Al merge in `main`, `sync-skill-to-marketplace.yml` pubblica lo skill direttamente su `main` del repo centrale (nessuna PR).
 
 ---
 

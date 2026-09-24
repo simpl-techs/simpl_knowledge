@@ -1,7 +1,9 @@
 name: Sync SKILL.md to simpl_knowledge
 
-# When .agent/SKILL.md is updated on main, open a PR in simpl_knowledge
-# to propagate the new version.
+# When .agent/SKILL.md is updated on main, publish it straight to simpl_knowledge
+# main — no PR. The logic lives in simpl_knowledge (scripts/ci/apply-library-sync.py):
+# apply + semver + provenance, validate, commit, push; a push race with another
+# library is retried on the fresh main. A red run here means nothing was published.
 
 on:
   push:
@@ -23,6 +25,15 @@ jobs:
       pull-requests: read
 
     steps:
+      - name: Require SIMPL_KNOWLEDGE_PAT
+        env:
+          SIMPL_KNOWLEDGE_PAT: ${{ secrets.SIMPL_KNOWLEDGE_PAT }}
+        run: |
+          if [ -z "${SIMPL_KNOWLEDGE_PAT}" ]; then
+            echo "::error::Missing Actions secret SIMPL_KNOWLEDGE_PAT (needed to push to simpl_knowledge main). See docs/human/ADMIN_SETUP.md."
+            exit 1
+          fi
+
       - name: Checkout this repo
         uses: actions/checkout@v5
         with:
@@ -33,56 +44,15 @@ jobs:
         with:
           repository: simpl-techs/simpl_knowledge
           path: marketplace
-          token: ${{ secrets.SIMPL_KNOWLEDGE_PAT || github.token }}
+          token: ${{ secrets.SIMPL_KNOWLEDGE_PAT }}
 
-      - name: Apply SKILL + semver + provenance
+      - name: Publish SKILL.md to simpl_knowledge main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          REPO_NAME="${GITHUB_REPOSITORY##*/}"
           python3 marketplace/scripts/ci/apply-library-sync.py \
             --library-root "$GITHUB_WORKSPACE/source" \
             --marketplace-root "$GITHUB_WORKSPACE/marketplace" \
-            --repo-name "$REPO_NAME" \
+            --repo-name "${GITHUB_REPOSITORY##*/}" \
             --full-repo "$GITHUB_REPOSITORY" \
             --sha "$GITHUB_SHA"
-
-      - name: Open PR in simpl_knowledge
-        working-directory: marketplace
-        env:
-          GH_TOKEN: ${{ secrets.SIMPL_KNOWLEDGE_PAT }}
-        run: |
-          if [ -z "${GH_TOKEN}" ]; then
-            echo "::error::Missing Actions secret SIMPL_KNOWLEDGE_PAT (needed to push the sync PR). See docs/human/ADMIN_SETUP.md."
-            exit 1
-          fi
-          REPO_NAME="${GITHUB_REPOSITORY##*/}"
-          BRANCH="sync/${REPO_NAME}-$(date +%s)"
-
-          git config user.name "simpl_knowledge-bot"
-          git config user.email "bot@simpl.farm"
-
-          git checkout -b "$BRANCH"
-          git add plugins/ .claude-plugin/marketplace.json provenance.jsonl catalog.md catalog.json
-          if git diff --staged --quiet; then
-            echo "No actual content changes to propagate."
-            exit 0
-          fi
-          git commit -m "sync(${REPO_NAME}): update SKILL.md from upstream ${GITHUB_SHA:0:7}"
-          git push -u origin "$BRANCH"
-
-          BODY="$(mktemp)"
-          {
-            echo "Automated sync from \`${GITHUB_REPOSITORY}@${GITHUB_SHA:0:7}\`."
-            echo
-            echo "**Propagation PR** — primary review happened on the library repo. Merge if CI is green."
-            echo
-            echo "Upstream: https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
-          } > "$BODY"
-          gh label create "auto-sync" --description "Automated SKILL.md sync from a library repo" --color "0E8A16" --force
-          gh label create "upstream:${REPO_NAME}" --description "Synced from ${REPO_NAME}" --color "1D76DB" --force
-          gh pr create \
-            --title "sync(${REPO_NAME}): SKILL.md update from ${GITHUB_SHA:0:7}" \
-            --body-file "$BODY" \
-            --label "auto-sync" \
-            --label "upstream:${REPO_NAME}"

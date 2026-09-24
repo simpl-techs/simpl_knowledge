@@ -46,7 +46,7 @@ bash scripts/team-bootstrap.sh
 
 1. **New or drifting repo**: skill `repo-context-bootstrap` or `/bootstrap-repo-context` aligns the working copy with `library-repo-template/` after explicit user confirmation (never silent writes).
 2. **Manual**: `/update-skill` before merge when public API changes.
-3. **On merge**: push to `main` updates `.agent/SKILL.md` → `sync-skill-to-marketplace` opens PR on `simpl_knowledge`.
+3. **On merge**: push to `main` updates `.agent/SKILL.md` → `sync-skill-to-marketplace` pushes it straight to `simpl_knowledge` `main` (no PR). A push race with another library is retried on the fresh `main`; if validation fails, nothing is pushed and the library's run goes red.
 4. **Scheduled**: `auto-update-skill` may propose SKILL PRs (human must merge).
 
 ## Instincts (simpl-memory)
