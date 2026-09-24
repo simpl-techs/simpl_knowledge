@@ -18,7 +18,7 @@ This skill is the **always-on hub**. It carries the universal engineering princi
 - **Backend**: Python 3.12+, FastAPI, Pydantic v2, async-first
 - **Frontend**: TypeScript (strict mode), React 18, Vite
 - **Data**: Postgres 16, SQLAlchemy 2.x (async), Alembic migrations
-- **Infra**: Docker + docker-compose for local, Fly.io for prod
+- **Infra**: Docker + docker-compose for local; Google Cloud Run (services, worker pools, jobs, Prefect flows) and Vercel (Next.js apps) for prod
 
 If a task requires a stack outside this list, stop and flag it to the human before proceeding.
 
@@ -42,6 +42,7 @@ The hub never duplicates the deep skills — it points to them. Open the matchin
 |---|---|
 | Where code lives (packages, modules, layers), single source of truth, command/query separation, reusability, file size, imports hygiene, dependency direction, API surface, versioning | `architecture-discipline` |
 | State machines, status fields, idempotency, DB sessions/transactions/locking, queue-style claims, async/IO discipline, bounded retries/timeouts/concurrency, observability | `state-and-persistence` |
+| Deploying or creating anything on Google Cloud (Cloud Run service, worker pool, job, Prefect flow): compute and LLM cost tracking is mandatory; a cost that cannot be recorded is reported on the cost-tracking channel, never a failure | `state-and-persistence` (Observability) + `simpl_tracker` |
 | Threading typed data through layers (no re-extracting from rendered output), single-source state resolution, validation layering, DTO/output invariants, failure surfacing vs silent no-op, fixture/PII data | `data-flow-discipline` |
 | Writing or reviewing tests | `testing-policy` |
 | Anything that could already be an internal simpl library | `internal-libraries-awareness` |
