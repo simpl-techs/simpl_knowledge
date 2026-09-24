@@ -1,0 +1,12 @@
+{
+  "name": "simpl_support-context",
+  "version": "0.1.0",
+  "description": "Integration context for simpl_support. Auto-synced from simpl-techs/simpl_support.",
+  "author": {
+    "name": "simpl_support maintainers"
+  },
+  "keywords": [
+    "simpl_support",
+    "integration"
+  ]
+}

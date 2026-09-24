@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-24T11:57:21.934Z",
+  "generated_at": "2026-09-24T11:57:26.281Z",
   "marketplace_alias": "simpl",
   "libraries": [
     {
@@ -41,6 +41,14 @@
       "when_to_use": "Tasks touching SimpL Sales UI, API routes under `app/api/`, Supabase `sales` or `sales_view` objects, or CRM/outreach data models.",
       "required_when": "Any migration or SQL that DROPs or replaces objects in `sales` / `sales_view` must follow the no-cascade checklist in this skill before merging.",
       "plugin_install_command": "/plugin install simpl_sales-context@simpl"
+    },
+    {
+      "plugin": "simpl_support-context",
+      "skill_name": "simpl_support",
+      "summary": "simpl_support integration guide",
+      "when_to_use": "First-party in-app support chat (@simpl/support). Use when wiring customer\n  support messaging in simpl_sales, the staff inbox in simpl_dashboard, applying\n  the support schema migration, screenshot/context capture, or replacing Intercom.\n  Triggers: \"support chat\", \"in-app support\", \"Intercom replacement\", \"support inbox\".",
+      "required_when": null,
+      "plugin_install_command": "/plugin install simpl_support-context@simpl"
     },
     {
       "plugin": "simpl_tracker-context",

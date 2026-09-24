@@ -1,6 +1,6 @@
 # simpl internal libraries catalog
 
-Auto-generated at `2026-09-24T11:57:21.934Z`. Do not edit by hand: every library sync regenerates it, or run `node scripts/ci/generate-catalog.js`.
+Auto-generated at `2026-09-24T11:57:26.281Z`. Do not edit by hand: every library sync regenerates it, or run `node scripts/ci/generate-catalog.js`.
 
 Each entry summarizes an integration plugin (`*-context`). Install the plugin in Claude Code for the full SKILL. Until then, use this file to decide whether a library fits the current task.
 
@@ -44,6 +44,17 @@ Each entry summarizes an integration plugin (`*-context`). Install the plugin in
 - **Required when**: Any migration or SQL that DROPs or replaces objects in `sales` / `sales_view` must follow the no-cascade checklist in this skill before merging.
 - **Install full context (Claude Code)**: `/plugin install simpl_sales-context@simpl`
 - **Skill path in cache**: `~/.simpl_knowledge/cache/plugins/simpl_sales-context/skills/`
+
+## simpl_support-context
+
+- **Skill**: `simpl_support`
+- **Summary**: simpl_support integration guide
+- **When to use**: First-party in-app support chat (@simpl/support). Use when wiring customer
+  support messaging in simpl_sales, the staff inbox in simpl_dashboard, applying
+  the support schema migration, screenshot/context capture, or replacing Intercom.
+  Triggers: "support chat", "in-app support", "Intercom replacement", "support inbox".
+- **Install full context (Claude Code)**: `/plugin install simpl_support-context@simpl`
+- **Skill path in cache**: `~/.simpl_knowledge/cache/plugins/simpl_support-context/skills/`
 
 ## simpl_tracker-context
 
