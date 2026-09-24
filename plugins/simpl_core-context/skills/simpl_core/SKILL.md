@@ -39,10 +39,16 @@ Base `simpl-core` installs `simpl-ia` (same pin as other platform repos) so `imp
 ```python
 from simpl_core.services.autopilot.engine import AutopilotEngine
 from simpl_core.services.autopilot.eligibility_service import EligibilityService
-from simpl_core.roi import calculate_company_cost, resolve_canonical
+from simpl_core.roi import (
+    calculate_company_cost,
+    build_people_costs_from_payroll,
+    resolve_canonical,
+)
 ```
 
-ROI catalog `kind` is `line` (standing) or `project` (time-boxed). `awaiting_review` rows are visible to `created_by` and to anyone with `time_weeks` on that row, until publish/merge/reject. Merge (`recategorize`) remaps every person's time onto a live destination — published or another awaiting proposal (`merged_into`). Close applies to projects (`closed_on`). A proposal carries the proposer's words in `proposal_note`, and `publish` / `recategorize` / `close` stamp `decided_by` and `decided_at` when the caller passes the actor. A project takes its `category`, `lag_profile`, `roi_ranked` and `sort_order` from its line through `catalog.child_defaults(parent, ...)` — never derive them again in a consumer, or a project published under a different line keeps the category of the line it was proposed under.
+`roi.people_costs` is rebuilt from PAYROLL bank lines via `build_people_costs_from_payroll`: a wage is filed in the month it pays for (`RETRIBUZIONE MESE LUGLIO 2026`), F24 on Revolut is dropped, and employer INPS/INAIL/TFR are reconstructed onto each month that carries a wage. `calculate_company_cost` stays the business-plan RAL calculator and does not write the ledger. `roi.retro` lists the quarters a person still owes the one-shot backfill; `roi.people.retro_completed_at` hides it once saved.
+
+ROI catalog `kind` is `line` (standing) or `project` (time-boxed). `awaiting_review` rows are visible to `created_by` and to anyone with `time_weeks` on that row, until publish/merge/reject. Merge (`recategorize`) remaps every person's time onto a live destination — published or another awaiting proposal (`merged_into`). Close applies to projects (`closed_on`). A proposal carries the proposer's words in `proposal_note`, and `publish` / `recategorize` / `close` stamp `decided_by` and `decided_at` when the caller passes the actor. A project takes its `category`, `lag_profile`, `roi_ranked` and `sort_order` from its line through `catalog.child_defaults(parent, ...)` — never derive them again in a consumer, or a project published under a different line keeps the category of the line it was proposed under. `remap_person_weeks` moves every hour onto the destination; `split_person_weeks(rows, source_id=..., shares=[(dest, pct), ...])` is the same move split across several destinations for one person, and refuses shares that do not add up to 100. `TimeWeekRepository.people_on(initiative_id)` says who filed time on a row, which is what an admin needs before deciding where it goes.
 
 Prefer importing the specific service, repository, or model you need. Keep app-layer orchestration in the app repo and reusable domain behavior in `simpl_core`.
 
@@ -678,10 +684,114 @@ has not been promoted. Everything before promotion is API-driven:
 the only lock path that ignores execution mode, and releases it whether the
 sequence succeeds or fails. It raises `CrmDryRunNotFoundError` for an unknown
 scope or report and `CrmDryRunConflictError` for a live scope, an
-already-applied report, a disabled scope, a scope with no workflow or pipeline,
-or a scope whose lock is held — the same preconditions the scheduler's claim
+already-applied report, a disabled scope, a scope with no workflow or with
+neither a pipeline nor a flow, or a scope whose lock is held — the same preconditions the scheduler's claim
 query imposes, so applying never performs writes promotion would not. A report
 is applied at most once; a fresh plan needs a fresh dry run.
+
+## CRM flows
+
+A scope may declare a *flow* in `crm_export_config.config["flow"]`: which CRM
+records Simpl creates and moves through a pipeline, when each is created, which
+stage it sits in, and what it is named and stamped with. A new customer's CRM
+process is then configuration rather than code. A scope without a flow keeps
+the stage-mapping push (`crm_pipeline_config.stage_mappings`) unchanged.
+
+```json
+{
+  "flow": {
+    "version": 1,
+    "objects": {
+      "companies": {"kind": "identity"},
+      "contacts": {"kind": "identity"},
+      "deals": {
+        "kind": "process",
+        "grain": "company",
+        "stages_from": "status_mapping",
+        "associations": [
+          {"to": "companies", "label": "deal_to_company"},
+          {"to": "contacts", "label": "deal_to_contact"}
+        ],
+        "name": "Simpl - {company.name}",
+        "create_properties": {"source": "Simpl"}
+      }
+    }
+  }
+}
+```
+
+- **Objects** are keyed by the provider's object type. `identity` objects
+  (HubSpot `companies`, `contacts`) are matched and linked through
+  `ensure_external_entity_link_without_overwrite`, never overwritten. `process`
+  objects are Simpl-owned; HubSpot supports `deals` today. HubSpot `leads` needs
+  OAuth scopes the Composio-managed app cannot grant, so it has no spec yet.
+- **`grain`**: one record per Simpl contact (`contact`) or per company (`company`).
+- **`stages_from: "status_mapping"`** takes the pipeline and stages from the
+  scope's own status mapping (`crm_pipeline_config`), read on every plan and
+  resolved with `stage_for_status` exactly as the standard push does. Prefer it
+  whenever the customer's stages follow Simpl statuses: the mapping people edit
+  on the scope stays the one answer to which status lands in which stage, and
+  the flow adds only names, stamps, associations and `create_when`. Without
+  `create_when` the record is created once the mapping puts the status in a
+  stage. Only the object that mirrors the company deal (HubSpot `deals`) can use
+  it, a scope with no pipeline or no mapped status is refused, and
+  `forward_only` is refused because a mapping has no order.
+- **`stages`** (with `pipeline`) are the alternative for stages the mapping
+  cannot express. They are ordered most advanced first; the first rule that holds wins.
+  `stage_policy` is `follow_status` (every change applies), `forward_only`
+  (never moves to a rule listed lower) or `set_on_create`.
+- **`driven_by`** (company grain): `latest_contact_change` follows whichever
+  connection changed status last, as company sync always has;
+  `qualifying_contacts` follows the contacts that met `create_when`, and a
+  recorded driver keeps moving the record after it stops qualifying.
+- **Conditions**: `status_in` (workflow status names or `status_mapping_id`s: a
+  name matches that one stage, a mapping id matches its whole category,
+  customer sub-stages included; archived stages are refused),
+  `outreach_sent` (an outbound message in a thread the contact shares with its
+  owner; a connection request is not a message), `replied` (an inbound one),
+  and `all` / `any` / `not`.
+- **Templates** (`name`, string property values): literal text plus `{path}`;
+  `{a|b}` takes the first non-empty value. Paths are listed in
+  `simpl_core.services.crm.flow.TEMPLATE_PATHS`. A name that renders empty skips
+  creation with reason `name_unresolved`. Names and `create_properties` are sent
+  only at creation; `on_enter` properties go with a stage change.
+
+Flows are configured internally; the status mapping stays editable on the
+scope, and a flow with `stages_from` honours it. To give a customer a custom setup:
+
+1. Write the flow as JSON (the file may hold the flow or `{"flow": {...}}`).
+2. Check it read-only against the scope and preview what it would do:
+   `python scripts/check_crm_flow.py --config-id <scope> --flow flow.json --since <date>`.
+   It prints `VALID` with the flow hash, or `INVALID` with the offending path,
+   then counts every outcome and lists the proposed writes with names and
+   stages. It never calls the CRM and stores nothing.
+3. Store it with the statement `--print-sql` prints (a `jsonb_set` on
+   `crm_export_config.config`), after review.
+4. Run the scope's dry run from the admin screens, apply it, verify in the
+   CRM, and promote, exactly as for a standard scope.
+
+Check a flow before saving it: `parse_flow(raw)` checks structure, and
+`validate_flow(flow, provider_class=..., status_names=..., status_mapping_ids=...,
+sync_direction=..., status_mapping=...)` checks it against the provider, the
+scope's workflow and, for `stages_from`, the scope's status mapping.
+Both raise `FlowConfigError`, whose `path` names the offending part. A flow
+scope must use `sync_direction = 'push'`; flows do not pull yet.
+
+`ReconciliationService.run_scope_sequence` pushes a flow scope through
+`CrmFlowEngine`, and `CrmDryRunService.run` plans it with the same planner. The
+report lists `would_create_object`, `would_set_object_stage`,
+`would_associate_object` and `would_skip_object` entries (each with
+`object_type`, `reason`, and for writes the stage before and after and the
+rendered name), counts not-due outcomes as `would_skip_object_not_due`, and
+stores the flow and its `flow_hash` in `configuration_snapshot`.
+
+Owned records live in `integration.crm_object_link` (migration
+`20260916_crm_flow_object_links.sql`), keyed by a Simpl key also written to a
+hidden unique CRM property, so a create that was never recorded is adopted on
+the next run. A company's deal is mirrored into
+`crm_export_record.external_deal_id`, which pull, engagement sync and the link
+screens still read; a deal created before the scope had a flow is adopted from
+there, and one without a Simpl key belongs to the customer and is never written.
 
 ## Transient database failures
 
@@ -794,6 +904,67 @@ an incident delivered. Context passes `redact_context` first, and the event's
 `dedup_key` is tracker's fingerprint. `register_config_fallback_notifier` routes
 agent-framework config fallback to operators, and `unavailable_prefect_blocks` checks
 tracker JSON config blocks at startup without sending anything. Importing the module loads neither tracker, Prefect nor the agent framework.
+
+## Meetings on the team's calendars, and bookings made by hand
+
+`simpl_core.services.account_coordination.LeadMeetings(session).for_lead(customer_id=…, lead_id=…)`
+lists the team's meetings with a lead, from Recall's copy of each connected calendar
+(`integration.recall_capture_job`). It covers 30 days back and 60 ahead. It is read-only:
+Recall and the calendar providers are never called.
+- **Matching:** a lead matches through any email on file for it, whichever seller's
+  `lead_contact` row holds the address.
+- **Deduplication:** a meeting on several colleagues' calendars counts once, keyed on the
+  invite's iCal id and start (`meeting_key`).
+- **Each meeting carries:**
+  - `status`: `upcoming` / `in_progress` / `past` / `cancelled`;
+  - `recorded`;
+  - the `organizer` (resolved to a user of the customer);
+  - `lead_attendee {email, response_status}`;
+  - `capture_job_ids`, with the organizer's row first.
+
+`AccountCoordinationService.record_observed_booking(...)` records a `calendar_booking`
+hand-off the owner already carried out by hand.
+- **Who:** the same source and owner that `request()` would pick.
+- **Result:** the objective is `fulfilled` straight away, with one `booking_observed`
+  event. Nobody is woken and no check is scheduled.
+- **The owner's connection:** created, if missing, at the Meeting Booked status of the
+  lead's workflow (the source's status only when no workflow can be read). The source's
+  own connection keeps its stage. An existing owner connection keeps its status.
+- **Verification:** core checks the evidence from the capture job itself: not cancelled,
+  organized by the target, a lead address among the attendees who has not declined, and
+  ended at most 2 days ago. Anything else raises `CoordinationError` with code
+  `not_observed`.
+- **An open objective** for the same key and owner is closed the same way: its queued
+  actions are cancelled and the owner is woken. A second walk that sees the same meeting
+  gets the recorded objective back.
+- **Where the proof lives:** `objective.context.observed_booking`, including the
+  `lead_email` the invite went to. A receiver may not have that address among its own
+  contacts, because `lead_contact` holds each address once per lead.
+
+`UserConnectionRepository.get_active_booking_calendar(user_id)` returns the calendar an
+invite can be created in. It never returns Recall, which is category `calendar` too;
+`get_active_by_user_and_category(user, "calendar")` can.
+
+## LinkedIn browser operations
+
+`simpl_core.services.linkedin_proxy.DatabaseLinkedInOperations` (port:
+`LinkedInOperationPort`) runs LinkedIn requests through the seller's browser extension.
+Each operation is a row in `extension_proxy.operation_config_revision`; the gateway
+renders it and the extension fetches it with the seller's session.
+
+- `search_people(context, company_linkedin_id, keyword)` reads the people search page
+  filtered to one company (`people_search`).
+- `list_company_people(context, company_vanity_name)` reads the first page of the
+  company's People tab, `/company/<vanity name>/people/` (`company_people`, migration
+  `20260924_company_people_operation.sql`, gateway `simpl_proxy >= 0.1.2`). Pass the
+  name from `sales.company.linkedin_url`, decoded, not the numeric company id. Its
+  batch's `keyword` is `COMPANY_PEOPLE_LABEL`; the page has no location, and cards in
+  the right rail are skipped.
+
+Both return a `LinkedInSearchResultBatch`. A page that is not the expected screen, or a
+provider error, comes back as a batch with `error` set, and its raw body stays in the
+ledger for debugging. Parsers read pages by structure only: headings, degree badges and
+counts are in the viewer's language.
 
 ## Autopilot yield (Sales Domain)
 
