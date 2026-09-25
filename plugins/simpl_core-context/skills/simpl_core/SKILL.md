@@ -285,6 +285,14 @@ add_alert_rules(
   exception stays silent when you log it yourself with `error=exc` too, even as another
   exception's `__cause__`. Only an explicit `notify="warning"` or `notify="error"` posts
   it.
+- **Cancellations you cause on purpose.** A `CancelledError` escaping a walk is reported
+  as `agent_framework.run.cancelled`, because from inside the run a job timeout and a
+  deliberate stop look alike. When your code cancels a task on purpose, for example a
+  worker handing its walk back at shutdown, call
+  `expect_cancellation(task, reason="worker_shutdown")` before `task.cancel()`. From
+  then on a cancellation inside that task is an expected interruption: logged, never
+  alerted. `expected_cancellation_reason()` returns the reason inside the task. The mark
+  lasts for the task's life, so only mark a task that ends with the cancellation.
 - **Fan-out branches.** Each branch in a gather join's `gathered` dict carries
   `error_type` (the exception class it ended on, or `None`) and `expected`, beside
   `error`; read those instead of matching on the message. The fan-out's own
