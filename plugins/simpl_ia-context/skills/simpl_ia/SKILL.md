@@ -102,7 +102,10 @@ schema in the prompt) is resolved per chain member from the route's
 capabilities, whether the agent passed `tools` to `make_agent`, and the
 target's `output_mode` (`auto` by default; `native` / `tool` / `prompted` to
 pin one, refused when the target cannot serve it). Under `auto`: OpenAI's own
-endpoint is native either way; OpenRouter is native for a tool-less agent and
+endpoint is native either way (a request with function tools -- the agent's,
+or an output tool such as a `ToolOutput` or `[str, Model]` spec brings -- reaches
+it through the Responses API with `store` off, since Chat Completions refuses
+tools while a GPT-6 model reasons); OpenRouter is native for a tool-less agent and
 **tool** for an agent with tools (`require_parameters` stays a routing filter
 and never puts `response_format: json_schema` next to `tools`, which the
 upstreams behind that route answer without ever calling a tool); `deepseek` is
@@ -110,8 +113,10 @@ always prompted; `cheaper_inference` is always **tool** (the gateway answers a
 `response_format` with a 503 on some upstreams, so `native` is refused there and
 its prompted mode sends the schema in the prompt only). The resolved mode is on every attempt-log entry and on
 `selected_target_metadata(result).output_mode`;
-`client.resolved_output_modes(tools_present=...)` reports it per target without a
-request, for policy tests.
+`client.resolved_output_modes(tools_present=..., output_type=...)` reports it per
+target without a request, for policy tests. An output type answered through an output
+tool on every model (a `ToolOutput`, or `[str, Model]`) makes every member `tool`,
+whatever its route would pick.
 
 Build every agent that runs on a policy through `make_agent`, including a plain-text
 one (`output_type=str`): constructing `Agent(...)` by hand reads the model some other
