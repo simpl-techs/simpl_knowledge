@@ -40,6 +40,16 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
 - Keep reusable business/domain logic in `simpl_core` when it is needed outside workflow execution.
 - Keep workflow orchestration in flows/pipelines; keep provider/database details behind services/repositories.
 - Use `simpl_tracker` for tracking/logging and `simpl_orm` for shared database patterns.
+- `gcp_post_search_index_flow` (manual until the first batches are checked, then every
+  five minutes) claims pending rows of
+  `sales.post_search_index` (marked by the triggers of migration 065), builds and embeds post
+  records (Nebius, Qwen3-Embedding-8B), commits them to the row store on Wasabi, and
+  with a `collection` parameter keeps that Zilliz collection in step. The dataset
+  parameter is `name:version:dims`. `gcp_post_search_backfill_flow` is the same flow
+  for manual parallel backfill runs; `gcp_row_store_maintenance_flow` compacts the
+  tables (daily once live); `gcp_post_search_promote_flow` moves the `sales_posts` alias. The
+  logic lives in simpl_core (`row_store`, `search.posts`); needs the Doppler
+  `WASABI_*`, `NEBIUS_API_KEY` and `MILVUS_*` keys.
 - `gcp_memory_projection_flow` runs every five minutes and incrementally applies
   pending `agent_memory` revisions to Zilliz. It requires `NEBIUS_API_KEY`,
   `MILVUS_URI`, and `MILVUS_TOKEN`; do not replace it with routine collection
