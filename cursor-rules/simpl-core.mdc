@@ -700,6 +700,16 @@ Lead merges preserve customer scope: `sales.lead_contact` rows keep their
 deduplicated only within a single scope and owner. One customer's privately
 sourced contact details never become visible to another.
 
+A shared coordination objective follows a lead merge. When a seller is
+connected to both leads and one connection is dropped, the objective's
+`source_ulc_id` / `owner_ulc_id` (and its participants' `ulc_id`) move to the
+surviving connection, and its `lead_id` / `company_id` follow lead and company
+merges. At most one objective per source connection and responsibility may be
+open, so when both connections carry an open one the merge raises
+`MergeConflictError` rather than dropping live work: close one, then merge.
+`FkReference(on_conflict="refuse")` is how a registry entry asks for that
+instead of the default drop.
+
 ## CRM sync scopes
 
 A `crm_export_config` row is a *scope*. It is born in `dry_run` mode, and the
