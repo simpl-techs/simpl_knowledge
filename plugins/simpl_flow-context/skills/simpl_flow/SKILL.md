@@ -49,6 +49,11 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   the extension channel dropped. A dropped channel never makes an `error` session; the
   flow's result reports those companies as `requeued`. Read `error` sessions as real
   failures.
+- `generate_opportunities_flow` works only ICPs someone receives, as defined by
+  `sales_view.opportunity_recipient`: an active assignee, not on vacation, of a customer
+  whose `metadata.is_active` is not `false`. Each run deletes the non-manual
+  opportunities nobody receives, and autopilot's candidate view applies the same rule, so
+  deactivating a user, an ICP or a customer stops both without any other change.
 - Discord alerts: agent framework failures, autopilot per-user failures and
   opportunities per-ICP failures post to #warning once per failure, and a failure that
   keeps recurring edits one message and escalates to #error after an hour. Dropped
