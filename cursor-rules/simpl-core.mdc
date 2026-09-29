@@ -944,6 +944,46 @@ Persist the reference's fields, never a signed URL. A missing object raises
 `ObjectNotFoundError` and a corrupt one `ObjectChecksumMismatchError`; neither comes
 back as empty content. Keys with `.` or `..` segments are rejected.
 
+### Processed rows and projections (`row_store`)
+
+`simpl_core.row_store` keeps rows a process derives from Postgres (embeddings, detected
+languages, extracted fields) in a Lance table per dataset version, on Wasabi, before
+they are served from another system. The table is the source of truth for derived rows:
+a target such as a Zilliz collection is a strict projection of it, so it can be rebuilt
+or moved without computing anything again. LanceDB and DuckDB's `lance` extension read
+the table as it is. Needs the `row-store` extra (`pylance`) and the catalog migration
+`migrations/20260929_row_store_catalog.sql` (schema `row_store`).
+
+```python
+store = RowStore(RowStoreConfig.from_env(), RowStoreCatalog(db))
+posts = store.dataset(SPEC)                  # DatasetSpec: fields, required, indexes
+await posts.ensure()                         # catalog row, table, indexes
+await posts.commit(rows, run_id=run_id)      # key, row_version, deleted?, fields
+vectors = await posts.lookup("text_hash", hashes, ["text_hash", "vector"])
+
+runner = ProjectionRunner(posts, "zilliz:sales_posts_v2", target, columns=[...])
+await runner.run(max_seconds=120)            # None when another runner holds the lease
+await posts.maintain()                       # daily: indexes, compaction, 7-day cleanup
+```
+
+- **A commit upserts by `key`, and a row replaces the stored one only if its
+  `row_version` is not older**, so a replay is harmless. A deleted source row is a
+  tombstone (`deleted=True`, fields null) so projections see the delete. Mark source
+  work done only after `commit` returns; a `LeaseLostError` means it is not done.
+- **One writer per dataset.** Wasabi ignores conditional writes, so two Lance commits
+  racing lose a batch without an error. Commits run under a Postgres lease that Lance's
+  commit hook re-checks; other writers wait up to `lease_wait`, then get
+  `LeaseBusyError`. Every Lance write runs off the event loop.
+- **A projection target gets full rows and deletes, never partial updates.** A
+  `ProjectionTarget` implements `upsert(table)` and `delete(keys)`, both idempotent. The
+  runner applies commits past the projection's watermark, one window at a time, and
+  never reads past an open commit. Registering a projection with `applied_seq = 0` and
+  running it is a rebuild.
+- `RowStoreConfig.from_env()` reads `WASABI_PROCESSED_ROWS_BUCKET`, `WASABI_ACCESS_KEY`,
+  `WASABI_SECRET_KEY` (endpoint and region default to the bucket's, Wasabi
+  eu-central-2) and passes them to Lance explicitly, so an AWS key in the environment
+  is never used.
+
 ### Operator notifications
 
 `simpl_core.observability.TrackerOperatorNotifier` delivers `OperatorEvent`s to
