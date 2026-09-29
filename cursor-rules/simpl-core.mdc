@@ -1075,6 +1075,27 @@ Objective commands and who they wake:
   own record and timer. Lifecycle commands wake both sides, and delivery receipts wake
   the other side through `wake_coordination_on_receipt` on `outreach_events`.
 
+`AccountCoordinationService.redirect(customer_id=…, objective_id=…, actor_user_id=…,
+to_user_id=…, reason=…, idempotency_key=…)` passes an open objective to another colleague.
+- **Who may:** either participant: the owner instead of taking the work on, the source
+  when it went to the wrong colleague. Anyone else gets `forbidden`.
+- **Where to:** only a colleague in `redirect_targets(customer_id=…, objective_id=…)`,
+  computed from the team table: the source hands them a responsibility with the same
+  capability (a booking stays a booking), they own it and are active, and they are not
+  the current owner. Each target carries `user_id`, `full_name`, `responsibility_key`,
+  `description` and `mode`. Any other `to_user_id` is refused with `forbidden`, naming
+  the allowed ones, so the dispatch authority rule and `reconcile_policy` accept the
+  successor as they would a `request()`.
+- **Result:** the objective closes `cancelled` with `cancel_reason` `REDIRECTED` and a
+  `REDIRECT_EVENT` event whose payload names `successor_objective_id`. Its queued rows
+  are cancelled and its pending wake-ups closed (`skipped_reason: objective_redirected`).
+  The successor opens under the target's responsibility, from the same source connection,
+  with the context carried over plus `redirected_from`. Only the new owner is woken; the
+  source's check carries over, or moves a day ahead if it was already due.
+- **Booking:** not checked again, since the hand-off itself is unchanged. An open
+  objective already on the target's responsibility raises `already_active`; a replay on
+  the same key returns the recorded redirect and its successor.
+
 `AccountCoordinationService.record_observed_booking(...)` records a `calendar_booking`
 hand-off the owner already carried out by hand.
 - **Who:** the same source and owner that `request()` would pick.
