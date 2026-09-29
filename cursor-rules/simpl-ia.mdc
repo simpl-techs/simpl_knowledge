@@ -247,6 +247,39 @@ It differs from `run` in what it refuses to do, not in what it resolves:
   quiet mid-stream is ended by the HTTP per-read timeout or by *your* ceiling over
   the whole turn — nothing infers a stall from silence.
 
+## Milvus: one hit per group, aliases and raw rows
+
+Both `MilvusStore` and `AsyncMilvusStore` (from `simpl_ia.core.vector_stores.milvus`):
+
+- **One best hit per value of a field**: pass `group_by=GroupBy("company_id")` to
+  `search` and `text_search`, or set `group_by` on `HybridSearchConfig` /
+  `MilvusMultiBM25HybridSearchConfig`. `limit` / `top_k` then counts groups. Grouping
+  runs on the server after the filter, so a filtered search over many companies returns
+  one hit for every company that has a match. The iterators refuse it.
+- **Long value lists in hybrid filters**: `MilvusMultiBM25HybridSearchConfig(...,
+  use_filter_templates=True)` sends the filter as a template with its values as
+  parameters; `HybridSearchRequest(filter_expr=..., filter_params=...)` does the same per
+  request. A `HybridSearchRequest` with `metric_type="BM25"` takes the query text as its
+  `vector`.
+- **Aliases**: `create_alias`, `alter_alias` (atomic for readers), `drop_alias`,
+  `describe_alias` (target name, or `None`), `list_aliases`. Search, query and count
+  accept an alias wherever they take a collection name. A collection with aliases
+  cannot be dropped until they are removed.
+- **Your own schema**: `create_collection_from_schema(name, schema, index_params,
+  num_partitions=, consistency_level=)` for partition keys, nullable fields, scalar
+  indexes or a BM25 function with a custom analyzer (build them with
+  `MilvusClient.create_schema()` / `prepare_index_params()`).
+- **Rows as the schema has them**: `upsert_rows(name, rows, partial_update=False,
+  batch_size=500)`. With `partial_update=True` each row carries its key and the fields
+  to change; Milvus keeps the rest, vectors and text included. (`upsert` instead adds
+  `id` / `vector` itself and its `partial_update` only switches insert to upsert.)
+- **Analyzer check**: `run_analyzer(texts, collection_name=, field_name=)` returns the
+  tokens BM25 indexes for that field; `run_analyzer(texts, analyzer_params=)` tries an
+  analyzer before a collection uses it.
+
+Nebius embeddings: `encoding_format="base64"` sends float32 bytes (half the size of JSON
+floats) and callers still get floats. Nebius honours `dimensions` for Qwen3-Embedding.
+
 ## Rules and conventions
 
 - Prefer `simpl_ia.core` for lightweight imports that must not pull `pymilvus` or torch. Use top-level `simpl_ia` only when Milvus or the full kitchen-sink surface is intentional.
