@@ -174,6 +174,10 @@ Rules that bite consumers:
   content in place and re-running a seed migration are both silent no-ops.
 - Routing must be total: every routing position needs an unconditional catch-all,
   or startup fails.
+- A producer routes on its verdict's `final_output`: the answer its fix loop kept, or
+  the best candidate an exhausted cap surfaces, never a first answer a validator
+  rejected. The engine keeps the caller's `ResolverContext.producer_output` on that
+  same output.
 
 ### Turning the audit off
 
@@ -956,6 +960,37 @@ Recall and the calendar providers are never called.
   - the `organizer` (resolved to a user of the customer);
   - `lead_attendee {email, response_status}`;
   - `capture_job_ids`, with the organizer's row first.
+
+`AccountCoordinationService.request(...)` for a `calendar_booking` key needs the call to
+book under `evidence["booking"]`; `booking_problems(booking, now=...)` is the check.
+- **Shape:** `call_medium` (`invite` / `phone`), `lead_email`, `lead_phone`,
+  `proposed_start_datetime`, `timezone`, `timezone_source` (`lead_stated` / `location` /
+  `seller_default`), `slot_precision` (`exact` / `window`), `window_label`,
+  `source_message_id`.
+- **Rules:** an invite needs a valid bare `lead_email`, a phone call a `lead_phone` and an
+  `exact` slot. The start is ISO 8601 with a UTC offset, strictly in the future, and its
+  offset is the one the IANA `timezone` has at that instant.
+- **Refusal:** `CoordinationError` with code `booking_not_ready`, naming every problem;
+  nothing is written. A replay on the same idempotency key still returns its objective.
+- **Corrections:** `supply_information(answers=..., booking={...})` lays the given keys
+  over `objective.context.booking` in the same update, and checks the result the same
+  way. The owner's invite still queued for the objective (`PENDING` / `PENDING_APPROVAL`
+  `invite_call` on the owner's connection) moves with it: start, zone,
+  `timezone_source`, `needs_user_to_pick_slot` (a `window` slot) and the lead's address,
+  in `invite_call` and `call_data`, stamped `payload.rescheduled`. A `RUNNING` row is
+  left alone.
+- Other capabilities, and `record_observed_booking`, need no booking.
+
+Objective commands and who they wake:
+- **`supply_information`** is the source's, from any open state. From
+  `waiting_information` it resumes the work (`active`); from `requested` or `active` it
+  hands the owner news and keeps the state. `next_state(command, state)` answers which
+  state a command leaves.
+- **Wake-ups:** a participant's `accept`, `need_information`, `supply_information`,
+  `cancel` and `fulfil` wake the other participant (`coordination_updated`,
+  `WAKING_COMMANDS`). `progress` and `schedule_check` wake nobody: they are the actor's
+  own record and timer. Lifecycle commands wake both sides, and delivery receipts wake
+  the other side through `wake_coordination_on_receipt` on `outreach_events`.
 
 `AccountCoordinationService.record_observed_booking(...)` records a `calendar_booking`
 hand-off the owner already carried out by hand.
