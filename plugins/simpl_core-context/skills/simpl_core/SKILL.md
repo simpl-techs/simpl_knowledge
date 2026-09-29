@@ -983,6 +983,39 @@ await posts.maintain()                       # daily: indexes, compaction, 7-day
   eu-central-2) and passes them to Lance explicitly, so an AWS key in the environment
   is never used.
 
+### Post search (`search.posts`)
+
+LinkedIn posts and plain reposts, one record per appearance on a page, stored in the
+row store and projected into Zilliz behind the `sales_posts` alias. Triggers on
+`sales.post` / `sales.post_repost` (simpl_flow `migrations/065_post_search_index.sql`)
+mark rows of `sales.post_search_index` pending; `PostSearchIndexer.run_batch` claims
+them, builds records (`build_record`), reuses stored vectors by `text_hash` or embeds
+each new text once (`NebiusPostEmbedder`), commits, and settles the rows. The Zilliz
+collection follows through `posts_projection_runner`.
+
+```python
+search = PostSearch(milvus, dims=512, embed_query=embedder.embed_query)
+hits = await search.search(
+    vector=company_embedding,                       # or text=..., keywords=...
+    filters=PostSearchFilters(company_ids=ids, is_repost=False, languages=["en", "it"]),
+    one_per_company=True,
+    limit=len(ids),
+    min_score={"en": 0.55, "*": 0.5},               # dense-only or keyword-only
+)
+```
+
+- **Records:** `p:{sales.post.id}` (a quote carries its comment, a blank line and the
+  quoted text) and `r:{sales.post_repost.id}` (exactly the reposted post's text, so the
+  same vector). `company_id` is the page the row is on; `is_company_post` is about the
+  original author; reposts are dated by their activity id.
+- **The dataset's vector width is a parameter** (`posts_dataset_spec(dims=...)`); a new
+  width is a new dataset version. Narrower widths come from stored vectors without
+  embedding again (`vector_sources=`).
+- **Search:** the keyword half is sent as given (the analyzer is language-neutral, no
+  stemming); pass `keywords` to add word forms and translations without changing the
+  dense query. `one_per_company` groups on the server; lists over 1,024 companies are
+  searched in chunks. `min_score` is refused on hybrid (fused) scores.
+
 ### Operator notifications
 
 `simpl_core.observability.TrackerOperatorNotifier` delivers `OperatorEvent`s to
