@@ -944,6 +944,21 @@ Persist the reference's fields, never a signed URL. A missing object raises
 `ObjectNotFoundError` and a corrupt one `ObjectChecksumMismatchError`; neither comes
 back as empty content. Keys with `.` or `..` segments are rejected.
 
+A body too large to hold in memory goes up as a multipart upload. Each part is signed
+with its own SHA-256; the caller hashes the whole body as it goes and passes the digest
+to `complete_multipart_upload`, because the object's metadata is fixed before any byte
+is known and so carries no `sha256`:
+
+```python
+upload = await store.create_multipart_upload(key, content_type="video/mp4")
+parts = [await store.upload_part(upload, number, chunk) for number, chunk in numbered_chunks]
+ref = await store.complete_multipart_upload(upload, parts, sha256_hex=whole_body_digest)
+# on failure: await store.abort_multipart_upload(upload.key, upload.upload_id)
+```
+
+Every part but the last must be at least 5 MiB. `list_multipart_uploads` pages through
+uploads never completed or aborted, which are billed until aborted.
+
 ### Processed rows and projections (`row_store`)
 
 `simpl_core.row_store` keeps rows a process derives from Postgres (embeddings, detected
