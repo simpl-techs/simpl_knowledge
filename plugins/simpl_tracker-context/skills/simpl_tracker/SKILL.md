@@ -85,7 +85,10 @@ def call_ai(prompt: str, user_id: str | None = None):
   `request_accounting` is on by default; only `SIMPL_REQUEST_ACCOUNTING=false`
   switches it off. See the README contract.
 - Since 0.6.0 every POST to a billable provider endpoint is also seen at the httpx
-  boundary (`simpl_tracker.transport`, installed on import). A request no
+  boundary (`simpl_tracker.transport`, installed on import). Since 0.8.2 that covers
+  httpx2 too: openai >= 3 builds its default clients on httpx2, so before 0.8.2 an
+  OpenAI SDK client made without an `http_client` (e.g. simpl_ia's Nebius embedder)
+  left no receipt. A request no
   `CostRecordingModel` wrapped is still recorded (`capture='transport'`, process
   named by the scope or `unwrapped:<caller>`), and logs
   `llm_accounting.unwrapped_call` once per call site: wrap it for attribution. A
