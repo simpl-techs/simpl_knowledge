@@ -121,7 +121,12 @@ When there is a clear match:
 - Include the identifier in the proposed commit message.
 - Summary (when natural): `fix(scope): … (ENG-123)`
 - Footer: `Closes ENG-123` if the change resolves the issue; otherwise `Refs ENG-123`
-- Do not invent identifiers. If Linear is unreachable or nothing matches, proceed without a ticket reference.
+- Do not invent identifiers. If Linear is unreachable, proceed without a ticket reference.
+
+When nothing matches, **ask the user whether they want this work tracked on a new Linear issue** before going further:
+- Ask once per task, in chat, with a proposed title and team. Do not create the issue without an explicit yes in the current turn.
+- On yes: create it, then treat it as the matched issue (identifier in the commit message, comment on handoff).
+- On no, or no answer: proceed without a ticket reference and do not ask again for the same task.
 
 When there is a clear match, **keep the issue updated with a comment** in the same turn you finish substantive work or hand off to the user. Structure it as:
 - **What** — files/areas touched, resulting behavior.
@@ -206,6 +211,7 @@ Pre-commit checklist when editing a plugin:
 - Don't branch work directly off `main` (except `hotfix/`).
 - Don't create or switch git branches without explicit user approval in the current turn (agents: see *Agents — branch authority* at the top — never invent branches in plans either).
 - Don't invent Linear or GitHub issue ids in commit messages or PR bodies.
+- Don't start untracked work silently — when no Linear issue matches, ask the user whether to open one; never create it without their yes.
 - Don't leave a matched Linear issue silent after substantive work — comment what/how/why, or say Linear was unreachable.
 - Don't amend a commit that's already been pushed to a shared branch without flagging to reviewers.
 - Don't open a PR — in any repo — without a version bump; reviewers don't approve it.
