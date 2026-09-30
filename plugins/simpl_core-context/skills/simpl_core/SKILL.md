@@ -1001,12 +1001,16 @@ await posts.maintain()                       # daily: indexes, compaction, 7-day
 ### Post search (`search.posts`)
 
 LinkedIn posts and plain reposts, one record per appearance on a page, stored in the
-row store and projected into Zilliz behind the `sales_posts` alias. Triggers on
-`sales.post` / `sales.post_repost` (simpl_flow `migrations/065_post_search_index.sql`)
-mark rows of `sales.post_search_index` pending; `PostSearchIndexer.run_batch` claims
-them, builds records (`build_record`), reuses stored vectors by `text_hash` or embeds
-each new text once (`NebiusPostEmbedder`), commits, and settles the rows. The Zilliz
-collection follows through `posts_projection_runner`.
+row store and projected into Zilliz behind the `sales_posts` alias. Nothing is added
+to `sales.post` / `sales.post_repost` (no trigger, no index): `PostSearchScanner` reads
+them and marks rows of `sales.post_search_index` (simpl_flow
+`migrations/065_post_search_index.sql`) pending. `discover()` (every run) adds ids above
+the cursor in `sales.post_search_scan`; `sweep()` (nightly) re-marks posts whose
+`updated_at` moved, reposts whose tracked columns changed, rows whose source is gone,
+and records built from a changed post (`depends_on`). `PostSearchIndexer.run_batch`
+claims them, builds records (`build_record`), reuses stored vectors by `text_hash` or
+embeds each new text once (`NebiusPostEmbedder`), commits, and settles the rows. The
+Zilliz collection follows through `posts_projection_runner`.
 
 ```python
 search = PostSearch(milvus, dims=512, embed_query=embedder.embed_query)
