@@ -978,7 +978,7 @@ vectors = await posts.lookup("text_hash", hashes, ["text_hash", "vector"])
 
 runner = ProjectionRunner(posts, "zilliz:sales_posts_v2", target, columns=[...])
 await runner.run(max_seconds=120)            # None when another runner holds the lease
-await posts.maintain()                       # daily: indexes, compaction, 7-day cleanup
+await posts.maintain()                       # hourly: indexes, bounded compaction, cleanup
 ```
 
 - **A commit upserts by `key`, and a row replaces the stored one only if its
@@ -987,7 +987,13 @@ await posts.maintain()                       # daily: indexes, compaction, 7-day
   work done only after `commit` returns; a `LeaseLostError` means it is not done.
 - **One writer per dataset.** Commits run under a Postgres lease that Lance's commit
   hook re-checks, which also numbers them; other writers wait up to `lease_wait`, then
-  get `LeaseBusyError`. Every Lance write runs off the event loop.
+  get `LeaseBusyError`. Every Lance write runs off the event loop. The lease lives
+  `lease_ttl` (90 s, renewed every 30 s), so a writer that dies frees the dataset
+  before the others give up.
+- **`maintain` costs the same however big the table grows.** It merges fragments
+  smaller than `COMPACTION_TARGET_ROWS` (100k) into ones of about that size, never
+  rewrites a full one, and rewrites at most `COMPACTION_MAX_ROWS` (250k) per run, one
+  bin at a time; what is left waits for the next run.
 - **A projection target gets full rows and deletes, never partial updates.** A
   `ProjectionTarget` implements `upsert(table)` and `delete(keys)`, both idempotent. The
   runner applies commits past the projection's watermark, one window at a time, and
