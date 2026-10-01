@@ -163,6 +163,14 @@ To attribute those receipts, run the agent inside an `LLMAccountingScope`.
 `billing_provider` is decided by the host that answers, never by the label in a
 config: a provider entry called "openai" pointed at a gateway bills the gateway.
 
+**Audio transcription is not covered by the transport.** It records chat,
+completions, responses and embeddings only; a transcription sends its model in a
+multipart form, so an SDK `audio.transcriptions.create` call is billed with no
+receipt. Use `simpl_tracker.clients.openai_audio.transcribe_audio(api_key=..., body=...,
+filename=..., mime=..., client=httpx.AsyncClient())` inside an `LLMAccountingScope`:
+one attempt (`gpt-4o-mini-transcribe`), intent before dispatch, usage from the
+response, the audio/text token split kept in `context.audio_usage`.
+
 **Untracked cost is reported, never refused.** No request is refused, no service
 refuses to start and no run fails because a cost is not recorded. Every gap goes to
 the cost-tracking Discord channel through `simpl_tracker.report_tracking_gap(event,
