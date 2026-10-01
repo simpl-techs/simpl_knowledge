@@ -961,7 +961,7 @@ uploads never completed or aborted, which are billed until aborted.
 ### Processed rows and projections (`row_store`)
 
 `simpl_core.row_store` keeps rows a process derives from Postgres (embeddings, detected
-languages, extracted fields) in a Lance table per dataset version, on Wasabi, before
+languages, extracted fields) in a Lance table per dataset version, on GCS, before
 they are served from another system. The table is the source of truth for derived rows:
 a target such as a Zilliz collection is a strict projection of it, so it can be rebuilt
 or moved without computing anything again. LanceDB and DuckDB's `lance` extension read
@@ -984,19 +984,19 @@ await posts.maintain()                       # daily: indexes, compaction, 7-day
   `row_version` is not older**, so a replay is harmless. A deleted source row is a
   tombstone (`deleted=True`, fields null) so projections see the delete. Mark source
   work done only after `commit` returns; a `LeaseLostError` means it is not done.
-- **One writer per dataset.** Wasabi ignores conditional writes, so two Lance commits
-  racing lose a batch without an error. Commits run under a Postgres lease that Lance's
-  commit hook re-checks; other writers wait up to `lease_wait`, then get
-  `LeaseBusyError`. Every Lance write runs off the event loop.
+- **One writer per dataset.** Commits run under a Postgres lease that Lance's commit
+  hook re-checks, which also numbers them; other writers wait up to `lease_wait`, then
+  get `LeaseBusyError`. Every Lance write runs off the event loop.
 - **A projection target gets full rows and deletes, never partial updates.** A
   `ProjectionTarget` implements `upsert(table)` and `delete(keys)`, both idempotent. The
   runner applies commits past the projection's watermark, one window at a time, and
   never reads past an open commit. Registering a projection with `applied_seq = 0` and
   running it is a rebuild.
-- `RowStoreConfig.from_env()` reads `WASABI_PROCESSED_ROWS_BUCKET`, `WASABI_ACCESS_KEY`,
-  `WASABI_SECRET_KEY` (endpoint and region default to the bucket's, Wasabi
-  eu-central-2) and passes them to Lance explicitly, so an AWS key in the environment
-  is never used.
+- `RowStoreConfig.from_env()` reads `ROW_STORE_URI` (`gs://<bucket>`, optionally with
+  a prefix). Lance reaches the bucket with Application Default Credentials (the job's
+  service account on Cloud Run, `gcloud auth application-default login` locally); no
+  key is configured. Lance prefers `GOOGLE_*` credential variables in the environment,
+  so set none for another account.
 
 ### Post search (`search.posts`)
 
