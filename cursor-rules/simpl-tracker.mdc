@@ -262,3 +262,20 @@ whatever the client reports as the response id. The logic is in
 - Source: `https://github.com/simpl-techs/simpl_tracker`
 - Consumer config example: `config/tracker.yaml` in app repos
 - Internal conventions: `.agent/INTERNAL.md`
+
+## AssemblyAI pre-recorded speech
+
+Use `simpl_tracker.assemblyai.AssemblyAIRequest` and
+`record_assemblyai_transcript(backend, request, transcript)` off the workload's
+critical path. Pass the provider's complete response for extraction; the stored
+receipt excludes audio, text, prompts and credentials. `transcript=None` records a
+pending request; the same request can be completed/replayed without double counting.
+`assemblyai_account_key(api_key)` supplies the non-secret account fingerprint.
+The backend can recover pending requests with
+`pending_speech_receipts(repo, process, account)` (up to 100 at a time).
+Apply migration `20261001130439_assemblyai_speech_receipts.sql` first.
+Audio is priced by actual model and duration × channel count, with prompt,
+keyterms and diarization add-ons. Unknown models/features/dates stay NULL and
+report a tracking gap. Public rates effective 2026-10-01 are estimates; account
+credits and negotiated discounts require invoice reconciliation. No historical
+rate is inferred before the effective date.
