@@ -22,6 +22,9 @@ STRIPE_WEBHOOK_SECRET  simpl_sales
 DISCORD_ERROR_WEBHOOK_URL  simpl_api simpl_outreach simpl_flow
 DISCORD_WARNING_WEBHOOK_URL  simpl_api simpl_outreach simpl_flow
 DISCORD_SUCCESS_WEBHOOK_URL  simpl_api simpl_outreach simpl_flow
+# Additional production Discord recorder identities; never mirror into dev/stg.
+DISCORD_BOT_TOKEN_2@prd  simpl_ops
+DISCORD_BOT_TOKEN_3@prd  simpl_ops
 # Cost-tracking alerts (simpl_tracker report_tracking_gap): prd only, so local and
 # staging runs never post to the channel.
 DISCORD_COST_TRACKING_WEBHOOK_URL@prd  simpl_api simpl_ops simpl_growth simpl_google_extension simpl_flow simpl_outreach simpl_scraping simpl_sales
