@@ -42,13 +42,14 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
 - `gcp_post_search_index_flow` (every five minutes) adds new posts to `sales.post_search_index` (migration 065) by reading
   `sales.post` / `sales.post_repost` (no trigger or index on them), claims pending rows,
   builds and embeds post records (Nebius, Qwen3-Embedding-8B), commits them to the row
-  store on Wasabi, and with a `collection` parameter keeps that Zilliz collection in
+  store on GCS, and with a `collection` parameter keeps that Zilliz collection in
   step. Run by hand with bigger parameters it is the backfill, and with
   `promote_alias` it moves that alias to the collection once caught up.
   `gcp_post_search_maintenance_flow` (nightly, 02:30 UTC) marks pending again what
   changed or went away, then compacts the row store datasets. The dataset parameter is
   `name:version:dims`. The logic lives in simpl_core (`row_store`, `search.posts`);
-  needs the Doppler `WASABI_*`, `NEBIUS_API_KEY` and `MILVUS_*` keys.
+  needs the Doppler `ROW_STORE_URI`, `NEBIUS_API_KEY` and `MILVUS_*` keys; the job's
+  service account reaches the bucket (no Google key in the environment).
 - `gcp_memory_projection_flow` runs every five minutes and incrementally applies
   pending `agent_memory` revisions to Zilliz. It requires `NEBIUS_API_KEY`,
   `MILVUS_URI`, and `MILVUS_TOKEN`; do not replace it with routine collection
