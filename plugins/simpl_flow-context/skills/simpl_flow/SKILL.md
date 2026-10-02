@@ -65,6 +65,10 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   whose `metadata.is_active` is not `false`. Each run deletes the non-manual
   opportunities nobody receives, and autopilot's candidate view applies the same rule, so
   deactivating a user, an ICP or a customer stops both without any other change.
+- A Customer company (lead status 10) and a company imported with a `Dummy Imported`
+  connection are watched, never proposed: their signals land in
+  `opportunity.icp_signal_monitor` (the watchlist), but they are never a new or
+  `fallback_monitoring` opportunity, so autopilot never gets them either.
 - Discord alerts: agent framework failures, autopilot per-user failures and
   opportunities per-ICP failures post to #warning once per failure, and a failure that
   keeps recurring edits one message and escalates to #error after an hour. Dropped
