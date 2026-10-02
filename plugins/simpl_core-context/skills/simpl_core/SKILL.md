@@ -74,7 +74,7 @@ ROI vendor catalog (`simpl_core.roi.vendors`): `vendor_key` cleans a bank descri
 - `payroll`: people cost.
 - `excluded`: not a cost.
 
-A change of use is a new assignment, never an edit of the past. A quiz answer is valid from `FROM_THE_START`. `roi.vendors.proposed_*` is the answer the quiz offers already selected, never a decision. `assignment_on(assignments, vendor, day)` picks the one in force. `require_valid_assignment` is the same rule the table's checks enforce. `roi.vendors.area` and `reviewer` only decide who is asked about a vendor. `roi.transactions` also keeps the Revolut `kind` and the card `payer`.
+A change of use is a new assignment, never an edit of the past. A quiz answer is valid from `FROM_THE_START`. `roi.vendors.proposed_*` is the answer the quiz offers already selected, never a decision. `assignment_on(assignments, vendor, day)` picks the one in force. `require_valid_assignment` is the same rule the table's checks enforce. `roi.vendors.area` and `reviewer` only decide who is asked about a vendor. `first_triage(mccs)` guesses a new vendor's area from its merchant codes: all travel or meals means `travel` with the Team e retreat proposal, all software means `tech`, anything else `admin`. `VendorRepository.fold_into(key, into)` makes a duplicate an alias; its own aliases follow it. `roi.transactions` also keeps the Revolut `kind` and the card `payer`.
 
 Prefer importing the specific service, repository, or model you need. Keep app-layer orchestration in the app repo and reusable domain behavior in `simpl_core`.
 
