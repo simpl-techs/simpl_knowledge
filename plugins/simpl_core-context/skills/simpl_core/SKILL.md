@@ -998,8 +998,8 @@ await posts.maintain()                       # indexes, bounded compaction and m
   smaller than `COMPACTION_TARGET_ROWS` (100k) into ones of about that size, never
   rewrites a full one, and rewrites at most `COMPACTION_MAX_ROWS` (250k) per run, one
   bin at a time; what is left waits for the next run. It merges an index's newest
-  segments only up to `INDEX_SEGMENT_MAX_ROWS` (1M) and drops indexes the spec no
-  longer plans.
+  segments only up to `INDEX_SEGMENT_MAX_ROWS` (1M), drops indexes the spec no
+  longer plans and builds a missing one per run (a new index reads its whole column).
 - **A projection target gets full rows and deletes, never partial updates.** A
   `ProjectionTarget` implements `upsert(table)` and `delete(keys)`, both idempotent. The
   runner applies commits past the projection's watermark, one window at a time, and
