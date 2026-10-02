@@ -974,11 +974,11 @@ store = RowStore(RowStoreConfig.from_env(), RowStoreCatalog(db))
 posts = store.dataset(SPEC)                  # DatasetSpec: fields, required, indexes
 await posts.ensure()                         # catalog row, table, indexes
 await posts.commit(rows, run_id=run_id)      # key, row_version, deleted?, fields
-vectors = await posts.lookup("text_hash", hashes, ["text_hash", "vector"])
+rows = await posts.get(keys, ["text"])       # by key; tombstones included
 
 runner = ProjectionRunner(posts, "zilliz:sales_posts_v2", target, columns=[...])
 await runner.run(max_seconds=120)            # None when another runner holds the lease
-await posts.maintain()                       # hourly: indexes, bounded compaction, cleanup
+await posts.maintain()                       # indexes, bounded compaction and merges, cleanup
 ```
 
 - **A commit upserts by `key`, and a row replaces the stored one only if its
@@ -990,10 +990,17 @@ await posts.maintain()                       # hourly: indexes, bounded compacti
   get `LeaseBusyError`. Every Lance write runs off the event loop. The lease lives
   `lease_ttl` (90 s, renewed every 30 s), so a writer that dies frees the dataset
   before the others give up.
+- **No commit or read costs more as the table grows.** A commit finds the stored rows
+  of its keys through the key index (key and row_version only) and replaces them in
+  one Lance commit; reads find rows on a narrow column and take the others by row id;
+  once `INDEX_NEW_ROWS_AT` (10k) rows are outside the indexes, the commit indexes them
+  as new segments, so no read scans more than that.
 - **`maintain` costs the same however big the table grows.** It merges fragments
   smaller than `COMPACTION_TARGET_ROWS` (100k) into ones of about that size, never
   rewrites a full one, and rewrites at most `COMPACTION_MAX_ROWS` (250k) per run, one
-  bin at a time; what is left waits for the next run.
+  bin at a time; what is left waits for the next run. It merges an index's newest
+  segments only up to `INDEX_SEGMENT_MAX_ROWS` (1M) and drops indexes the spec no
+  longer plans.
 - **A projection target gets full rows and deletes, never partial updates.** A
   `ProjectionTarget` implements `upsert(table)` and `delete(keys)`, both idempotent. The
   runner applies commits past the projection's watermark, one window at a time, and
@@ -1015,8 +1022,8 @@ them and marks rows of `sales.post_search_index` (simpl_flow
 the cursor in `sales.post_search_scan`; `sweep()` (nightly) re-marks posts whose
 `updated_at` moved, reposts whose tracked columns changed, rows whose source is gone,
 and records built from a changed post (`depends_on`). `PostSearchIndexer.run_batch`
-claims them, builds records (`build_record`), reuses stored vectors by `text_hash` or
-embeds each new text once (`NebiusPostEmbedder`), commits, and settles the rows. The
+claims them, builds records (`build_record`), embeds each distinct text once
+(`NebiusPostEmbedder`), commits, and settles the rows. The
 Zilliz collection follows through `posts_projection_runner`.
 
 ```python
@@ -1035,8 +1042,8 @@ hits = await search.search(
   same vector). `company_id` is the page the row is on; `is_company_post` is about the
   original author; reposts are dated by their activity id.
 - **The dataset's vector width is a parameter** (`posts_dataset_spec(dims=...)`); a new
-  width is a new dataset version. Narrower widths come from stored vectors without
-  embedding again (`vector_sources=`).
+  width is a new dataset version. A Zilliz collection of any narrower width is a
+  projection of the stored vectors, no embedding again.
 - **Search:** the keyword half is sent as given (the analyzer is language-neutral, no
   stemming); pass `keywords` to add word forms and translations without changing the
   dense query. `one_per_company` groups on the server; lists over 1,024 companies are
