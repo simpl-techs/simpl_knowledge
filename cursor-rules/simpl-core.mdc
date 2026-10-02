@@ -53,6 +53,15 @@ ROI catalog `kind` is `line` (standing) or `project` (time-boxed). `awaiting_rev
 
 Ledger target: a `roi.attribution_ledger` row names either an `initiative_id` or a `person`, never both (database check). `append_person_split(records, subject_id, people, source)` splits an expense evenly over people. In `build_dataset`, each person's share follows that person's survey hours in the expense's month, as vendor cost on those lines, the same way their wage is spread. A share whose person filed no hours that month stays tagged but lands in `RoiDataset.undistributed[person]`, so it stays visible.
 
+Classification (`simpl_core.roi.classify.plan_classification`) turns vendor and trip decisions into ledger targets, one bank line at a time:
+
+- A line in a trip goes where the trip goes.
+- Otherwise the vendor assignment in force on the line's day decides. `line` goes to its initiative; `people` is split evenly over people; `payer` goes to the card holder; `payroll` goes to `PAYROLL`; `excluded` goes to the transit row `NOT_SPEND_ID` (`NON-SPESA`).
+- Lines no decision reaches are returned in `pending`, keyed by reason: vendor still to classify, trip-mode vendor outside any trip, or payer not on the roster.
+- A line attributed by hand is `protected`. A line whose ledger already agrees is `unchanged`.
+
+`append_targets` writes a batch that mixes initiative and person shares. The old pattern rules (`tagging.plan_tagging`) are no longer used by the API.
+
 Trips (`simpl_core.roi.trips`): `plan_trips(lines, known, decided)` groups travel spend by card MCC. A trip needs an anchor: airline or hotel ranges 3000-3999, Airbnb or travel agency 4722, hotel 7011, train 4112, coach 4131 or 4511. Taxis, meals, tolls, fuel and parking only join a trip on its dates. Lines chain while consecutive ones are at most 2 days apart. Lines already placed, and lines someone took out of a trip (`roi.trip_lines.trip_id` null), are never regrouped. New lines falling on a known trip's dates join it. New trips go to `DEFAULT_TRIP_INITIATIVE` (INI-60 Team e retreat) until someone decides otherwise.
 
 Revolut statement (`simpl_core.roi.revolut.parse_statement`): reads the Revolut Business CSV into `StatementLine`s with the shape `roi.transactions` already holds. The description is `Description · Reference` (the reference is how payroll dates a wage). The counterpart is the transfer beneficiary, or the description when there is none. The amount is spend, positive with the fee included; card and fee refunds come out negative. Top-ups, incoming transfers, movements that are not completed and non-EUR rows are left out and counted by reason in `skipped`. Transfers to our own other account are imported: the vendor catalog marks them `excluded`. `TransactionRepository.upsert_many` is one bulk upsert by id and answers how many lines were new.
