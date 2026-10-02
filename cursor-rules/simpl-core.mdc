@@ -51,6 +51,22 @@ from simpl_core.roi import (
 
 ROI catalog `kind` is `line` (standing) or `project` (time-boxed). `awaiting_review` rows are visible to `created_by` and to anyone with `time_weeks` on that row, until publish/merge/reject. Merge (`recategorize`) remaps every person's time onto a live destination — published or another awaiting proposal (`merged_into`). Close applies to projects (`closed_on`). A proposal carries the proposer's words in `proposal_note`, and `publish` / `recategorize` / `close` stamp `decided_by` and `decided_at` when the caller passes the actor. A project takes its `category`, `lag_profile`, `roi_ranked` and `sort_order` from its line through `catalog.child_defaults(parent, ...)` — never derive them again in a consumer, or a project published under a different line keeps the category of the line it was proposed under. `remap_person_weeks` moves every hour onto the destination; `split_person_weeks(rows, source_id=..., shares=[(dest, pct), ...])` is the same move split across several destinations for one person, and refuses shares that do not add up to 100. `TimeWeekRepository.people_on(initiative_id)` says who filed time on a row, which is what an admin needs before deciding where it goes.
 
+Ledger target: a `roi.attribution_ledger` row names either an `initiative_id` or a `person`, never both (database check). `append_person_split(records, subject_id, people, source)` splits an expense evenly over people. In `build_dataset`, each person's share follows that person's survey hours in the expense's month, as vendor cost on those lines, the same way their wage is spread. A share whose person filed no hours that month stays tagged but lands in `RoiDataset.undistributed[person]`, so it stays visible.
+
+Trips (`simpl_core.roi.trips`): `plan_trips(lines, known, decided)` groups travel spend by card MCC. A trip needs an anchor: airline or hotel ranges 3000-3999, Airbnb or travel agency 4722, hotel 7011, train 4112, coach 4131 or 4511. Taxis, meals, tolls, fuel and parking only join a trip on its dates. Lines chain while consecutive ones are at most 2 days apart. Lines already placed, and lines someone took out of a trip (`roi.trip_lines.trip_id` null), are never regrouped. New lines falling on a known trip's dates join it. New trips go to `DEFAULT_TRIP_INITIATIVE` (INI-60 Team e retreat) until someone decides otherwise.
+
+Revolut statement (`simpl_core.roi.revolut.parse_statement`): reads the Revolut Business CSV into `StatementLine`s with the shape `roi.transactions` already holds. The description is `Description · Reference` (the reference is how payroll dates a wage). The counterpart is the transfer beneficiary, or the description when there is none. The amount is spend, positive with the fee included; card and fee refunds come out negative. Top-ups, incoming transfers, movements that are not completed and non-EUR rows are left out and counted by reason in `skipped`. Transfers to our own other account are imported: the vendor catalog marks them `excluded`. `TransactionRepository.upsert_many` is one bulk upsert by id and answers how many lines were new.
+
+ROI vendor catalog (`simpl_core.roi.vendors`): `vendor_key` cleans a bank description into the merchant name. It drops booking and order codes (`Airbnb * Hm22p4qmkw`, `Google Cloud Lrw2jl`, `Ryanair224tz5g3g`), billing months and legal suffixes, and keeps what follows the star for payment processors (`Paypal *deepseek`, `Sumup *trattoria`). `roi.vendor_aliases` folds the other names a vendor shows up under (`canonical_vendor`). `roi.vendor_assignments` says where a vendor's spend goes from `valid_from` on, with `mode`:
+
+- `line`: one initiative.
+- `people`: split over those people's survey hours, so a seat follows whoever uses it.
+- `trip`: decided per trip.
+- `payroll`: people cost.
+- `excluded`: not a cost.
+
+A change of use is a new assignment, never an edit of the past. `assignment_on(assignments, vendor, day)` picks the one in force. `require_valid_assignment` is the same rule the table's checks enforce. `roi.vendors.area` and `reviewer` only decide who is asked about a vendor. `roi.transactions` also keeps the Revolut `kind` and the card `payer`.
+
 Prefer importing the specific service, repository, or model you need. Keep app-layer orchestration in the app repo and reusable domain behavior in `simpl_core`.
 
 ## Rules and conventions
