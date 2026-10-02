@@ -61,10 +61,11 @@ ROI vendor catalog (`simpl_core.roi.vendors`): `vendor_key` cleans a bank descri
 - `line`: one initiative.
 - `people`: split over those people's survey hours, so a seat follows whoever uses it.
 - `trip`: decided per trip.
+- `payer`: each charge follows the survey hours of the card holder who paid it (`payer_person` maps "Nicolo' Fugallo" to the roster name "Nicolò").
 - `payroll`: people cost.
 - `excluded`: not a cost.
 
-A change of use is a new assignment, never an edit of the past. `assignment_on(assignments, vendor, day)` picks the one in force. `require_valid_assignment` is the same rule the table's checks enforce. `roi.vendors.area` and `reviewer` only decide who is asked about a vendor. `roi.transactions` also keeps the Revolut `kind` and the card `payer`.
+A change of use is a new assignment, never an edit of the past. A quiz answer is valid from `FROM_THE_START`. `roi.vendors.proposed_*` is the answer the quiz offers already selected, never a decision. `assignment_on(assignments, vendor, day)` picks the one in force. `require_valid_assignment` is the same rule the table's checks enforce. `roi.vendors.area` and `reviewer` only decide who is asked about a vendor. `roi.transactions` also keeps the Revolut `kind` and the card `payer`.
 
 Prefer importing the specific service, repository, or model you need. Keep app-layer orchestration in the app repo and reusable domain behavior in `simpl_core`.
 
