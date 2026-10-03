@@ -294,7 +294,7 @@ floats) and callers still get floats. Nebius honours `dimensions` for Qwen3-Embe
 - **Don't** point `provider="typesafe"` at `api.typesafe.ai` or at `https://openrouter.ai/api/v1` — the first is refused (Jev is served through OpenRouter here), the second is the chat root and the SDK appends `/v1/systemone` to whatever it is given. Leave `base_url` unset and the gateway root applies.
 - **Don't** put the question for a Jev member in the system prompt — Jev judges it as material. Field descriptions, the output type's docstring and `instructions` are what it is asked.
 - **Don't** assume `simpl_ia.core.vector_stores.EmbedderMetadata` and `simpl_ia.core.providers.metadata.EmbedderMetadata` are the same class — they are distinct types for different layers.
-- **Don't** leave the HTTP timeout at its 60 s default for models that queue before answering — a call that stays silent that long is dropped and falls back. `AI_LLM_TIMEOUT_SECONDS`, `AI_SLOW_MODEL_TIMEOUT_SECONDS` and `AI_SLOW_MODEL_MARKERS` (see the README) raise it or move a model into the slow class without a release.
+- **Don't** leave the HTTP timeout at its 60 s default for a call that can stay silent longer — it is dropped and falls back. OpenRouter sends nothing on an unstreamed call until the answer is complete, so a reasoning model there is silent for its whole generation: on 2026-10-03 every 2.5-5 minute call on `deepseek/deepseek-v4.1-flash` died at 60 s while the upstream finished and billed it. Set `http_timeout_seconds` on the policy target that needs it; `AI_LLM_TIMEOUT_SECONDS`, `AI_SLOW_MODEL_TIMEOUT_SECONDS` and `AI_SLOW_MODEL_MARKERS` (see the README) set the default for targets that say nothing.
 
 ## Testing
 
