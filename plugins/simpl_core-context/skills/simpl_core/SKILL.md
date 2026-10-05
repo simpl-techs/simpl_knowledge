@@ -1079,6 +1079,39 @@ runner = projection_runner(dataset, milvus, "my_kind_v1", collection, dims=512)
 - `BuiltDocument.text_hash`/`meta_hash` equal to the ledger's (same table) settle the
   document without writing; rows a new version no longer has get tombstones.
 
+### Landing search (`search.landing`)
+
+Company websites, as the crawl stores them, in the row store and a Zilliz collection
+behind the `landing_pages` alias: one document per site (`h:{host}`), its pages' text
+chunked, its template (menu, footer) once. A scope (e.g. Italian companies) is indexed
+first, every crawled site after.
+
+```python
+scanner = LandingScanner(db)
+await scanner.seed_scope(CompanyScope(name="italy", countries=("ITA", "IT")))  # priority 1
+await scanner.follow_crawl()                 # finished crawls: new sites at 0, changes marked
+
+bodies = S3ObjectStore(ObjectStorageConfig.from_env())        # the crawl's bucket
+sources = LandingSourceRepository(db, bodies, bucket=bodies.config.bucket)
+indexer = landing_indexer(db, sources=sources, dataset=landing_dataset,
+                          embedder=NebiusEmbedder(api_key=..., dims=4096,
+                                                  query_task=landing.QUERY_TASK),
+                          detect_language=detect)
+await indexer.run_batch(batch_size=20)       # sites, not pages
+
+search = LandingSearch(milvus, dims=512, embed_query=embedder.embed_query)
+hosts = await hosts_for_companies(db, company_ids)       # host -> company ids
+hits = await search.search(text="impianti fotovoltaici",
+                           filters=LandingSearchFilters(hosts=list(hosts)),
+                           one_per_host=True, limit=50)
+```
+
+- Every visible text is kept; legal pages are excluded from search unless
+  `page_kinds` names `legal`. Hits carry the chunk (`content`), its page `url`, `title`
+  and `section`.
+- The ledger and cursors are simpl_flow migration 075; the flow needs
+  `OBJECT_STORAGE_*` for the crawl's bucket.
+
 ### Post search (`search.posts`)
 
 LinkedIn posts and plain reposts, one record per appearance on a page, stored in the
