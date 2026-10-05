@@ -1134,6 +1134,9 @@ hits = await search.search(text="impianti fotovoltaici",
                            one_per_host=True, limit=50)
 ```
 
+- `landing_indexer(..., pages_per_batch=400)` sizes batches by pages: `run_batch`'s
+  `batch_size` caps the sites, `pages_per_batch` their pages; claims past it are released
+  (`released_keys`) and processed by a later batch.
 - A scope with no conditions must be named `all` (priority 0); other scopes need a
   condition and a priority of at least 1. Redefining a scope under the same name
   starts its walk over.
