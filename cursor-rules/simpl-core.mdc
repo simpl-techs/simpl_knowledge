@@ -196,6 +196,13 @@ Rules that bite consumers:
 - Manifest membership, **not** `is_active`, is what a ledger-resolved run reads.
   Projected component rows are inserted inactive; re-filtering loader output on
   `is_active` empties the graph.
+- A route handler reads only what it declares in `requires`. Dispatch it with
+  `await RouteHandlerRegistry.context_for(route, resolver_context)`, which resolves
+  those inputs into `ctx.resolved` under the key a routing rule's `when` uses (the
+  path's leaf). A `RouteHandlerContext` built by hand carries none of them, and the
+  routing engine does not pass the matched rule's inputs on. A declared input that
+  cannot be resolved raises `RouteHandlerInputError` and the handler does not run,
+  so the resolver context must hold what the routing node's context held.
 - A policy change needs a **new** ledger version. Editing a projected version's
   content in place and re-running a seed migration are both silent no-ops.
 - Routing must be total: every routing position needs an unconditional catch-all,
