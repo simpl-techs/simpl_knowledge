@@ -1165,6 +1165,14 @@ indexer = DocumentIndexer(
 )
 result = await indexer.run_batch(batch_size=100)
 
+# or overlapped: the next batch loads and the previous one commits while one embeds
+async with BatchPipeline(indexer, run_id=run_id, depth=3, on_result=record) as pipeline:
+    while not pipeline.stopped:
+        claimed = await pipeline.submit(100)  # returns once claimed, loaded and built
+        if claimed.claimed + claimed.released < 100:
+            break
+# leaving the block waits for every batch to commit (or gives them back on an error)
+
 collection = ZillizCollectionSpec(log_name="my_kind", columns=(...), schema=..., entity=...)
 await create_collection(milvus, "my_kind_v1", collection, dims=512)
 runner = projection_runner(dataset, milvus, "my_kind_v1", collection, dims=512)
@@ -1179,6 +1187,10 @@ runner = projection_runner(dataset, milvus, "my_kind_v1", collection, dims=512)
   `run_batch(batch_size=..., keys=page.pending)` claims only those, then
   `walk.advance(page)`. Each scope has its own cursor (`ScanCursors`); scoped and
   general runs share the ledger, so neither redoes what the other did or holds.
+- `BatchPipeline` overlaps batches (up to `depth` in hand; `depth=1` is one at a time).
+  `on_result` sees each committed batch; `drain()` waits for every batch in hand (a
+  scoped run drains before `walk.advance`); `deferred`/`stopped` say why it stopped.
+  The embedder never gets more than `embed_concurrency` requests at once.
 
 ### Landing search (`search.landing`)
 
