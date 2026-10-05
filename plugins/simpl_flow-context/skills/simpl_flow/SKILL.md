@@ -80,6 +80,15 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   whose `metadata.is_active` is not `false`. Each run deletes the non-manual
   opportunities nobody receives, and autopilot's candidate view applies the same rule, so
   deactivating a user, an ICP or a customer stops both without any other change.
+- A **post signal** (`sales.icp_signal.filter_json`) searches the LinkedIn posts in Zilliz
+  (alias `sales_posts`) for a topic: `{"mode": "all_match", "conditions": [{"collection":
+  "sales_posts", "embedded_text": "<topic>", "similarity_threshold": 0.5,
+  "date_range_days": 30}]}` (those defaults apply when a value is missing). A company
+  matches when one of its posts from the window scores at least the threshold (cosine);
+  there is no `min_matches` and any other key is ignored. The match's evidence is that
+  post: `matching_objects = {"sales.post": {"count": 1, "ids": ["<sales.post.id>"]}}`
+  (for a repost, the original post). The matcher embeds the topic itself, so a post
+  signal stores no `embedding_vector`. Post signals are never SQL on `sales.post`.
 - A Customer company (lead status 10) and a company imported with a `Dummy Imported`
   connection are watched, never proposed: their signals land in
   `opportunity.icp_signal_monitor` (the watchlist), but they are never a new or
