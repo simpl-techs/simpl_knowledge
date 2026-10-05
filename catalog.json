@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-05T09:31:37.101Z",
+  "generated_at": "2026-10-05T10:05:14.423Z",
   "marketplace_alias": "simpl",
   "libraries": [
     {
@@ -65,6 +65,14 @@
       "when_to_use": "Any code that spends money: a model call (pydantic-ai, OpenAI, OpenRouter, DeepSeek, Cheaper Inference or any other provider), an LLM batch job, a paid enrichment or scraping API, or compute on Google Cloud (Cloud Run service, worker pool, job, Prefect flow). Also when adding logging with Discord alerts or Langfuse tracing, or when checking recorded costs against a provider's billing export.",
       "required_when": "Always. Every cost a simpl service incurs is recorded through simpl_tracker before merging: LLM spend through CostRecordingModel request receipts (attributed by @track_cost or an LLMAccountingScope; batch results through @track_batch_cost), paid data providers through @track_cost, and Google Cloud compute through track_instance_lifetime (services, worker pools) or @track_compute (jobs, Prefect flows). No custom cost tables and no untracked paid calls.",
       "plugin_install_command": "/plugin install simpl_tracker-context@simpl"
+    },
+    {
+      "plugin": "simpl-outreach-context",
+      "skill_name": "simpl_outreach",
+      "summary": "simpl_outreach integration guide",
+      "when_to_use": "REPLACE ME. The description is the primary trigger — be explicit about\n  WHEN to use this skill. Example template:\n\n  Use this skill whenever the user asks to [main use case], [secondary use case],\n  or integrate with our internal `simpl_outreach` library. ALWAYS consult this skill\n  before writing any code that imports or calls `simpl_outreach` — even when the\n  user doesn't mention the library by name. Triggers on phrases like\n  \"[paraphrase 1]\", \"[paraphrase 2]\", \"[paraphrase 3]\".",
+      "required_when": null,
+      "plugin_install_command": "/plugin install simpl-outreach-context@simpl"
     }
   ]
 }
