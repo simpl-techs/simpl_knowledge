@@ -177,6 +177,30 @@ reasoning, fallback index — and the chain's attempts, as `LLMAgent`'s do.
 `answered_target(client, run_result, agent_id=...)` names the target that answered
 a run built outside `LLMAgent`.
 
+**A producer's output keeps the confidence its model answered with.** Jev
+(TypeSafe's System One) answers each field of the output type with a probability,
+which pydantic-ai puts in the response's `provider_details`. `LLMAgent` adds it to
+the producer's output as `_confidence` (`MODEL_CONFIDENCE_KEY`): `fields`, each
+field's confidence from 0 (undecided) to 1, and `probabilities`, each pick-one
+field's full distribution. A language model reports none, so an answer from a
+fallback behind Jev has no `_confidence`. The key is on the `agent_runs` output and
+on the run surface as `<node>._confidence`; edges read only a node's top-level
+keys, so a pipeline that routes on it reads it in a deterministic step.
+
+**A failed producer call says what kind of failure it was.**
+`AgentExecution.require_output()` raises `ProducerCallFailed`, a `RuntimeError`
+with the message it always had (so `except RuntimeError` and rescue chains keyed
+on the text are unaffected), carrying `agent_id`, `failure`, the call's live
+attempt trail and `kind`, from `classify_producer_failure`: `thread` (every
+answer was unusable), `rejected` (the provider refused the request: 400, 413,
+422), `infrastructure` (5xx, 429, 408, 401, 403, 404, a transport error, a
+deadline, a cancelled attempt, the call ceiling) or `unclassified` (attempts
+that disagree, an empty trail, anything unknown). It is code, not a model: each
+attempt is read by its recorded outcome, its exact error class and, for an HTTP
+error, the `status_code: NNN,` prefix of its message, and the call is a kind
+only when every attempt is. A caller that retries work decides what to charge
+from it, so an outage does not use up retries meant for bad input.
+
 Tests use `FixedClientResolver` or `OfflineModelResolver` from
 `simpl_core.agent_framework.testing`. `OfflineModelResolver(model_for=...)` builds
 each agent on the real policy client (`OfflineModelClient`), with every chain member
@@ -652,6 +676,63 @@ consults the company, and can return someone employed elsewhere.
   a host match is only accepted against a candidate with no LinkedIn identity
   of its own.
 
+### Judging a conversation thread
+
+`simpl_core.services.conversation_processing` judges one stored thread and, for a
+sales thread, opens one `sales.user_lead_connection` at the funnel category the
+conversation reached. That insert is the whole outreach handoff.
+
+```python
+from simpl_core.services.conversation_processing import (
+    ConversationProcessor,
+    SalesDecision,
+    load_thread_bundle,
+    render_transcript,
+)
+
+processor = ConversationProcessor()
+bundle = await load_thread_bundle(session, thread_id)
+reading = await processor.read(bundle, session=session)   # writes nothing
+if reading.skip_reason is None:
+    transcript = render_transcript(
+        bundle,
+        counterpart=reading.counterpart,
+        own_participant_ids=reading.own_participant_ids,
+    )
+    decision = SalesDecision(verdict="sales", stage="messaged", reason="...")  # your sales check
+    if decision.verdict == "sales":
+        result = await processor.process(
+            bundle, reading, decision, session=session,
+            mode="incremental",   # or "backfill" / "report_only"
+        )
+        result.outcome    # connection_opened / connection_existed / no_lead / ...
+        result.issues     # what a person has to settle
+```
+
+`read` settles, without any model call, every thread that could not open a
+connection anyway, and a LinkedIn sponsored message the owner never answered
+(`reading.skip_reason`). `process` resolves the lead and
+company with the dedup placement services, writes the links and opens the
+connection; `mode="report_only"` decides exactly the same and writes nothing
+(`incremental` and `backfill` behave the same here: the caller decides which
+threads to pass). `process` takes only a sales decision and raises `ValueError`
+on any other.
+On a thread that waits on the counterpart it opens at Messaged and queues a
+`planner-follow-up-check` with it, so outreach proposes a follow-up; an active
+stage on a thread older than 90 days opens at Monitoring, and so does a
+`deferred` stage ("maybe later") at any age. A deferral that named its day
+(`SalesDecision(..., stage="deferred", recontact_on=date(2026, 7, 1))`) opens at
+Messaged instead, with the follow-up due that day (`result.follow_up_at`),
+queued the way outreach queues a callback the lead asked for
+(`deferral_kind: scheduled_callback`) at the start of the owner's working day; a
+day more than 90 days past, before the counterpart's newest message, or more than
+two years after it parks at Monitoring like an undated one. Every connection it
+opens without an immediate follow-up has its own `lead_claimed` closed with
+`BatchTriggerQueueRepository.settle_lead_claimed(ulc_id, reason=...)`, which any
+caller opening a connection that must not start with a first touch can use:
+outreach's connect fast path would otherwise send an invite at any stage.
+`simpl_core` never imports a model runtime: the sales check is the caller's.
+
 ### Unknown companies never block
 
 Resolution can miss; ingestion must not stop. Use the placement service when you
@@ -672,7 +753,10 @@ placed.company_id  # None for "unresolved" and "escalated"
 most likely one of them and a placeholder would be a third. The claim is
 recorded under its identity with the candidates attached, and nothing is
 created. `identity_key` is unique and reused, so getting this wrong would pin
-every future sighting of that identity to the fabricated row permanently.
+every future sighting of that identity to the fabricated row permanently. An
+`insufficient_signal` outcome that still carries candidates escalates the same
+way — the resolver found rows it declined to link (an exact name match under
+`propose_by_name`), and creating alongside them has the same effect.
 
 Two tiers, decided by what the claim carried. **Company evidence present** (a
 corporate domain, or a name) creates a real `sales.company` row with
