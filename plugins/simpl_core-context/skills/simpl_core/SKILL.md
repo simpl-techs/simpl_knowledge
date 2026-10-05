@@ -518,6 +518,10 @@ Both need the `agent-framework` extra — they validate through the framework's
 schemas. `import simpl_core` itself stays free of that dependency; the cost is
 paid on first access to either name.
 
+## Email signature
+
+`simpl_core.services.email.signature` sanitizes HTML stored on `sales.user.email_signature_html` and appends it once, under the draft and before the unsubscribe footer. The column is added by simpl_api migration `20260907_user_email_signature.sql`. Apply that migration before deploying a build whose `User` model selects the column.
+
 ## Email send-as aliases
 
 Connected Gmail/Outlook accounts can send from a verified alias stored on `integration.user_connection.config`:
