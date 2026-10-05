@@ -50,6 +50,19 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   `name:version:dims`. The logic lives in simpl_core (`row_store`, `search.posts`);
   needs the Doppler `ROW_STORE_URI`, `NEBIUS_API_KEY` and `MILVUS_*` keys; the job's
   service account reaches the bucket (no Google key in the environment).
+- `gcp_landing_search_index_flow` indexes company websites as the crawl stores them, one
+  document per site, into `landing_pages:1:4096` and the Zilliz collection
+  `landing_pages_v1` (alias `landing_pages`; ledger `sales.landing_search_index`,
+  migration 075). Two modes sharing the ledger, so neither redoes the other's work:
+  a **scoped run** (manual: `{"scope_name": "italy", "scope_countries": ["ITA", "IT"]}`,
+  or `{"scope_name": "all"}` for every company) indexes exactly that scope, on its own
+  cursor; the **general run** (the defaults, and the 5-minute schedule, off until a
+  scope is indexed) follows the crawl for the sites already in the ledger and indexes
+  what changed, adding none. Reads only the crawl's tables; bodies come from the
+  crawl's bucket (`simpl-web-pages`) through the Doppler `WASABI_ACCESS_KEY` and
+  `WASABI_SECRET_KEY` keys. The logic lives in simpl_core (`search.landing` on
+  `search.index`, installed through `simpl-core[search]`); maintenance is
+  `gcp_post_search_maintenance_flow`'s, with the landing dataset in its list.
 - `gcp_memory_projection_flow` runs every five minutes and incrementally applies
   pending `agent_memory` revisions to Zilliz. It requires `NEBIUS_API_KEY`,
   `MILVUS_URI`, and `MILVUS_TOKEN`; do not replace it with routine collection
