@@ -45,9 +45,7 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   store on GCS, and with a `collection` parameter keeps that Zilliz collection in
   step. A backlog (a backfill marks every post) drains through the schedule; by hand
   with `promote_alias` it moves that alias to the collection once caught up.
-  `gcp_post_search_maintenance_flow` (compaction every 15 minutes; at 02:30 UTC also the sweep)
-  marks pending again what changed or went away, then compacts the row store datasets. The dataset parameter is
-  `name:version:dims`. The logic lives in simpl_core (`row_store`, `search.posts`);
+  The dataset parameter is `name:version:dims`. The logic lives in simpl_core (`row_store`, `search.posts`);
   needs the Doppler `ROW_STORE_URI`, `NEBIUS_API_KEY` and `MILVUS_*` keys; the job's
   service account reaches the bucket (no Google key in the environment).
 - `gcp_landing_search_index_flow` indexes company websites as the crawl stores them, one
@@ -61,8 +59,12 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   what changed, adding none. Reads only the crawl's tables; bodies come from the
   crawl's bucket (`simpl-web-pages`) through the Doppler `WASABI_ACCESS_KEY` and
   `WASABI_SECRET_KEY` keys. The logic lives in simpl_core (`search.landing` on
-  `search.index`, installed through `simpl-core[search]`); maintenance is
-  `gcp_post_search_maintenance_flow`'s, with the landing dataset in its list.
+  `search.index`, installed through `simpl-core[search]`).
+- `gcp_search_index_maintenance_flow` maintains the search index datasets of every kind
+  (`datasets`: posts and landing pages): compaction, index segment merges and a week of
+  versions, every 15 minutes; at 02:30 UTC it first runs the posts sweep
+  (`sweeps: [posts]`), which marks pending again the posts that changed or went away.
+  A new kind adds its dataset to the list, and a sweep to `SWEEPS` if it needs one.
 - `gcp_memory_projection_flow` runs every five minutes and incrementally applies
   pending `agent_memory` revisions to Zilliz. It requires `NEBIUS_API_KEY`,
   `MILVUS_URI`, and `MILVUS_TOKEN`; do not replace it with routine collection
