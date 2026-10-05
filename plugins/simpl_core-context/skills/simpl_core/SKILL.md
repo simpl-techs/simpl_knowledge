@@ -1051,6 +1051,34 @@ await posts.maintain()                       # indexes, bounded compaction and m
   key is configured. Lance prefers `GOOGLE_*` credential variables in the environment,
   so set none for another account.
 
+### Search index for any kind (`search.index`)
+
+`simpl_core.search.index` turns a kind of object into a searchable index: a ledger of
+one row per document, documents built into rows of a row-store dataset (embedded once
+per distinct text, stored vectors reused by key), and a Zilliz collection kept as a
+strict projection. Posts are the first kind (`PostsKind`); a new kind implements
+`DocumentKind` and reuses the rest.
+
+```python
+indexer = DocumentIndexer(
+    ledger=IndexLedger(db, "sales.my_kind_index", prioritized=True),
+    kind=MyKind(...),            # load(claims), build(claim, loaded), stored_keys(...)
+    dataset=dataset,             # needs text_hash, embedding_model and vector columns
+    embedder=NebiusEmbedder(api_key=..., dims=4096, query_task="..."),
+    name="my_kind",              # log events: my_kind.batch, my_kind.rows_failed
+)
+result = await indexer.run_batch(batch_size=100)
+
+collection = ZillizCollectionSpec(log_name="my_kind", columns=(...), schema=..., entity=...)
+await create_collection(milvus, "my_kind_v1", collection, dims=512)
+runner = projection_runner(dataset, milvus, "my_kind_v1", collection, dims=512)
+```
+
+- A document of several rows keys them `row_key(doc_key, part, ...)`; its stored keys
+  come from `stored_row_keys(dataset, doc_keys)`, one read through the key index.
+- `BuiltDocument.text_hash`/`meta_hash` equal to the ledger's (same table) settle the
+  document without writing; rows a new version no longer has get tombstones.
+
 ### Post search (`search.posts`)
 
 LinkedIn posts and plain reposts, one record per appearance on a page, stored in the
