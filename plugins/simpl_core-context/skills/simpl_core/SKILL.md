@@ -1266,6 +1266,24 @@ hits = await search.search(
   stemming); pass `keywords` to add word forms and translations without changing the
   dense query. `one_per_company` groups on the server; lists over 1,024 companies are
   searched in chunks. `min_score` is refused on hybrid (fused) scores.
+- **Which companies have a matching post** (`best_per_company`): a topic (vector +
+  `min_score`), keywords that must be in the text (`KeywordFilter`), or both. With
+  `company_ids` the answer is complete (every listed company with such a post, and its
+  best post); without, it comes from the best 1,024 of the collection, a person's own
+  posts left out (`PostSearchFilters(has_company=True)`).
+
+```python
+hits = await search.best_per_company(
+    vector=topic_vector, min_score=0.5,                     # semantic (omit for keywords only)
+    keywords=KeywordFilter(["SDR", "SDRs", "account executive"], match_all=False),
+    filters=PostSearchFilters(company_ids=ids, posted_after=since),
+)
+```
+
+- **Keywords** are words or phrases matched on the post text the way the collection's
+  analyzer reads it (`analyzer_words`: letter/digit runs, lowercased, accents folded):
+  whole words, a phrase's words together and in order, no stemming (list "SDR" and
+  "SDRs"). Hits from these searches carry `content`.
 
 ### Operator notifications
 
