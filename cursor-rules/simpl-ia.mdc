@@ -282,8 +282,9 @@ floats) and callers still get floats. Nebius honours `dimensions` for Qwen3-Embe
 
 Nebius rate limits are handled for you. Every Nebius provider in a process shares one
 pacer per key and model. It runs at 95% of the account's per-minute limits (read from
-each answer's `x-ratelimit-*` headers) and makes up pauses within the minute, so Token
-Factory keeps raising them. It waits out a 429 and sends the request again. A 429 raises `ProviderRateLimitError` only if you pass
+each answer's `x-ratelimit-*` headers), makes up pauses within the minute, and steers by
+Nebius's own measure of the 15-minute window toward 90%, so Token Factory keeps raising
+them. `nebius_pace` lines (every 5 minutes) show where it stands. It waits out a 429 and sends the request again. A 429 raises `ProviderRateLimitError` only if you pass
 `max_rate_limit_wait=<seconds>`, e.g. for an interactive search that must answer in
 time. `max_retries` covers connection errors, timeouts and 5xx. `provider.pacer.snapshot()`
 shows the limits and the pace.
