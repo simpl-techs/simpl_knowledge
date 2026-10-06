@@ -184,8 +184,21 @@ the producer's output as `_confidence` (`MODEL_CONFIDENCE_KEY`): `fields`, each
 field's confidence from 0 (undecided) to 1, and `probabilities`, each pick-one
 field's full distribution. A language model reports none, so an answer from a
 fallback behind Jev has no `_confidence`. The key is on the `agent_runs` output and
-on the run surface as `<node>._confidence`; edges read only a node's top-level
-keys, so a pipeline that routes on it reads it in a deterministic step.
+on the run surface as `<node>._confidence`. An edge routes on it directly with a
+dotted key — `{key: <node>._confidence.probabilities.seller.owner, op: gt, value: 0.1}`,
+or `{key: <node>._confidence, op: is_null}` for a fallback's answer — and a
+`producer_output` path read from an `llm_agent` may start with `_confidence`.
+
+**A `when` key may be a dotted path into nested values.** A key that is itself a
+resolved input (or run-surface key) is read directly, and always wins. Any other
+key is read through its longest dotted prefix that is one, walking the remaining
+segments into nested dicts; a missing segment, or a segment applied to a
+non-dict, reads as null, so `is_null` matches and every numeric operator does
+not. `gte_key` and `not_member` resolve the key they name the same way. `lt` and
+`gt` are the strict numeric comparisons beside `lte` and `gte`, with the same
+contract: a missing or non-numeric operand on either side never matches.
+`output_constraints` accept a dotted key that walks through declared `object`
+fields, or into a `dict` field.
 
 **A failed producer call says what kind of failure it was.**
 `AgentExecution.require_output()` raises `ProducerCallFailed`, a `RuntimeError`
