@@ -10,7 +10,7 @@
       "name": "simpl-standards",
       "source": "./plugins/simpl-standards",
       "description": "Cross-cutting standards for all simpl projects: coding conventions, git workflow, testing policy, Python environment toolchain, repo docs and env-var consistency, Doppler secrets.",
-      "version": "0.13.102",
+      "version": "0.13.103",
       "keywords": [
         "standards",
         "conventions",
@@ -144,7 +144,7 @@
       "name": "simpl-outreach-context",
       "source": "./plugins/simpl-outreach-context",
       "description": "Integration context for simpl-outreach. Auto-synced from simpl-techs/simpl-outreach.",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "keywords": [
         "simpl-outreach",
         "integration",

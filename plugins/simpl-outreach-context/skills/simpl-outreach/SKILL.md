@@ -19,8 +19,9 @@ description: |
 ## What this library is
 
 The outreach agent: a worker pool that claims queued triggers and walks each
-user-lead connection through the `outreach_root` agent-framework graph, plus an
-embeddable processor that simpl_api uses for previews and regenerates.
+user-lead connection through the `outreach_root` agent-framework graph. The
+same worker answers seller regenerate requests. Other services do not import
+this package: they queue triggers and read what the worker wrote.
 
 ## Installation
 
@@ -32,29 +33,51 @@ Pin to a major version — we follow SemVer.
 
 ## Basic usage (the 90% case)
 
-Embedding the processor (simpl_api does this at startup and shares its pool):
+Nothing calls the processor in-process any more: since 2.0.0.74 it has no
+host-facing methods, previews are retired, and simpl_api no longer depends on
+this package. The worker pool (`python -m src.flows.outreach_daemon`) is the
+only entry point.
+
+**Regenerating a draft** is asynchronous and goes through simpl_core, never
+through this package:
 
 ```python
-from simpl_outreach.processor import create_app  # `legacy.main` re-exports it
+from simpl_core.models.outreach.regenerate import RegenerateSource
+from simpl_core.services.outreach.regenerate import request_regenerate
+from simpl_core.services.outreach.regenerate_status import get_regenerate_job_status
 
-processor = await create_app.fn(db_manager=host_db)
-
-preview = await processor.generate_preview(user_id, lead_id, user_follow_up_hint=hint)
-triage = await processor.triage_regenerate(
-    user_id=user_id, lead_id=lead_id, journey_log_id=journey_log_id
+request = await request_regenerate(
+    db, journey_log_id=draft_id, owner_user_id=seller_id,
+    requested_by=f"user:{seller_id}", source=RegenerateSource.SELLER, hint=note,
 )
-rewrite = await processor.regenerate_pending_action(
-    user_id=user_id, lead_id=lead_id, journey_log_id=journey_log_id
+status = await get_regenerate_job_status(
+    session, trigger_id=UUID(request.trigger_id), owner_user_id=seller_id
 )
 ```
 
-These three are the processor's whole host-facing surface. Each is a dry-run
-walk: no journey, status or trigger-completion writes, but agent-framework audit
-rows are recorded and the company-research cache may be refreshed.
-`generate_preview` returns `{decision, context_summary, pipeline_run_id}`, or
-`{blocked: True, reason, pipeline_run_id}` when the walk ends without a decision
-(no-outreach status, ICP refusal, cadence park, ...), or `{error}`. There is no
-preview without a lead.
+`request_regenerate` locks the draft (`payload.regenerate_pending`) and queues a
+`seller_regenerate` trigger. The worker claims it with the lead's batch and
+answers it before the batch's root walk
+(`simpl_outreach/validation/services/journey/regenerate_job.py`), with exactly
+one of core's settle steps:
+
+| Walk outcome | Settle | Job status |
+|---|---|---|
+| request already settled (retried batch) | none, trigger dropped | unchanged |
+| no scope on the request | triage walk picks one; blocked or unclassified -> `settle_no_result(reason=<route> or "unclassified_regenerate_scope")` | `no_result` |
+| `rewrite`, message with a body | `settle_rewrite` (new active version) | `rewritten` |
+| `rewrite`, other action with `question_for_human` | `settle_review_request` | `review_request` |
+| `rewrite`, other action | `settle_no_result(reason="action_change:<action>")` | `no_result` |
+| `rewrite`, empty body / blocked walk | `settle_no_result(reason="empty_response" / <route>)` | `no_result` |
+| `restrategise` / `refresh` | `settle_superseded` withdraws the draft; the root walk writes the replacement (`payload.regenerate_result`) | `replaced` or `no_result` |
+| draft changed meanwhile | the settle step writes nothing | `no_result` (`draft_changed`) |
+| the step raised | `settle_failed(reason=<code>)`; the rest of the batch still runs | `failed` |
+
+The triage and rewrite walks are dry runs: they write agent-framework audit rows
+and may refresh the company-research cache, nothing else. A `seller_regenerate`
+trigger without `expected_version_index` (queued by simpl_api before it moved
+to `request_regenerate`) skips the step and is answered by the root walk, as
+before.
 
 ## Rules and conventions
 
@@ -196,6 +219,9 @@ set it on the `simpl_sales` Next.js process.
 
 ### Embedding the processor: LLM request accounting is expected
 
+No service embeds the processor today; the two sections below hold for the
+worker daemon and for any future host.
+
 `create_app()` / `OutreachProcessor` check that the process-global `simpl_tracker`
 records a receipt for every LLM request. When it does not, they report it on the
 cost-tracking channel (`DISCORD_COST_TRACKING_WEBHOOK_URL`) and start anyway: an
@@ -208,9 +234,8 @@ untracked cost is never a reason not to run. Two things a host has to get right:
    cost-tracking channel. The check runs again at the start of every framework
    walk, and after boot it also reports a tracker that has been disabled or
    removed -- so a host that re-applies its own tracker after
-   embedding (`simpl_api` does) has to keep `cost_tracking.enabled` and
-   `request_accounting` on there too. `simpl_api/config/tracker.yaml` needs
-   `request_accounting: true` before it bumps this dependency.
+   embedding has to keep `cost_tracking.enabled` and `request_accounting` on
+   there too.
 2. **The `cost_tracking.record_llm_receipt` migration must be applied** in the
    database that tracker writes to. With the flag on and the RPC missing, every
    LLM request is made and reported as `llm_accounting.dispatched_unrecorded`.
