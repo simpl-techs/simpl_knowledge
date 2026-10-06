@@ -1230,6 +1230,23 @@ hits = await search.search(text="impianti fotovoltaici",
                            one_per_host=True, limit=50)
 ```
 
+- **Which companies' sites match** (`best_per_company(db, company_ids=..., ...)`): a
+  topic (vector + `min_score`), keywords that must be in the chunk text
+  (`KeywordFilter`, as for posts), or both. It maps the companies to their hosts, searches
+  the sites (`best_per_host`, complete for the listed hosts) and returns company id ->
+  the site's best chunk (`url`, `title`, `section`, `content`; `page_id` is null for the
+  site template). `company_ids=None` searches the best 1,024 sites and maps them back.
+  Pages carry no date, so there is no window. `KeywordFilter.locate(text)` gives the
+  span of the first keyword, for a snippet.
+
+```python
+found = await search.best_per_company(
+    db, company_ids=ids,
+    vector=topic_vector, min_score=0.5,                   # omit for keywords only
+    keywords=KeywordFilter(["ISO 9001", "UNI EN ISO 9001"]),
+)
+```
+
 - `landing_indexer(..., pages_per_batch=400)` sizes batches by pages: `run_batch`'s
   `batch_size` caps the sites, `pages_per_batch` their pages; claims past it are released
   (`released_keys`) and processed by a later batch.
