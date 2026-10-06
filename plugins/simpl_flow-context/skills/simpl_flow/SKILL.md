@@ -97,6 +97,18 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   {"sales.post": {"count": 1, "ids": ["<sales.post.id>"]}}` (for a repost, the original
   post). The matcher embeds the topic itself, so a post signal stores no
   `embedding_vector`. Post signals are never SQL on `sales.post`.
+- A **website signal** searches the companies' sites, as the landing search index holds
+  them in Zilliz (alias `landing_pages`), the same three ways: `{"mode": "all_match",
+  "conditions": [{"collection": "landing_pages", "search_mode": "semantic" | "keyword" |
+  "hybrid", "embedded_text": "<topic>", "similarity_threshold": 0.5, "keywords":
+  ["ISO 9001"], "keyword_match": "any" | "all"}]}`. A company matches when a chunk of its
+  site's pages (legal pages left out) passes the mode's tests. Pages carry no date, so
+  there is no window, and only sites the index holds can match (companies sharing a site
+  share its match). The evidence is that chunk: `matching_objects = {"landing_pages":
+  {"count": 1, "ids": ["<page url>"], "evidence": [{"url", "title", "section",
+  "page_kind", "snippet"}]}}`, the snippet cut around the first keyword (the text lives
+  only in the index, so it travels with the match). `page_kind` `site` is the site's
+  template (menu, footer), shown at the home URL.
 - A Customer company (lead status 10) and a company imported with a `Dummy Imported`
   connection are watched, never proposed: their signals land in
   `opportunity.icp_signal_monitor` (the watchlist), but they are never a new or
