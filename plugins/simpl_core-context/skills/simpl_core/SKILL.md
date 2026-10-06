@@ -710,7 +710,11 @@ if reading.skip_reason is None:
 
 `read` settles, without any model call, every thread that could not open a
 connection anyway, and a LinkedIn sponsored message the owner never answered
-(`reading.skip_reason`). `process` resolves the lead and
+(`reading.skip_reason`). That includes a counterpart the owner already has a
+connection to (`connection_existed`, with `reading.existing_ulc_id`): the lead
+ingestion linked, or, for a counterpart linked to no lead or to a dummy, the
+single lead its email or LinkedIn identity matches; a name alone never counts.
+`process` resolves the lead and
 company with the dedup placement services, writes the links and opens the
 connection; `mode="report_only"` decides exactly the same and writes nothing
 (`incremental` and `backfill` behave the same here: the caller decides which
