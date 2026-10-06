@@ -279,6 +279,14 @@ Both `MilvusStore` and `AsyncMilvusStore` (from `simpl_ia.core.vector_stores.mil
 Nebius embeddings: `encoding_format="base64"` sends float32 bytes (half the size of JSON
 floats) and callers still get floats. Nebius honours `dimensions` for Qwen3-Embedding.
 
+Nebius rate limits are handled for you. Every Nebius provider in a process shares one
+pacer per key and model. It runs at 90% of the account's per-minute limits (read from
+each answer's `x-ratelimit-*` headers), so Token Factory keeps raising them. It waits out
+a 429 and sends the request again. A 429 raises `ProviderRateLimitError` only if you pass
+`max_rate_limit_wait=<seconds>`, e.g. for an interactive search that must answer in
+time. `max_retries` covers connection errors, timeouts and 5xx. `provider.pacer.snapshot()`
+shows the limits and the pace.
+
 ## Rules and conventions
 
 - Prefer `simpl_ia.core` for lightweight imports that must not pull `pymilvus` or torch. Use top-level `simpl_ia` only when Milvus or the full kitchen-sink surface is intentional.
