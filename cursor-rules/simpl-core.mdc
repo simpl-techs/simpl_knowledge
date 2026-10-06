@@ -1343,6 +1343,13 @@ book under `evidence["booking"]`; `booking_problems(booking, now=...)` is the ch
   `timezone_source`, `needs_user_to_pick_slot` (a `window` slot) and the lead's address,
   in `invite_call` and `call_data`, stamped `payload.rescheduled`. A `RUNNING` row is
   left alone.
+- **Counter-proposal:** an owner who cannot make the lead's slot calls
+  `need_information(questions=[...], proposed_times=[{start, timezone}, ...])`.
+  The times are 1 to `MAX_PROPOSED_TIMES` (3), each held to the start rules above, with
+  no two at the same instant (`proposed_times_problems(times, now=...)`). They are stored
+  on the event payload under `PROPOSED_TIMES_KEY` (`{start, timezone}` only), for the
+  source to offer the lead. A refusal is `invalid_event` and writes nothing. The
+  objective's booking is unchanged until the source supplies the time the lead picks.
 - Other capabilities, and `record_observed_booking`, need no booking.
 
 Objective commands and who they wake:
