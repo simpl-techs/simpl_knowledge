@@ -1217,10 +1217,17 @@ runner = projection_runner(dataset, milvus, "my_kind_v1", collection, dims=512)
   `run_batch(batch_size=..., keys=page.pending)` claims only those, then
   `walk.advance(page)`. Each scope has its own cursor (`ScanCursors`); scoped and
   general runs share the ledger, so neither redoes what the other did or holds.
-- `BatchPipeline` overlaps batches (up to `depth` in hand; `depth=1` is one at a time).
-  `on_result` sees each committed batch; `drain()` waits for every batch in hand (a
-  scoped run drains before `walk.advance`); `deferred`/`stopped` say why it stopped.
-  The embedder never gets more than `embed_concurrency` requests at once.
+- `BatchPipeline` overlaps batches (up to `depth` in hand; `depth=1` prepares one at
+  a time) and commits embedded batches together: one row store commit once their rows
+  reach `commit_bytes` (`COMMIT_BYTES`, 64 MiB) or the first has waited `commit_wait`
+  (`COMMIT_WAIT_S`, 60 s); `commit_bytes=0` commits each batch alone. A batch with
+  nothing to write settles at once. `on_result` sees each committed batch (a group's
+  share one `commit_seq`); `drain()` waits for every batch in hand and commits the
+  group (a scoped run drains before `walk.advance`); `deferred`/`stopped` say why it
+  stopped. The embedder never gets more than `embed_concurrency` requests at once.
+- `Dataset.health()` reads, from the manifest, what maintenance has left
+  (`DatasetHealth`: small and held fragments, rows outside the indexes, the most
+  segments in an index); `problems()` names what is past normal.
 
 ### Landing search (`search.landing`)
 
