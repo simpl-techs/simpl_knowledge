@@ -731,9 +731,13 @@ connection anyway, and a LinkedIn sponsored message the owner never answered
 connection to (`connection_existed`, with `reading.existing_ulc_id`): the lead
 ingestion linked, or, for a counterpart linked to no lead or to a dummy, the
 single lead its email or LinkedIn identity matches; a name alone never counts.
-`process` resolves the lead and
-company with the dedup placement services, writes the links and opens the
-connection; `mode="report_only"` decides exactly the same and writes nothing
+`process` opens the
+connection to a lead that already exists and is surely the counterpart (the one
+ingestion linked, unless it is a dummy, or the single lead its email or LinkedIn
+identity matches), with the lead's company (`company_id`, else its current
+role). It creates no lead or company and never writes the conversation; a
+counterpart no existing lead matches comes back `no_lead`, and several matches
+add a `lead_ambiguous` issue. `mode="report_only"` decides exactly the same and writes nothing
 (`incremental` and `backfill` behave the same here: the caller decides which
 threads to pass). `process` takes only a sales decision and raises `ValueError`
 on any other.
@@ -756,8 +760,7 @@ outreach's connect fast path would otherwise send an invite at any stage.
 ### Unknown companies never block
 
 Resolution can miss; ingestion must not stop. Use the placement service when you
-need to proceed regardless — email ingestion, imports, the conversation
-processor:
+need to proceed regardless — email ingestion, imports:
 
 ```python
 from simpl_core.services.dedup import CompanyPlacementService
