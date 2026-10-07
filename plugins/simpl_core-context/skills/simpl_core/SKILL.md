@@ -60,7 +60,8 @@ Classification (`simpl_core.roi.classify.plan_classification`) turns vendor and 
 
 - A line in a trip goes where the trip goes.
 - Otherwise the vendor assignment in force on the line's day decides. `line` goes to its initiative; `people` is split evenly over people; `payer` goes to the card holder; `payroll` goes to `PAYROLL`; `excluded` goes to the transit row `NOT_SPEND_ID` (`NON-SPESA`).
-- Lines no decision reaches are returned in `pending`, keyed by reason: vendor still to classify, trip-mode vendor outside any trip, or payer not on the roster.
+- `each` (a shop bought from for many reasons, like Amazon) decides nothing for the vendor: each line waits for a person to decide it (a `manuale` batch) and is `unchanged` once they have. `targets_for(mode, initiative_id=, people=, payer=, roster=)` is the one mapping from a decision to ledger targets, for a vendor and for a single line (`LINE_MODES`: line, people, payer, excluded).
+- Lines no decision reaches are returned in `pending`, keyed by reason: vendor still to classify, trip-mode vendor outside any trip, a line-by-line vendor's line nobody decided, or payer not on the roster.
 - A line attributed by hand is `protected`. A line whose ledger already agrees is `unchanged`.
 
 `append_targets` writes a batch that mixes initiative and person shares. The old pattern rules (`tagging.plan_tagging`) are no longer used by the API.
