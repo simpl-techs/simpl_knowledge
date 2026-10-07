@@ -1154,8 +1154,11 @@ await posts.maintain()                       # indexes, bounded compaction and m
   smaller than `COMPACTION_TARGET_ROWS` (100k) into ones of about that size, never
   rewrites a full one, and rewrites at most `COMPACTION_MAX_ROWS` (250k) per run, one
   bin at a time; what is left waits for the next run. It merges an index's newest
-  segments only up to `INDEX_SEGMENT_MAX_ROWS` (1M), drops indexes the spec no
-  longer plans and builds a missing one per run (a new index reads its whole column).
+  segments like a binary counter, at most `INDEX_SEGMENT_MAX_ROWS` (8M) rows from
+  `INDEX_SEGMENTS_PER_MERGE` (64) segments a merge; segments the size of a commit's
+  always merge, and a backlog of them merges over successive runs. It drops indexes
+  the spec no longer plans and builds a missing one per run (a new index reads its
+  whole column).
   Its memory does not depend on fragment size or row width either: compaction reads
   `COMPACTION_BATCH_BYTES` (16 MiB) of rows at a time, and importing the row store
   caps Lance's read-ahead at `IO_BUFFER_BYTES` (128 MiB, `LANCE_DEFAULT_IO_BUFFER_SIZE`
