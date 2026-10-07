@@ -84,6 +84,7 @@ Prefer importing the specific service, repository, or model you need. Keep app-l
 ## Rules and conventions
 
 - Put reusable platform business logic in `simpl_core`, not in `simpl_api` or `simpl_flow` copies.
+- Survey weeks: `roi.time_weeks.pct` is the normalised split (a week adds up to 100) and is what the metrics read; `hours` is what the person typed, kept beside it (null on weeks saved as percentages). `TimeWeekRepository.replace_week(person, week, allocations, hours=...)` writes both; merges and splits (`remap_person` / `split_person`) move a week's typed hours with the shares, and leave them null when the week had none. `filled_weeks_by_person()` reads every person's filled weeks in one query; `weeks_of(person)` returns one person's rows, oldest first. `roi.people.email` links a roster row to its dashboard login; `PersonRepository.by_email(email)` finds it in any letter case and never returns a `_`-prefixed row.
 - `SurveyTokenRepository.ensure(person)` mints a personal survey token and never rotates an existing one; `ensure_many(persons)` does the same for a list in one insert that ignores conflicts, so two callers racing on the same person cannot fail on the primary key. Both refuse the synthetic `_`-prefixed roster rows.
 - `InitiativeRepository.next_id()` holds `pg_advisory_xact_lock` on the table: id minting is a `max()+1` read-then-write and the survey proposes from a public token endpoint.
 - Keep database access behind repositories or services. Do not scatter raw SQL across consumers.
