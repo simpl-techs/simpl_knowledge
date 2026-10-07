@@ -52,6 +52,8 @@ ROI catalog `kind` is `line` (standing) or `project` (time-boxed). `awaiting_rev
 
 Ledger target: a `roi.attribution_ledger` row names either an `initiative_id` or a `person`, never both (database check). `append_person_split(records, subject_id, people, source)` splits an expense evenly over people. In `build_dataset`, each person's share follows that person's survey hours in the expense's month, as vendor cost on those lines, the same way their wage is spread. A share whose person filed no hours that month stays tagged but lands in `RoiDataset.undistributed[person]`, so it stays visible.
 
+Month by month: `InitiativeSnapshot.monthly` (`YYYY-MM` → cost) carries people and vendors together, `monthly_people` the people part, and `monthly_vendor(month)` the rest. What no line carries is kept per month on `RoiDataset`: `people_without_hours` (wages of people who filed no hours, or less than 100%), `undistributed_by_month` (seats whose person filed no hours) and `untagged_by_month` (bank lines with no attribution). For any month, the non-transit lines' `monthly` plus those three add up to that month's `roi.people_costs` plus its non-transit spend; transit rows (`PAYROLL`, `NON-SPESA`) are not cost.
+
 Classification (`simpl_core.roi.classify.plan_classification`) turns vendor and trip decisions into ledger targets, one bank line at a time:
 
 - A line in a trip goes where the trip goes.
