@@ -1155,6 +1155,10 @@ await posts.maintain()                       # indexes, bounded compaction and m
   bin at a time; what is left waits for the next run. It merges an index's newest
   segments only up to `INDEX_SEGMENT_MAX_ROWS` (1M), drops indexes the spec no
   longer plans and builds a missing one per run (a new index reads its whole column).
+  Its memory does not depend on fragment size or row width either: compaction reads
+  `COMPACTION_BATCH_BYTES` (16 MiB) of rows at a time, and importing the row store
+  caps Lance's read-ahead at `IO_BUFFER_BYTES` (128 MiB, `LANCE_DEFAULT_IO_BUFFER_SIZE`
+  unless the process sets it). Each step logs `row_store.maintain_step` as it starts.
 - **A projection target gets full rows and deletes, never partial updates.** A
   `ProjectionTarget` implements `upsert(table)` and `delete(keys)`, both idempotent. The
   runner applies commits past the projection's watermark, one window at a time, and
