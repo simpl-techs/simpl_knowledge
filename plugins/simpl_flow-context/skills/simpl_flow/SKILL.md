@@ -65,6 +65,9 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   versions, every 15 minutes; at 02:30 UTC it first runs the posts sweep
   (`sweeps: [posts]`), which marks pending again the posts that changed or went away.
   A new kind adds its dataset to the list, and a sweep to `SWEEPS` if it needs one.
+  It alerts #error when its previous runs keep failing (second failure in a row, then
+  every fourth) and #warning, hourly, when a dataset's health (`Dataset.health`) shows
+  maintenance not keeping up; `search_index_maintenance.health` logs it every run.
 - `gcp_memory_projection_flow` runs every five minutes and incrementally applies
   pending `agent_memory` revisions to Zilliz. It requires `NEBIUS_API_KEY`,
   `MILVUS_URI`, and `MILVUS_TOKEN`; do not replace it with routine collection
