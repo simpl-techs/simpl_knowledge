@@ -34,7 +34,14 @@ import { SupportLauncher } from "@simpl/support/widget"
 ```tsx
 import { SupportInbox } from "@simpl/support/inbox"
 <SupportInbox supabase={supabase} staffUserId={user.id} initialThreadId={thread} />
+// optional, per selected thread:
+//   renderThreadPanel={({ thread, technicalContext }) => …}  right column (22rem)
+//   renderThreadIdentity={(thread) => …}                      line under the title
+//   onActiveThreadChange={(threadId) => …}                     e.g. sync ?thread=
 ```
+
+`thread.customer_id` / `customer_name` are snapshots from thread creation (`customer_id` may come
+from the client); hosts read the user's current customer from their own data.
 
 ```ts
 import { createSupportNotifyRoute } from "@simpl/support/server"

@@ -10,7 +10,7 @@
       "name": "simpl-standards",
       "source": "./plugins/simpl-standards",
       "description": "Cross-cutting standards for all simpl projects: coding conventions, git workflow, testing policy, Python environment toolchain, repo docs and env-var consistency, Doppler secrets.",
-      "version": "0.13.113",
+      "version": "0.13.114",
       "keywords": [
         "standards",
         "conventions",
@@ -122,7 +122,7 @@
       "name": "simpl_support-context",
       "source": "./plugins/simpl_support-context",
       "description": "Integration context for simpl_support. Auto-synced from simpl-techs/simpl_support.",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "keywords": [
         "simpl_support",
         "integration",
