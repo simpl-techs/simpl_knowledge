@@ -1158,7 +1158,7 @@ await posts.maintain()                       # indexes, bounded compaction and m
 - **`maintain` costs the same however big the table grows.** It merges fragments
   smaller than `COMPACTION_TARGET_ROWS` (100k) into ones of about that size, never
   rewrites a full one, and rewrites at most `COMPACTION_MAX_ROWS` (250k) per run, one
-  bin at a time; what is left waits for the next run. It merges an index's newest
+  bin at a time, the oldest whatever its size; what is left waits for the next run. It merges an index's newest
   segments like a binary counter, at most `INDEX_SEGMENT_MAX_ROWS` (2M) rows and
   `INDEX_MERGE_MAX_BYTES` (64 MiB) from `INDEX_SEGMENTS_PER_MERGE` (64) segments a
   merge (its memory is about six times the bytes it reads); segments the size of a commit's
