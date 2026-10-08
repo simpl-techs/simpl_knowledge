@@ -48,7 +48,8 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   with `promote_alias` it moves that alias to the collection once caught up.
   The dataset parameter is `name:version:dims`. The logic lives in simpl_core (`row_store`, `search.posts`);
   needs the Doppler `ROW_STORE_URI`, `NEBIUS_API_KEY` and `MILVUS_*` keys; the job's
-  service account reaches the bucket (no Google key in the environment).
+  service account reaches the bucket (no Google key in the environment). It alerts
+  #error when its previous runs keep failing, like maintenance.
 - `gcp_landing_search_index_flow` indexes company websites as the crawl stores them, one
   document per site, into `landing_pages:1:4096` and the Zilliz collection
   `landing_pages_v1` (alias `landing_pages`; ledger `sales.landing_search_index`,
@@ -60,7 +61,9 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   what changed, adding none. Reads only the crawl's tables; bodies come from the
   crawl's bucket (`simpl-web-pages`) through the Doppler `WASABI_ACCESS_KEY` and
   `WASABI_SECRET_KEY` keys. The logic lives in simpl_core (`search.landing` on
-  `search.index`, installed through `simpl-core[search]`).
+  `search.index`, installed through `simpl-core[search]`). A run that fails posts to
+  #error (`alert_on_failure`): a scoped run is started by hand and no schedule repeats
+  it. A batch that fails to load is retried after 15 s, 1 min and 4 min first.
 - `gcp_search_index_maintenance_flow` maintains the search index datasets of every kind
   (`datasets`: posts and landing pages): compaction, index segment merges and a week of
   versions, every 15 minutes; at 02:30 UTC it first runs the posts sweep
