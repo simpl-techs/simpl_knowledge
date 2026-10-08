@@ -120,10 +120,13 @@ whatever its route would pick.
 
 Build every agent that runs on a policy through `make_agent`, including a plain-text
 one (`output_type=str`): constructing `Agent(...)` by hand reads the model some other
-way than the policy does. A text-only agent's chain falls back on errors only; any
-spec with a schema to fail (a model, `list[Model]`, a union, a `ToolOutput`, `[str,
-Model]`) keeps the invalid-output guard, which validates answers exactly as pydantic-ai
-does for that spec, with the agent's `validation_context`.
+way than the policy does. Every chain falls back on errors and on a response cut off
+at its output limit before it answered (a thinking model that spent its whole budget
+reasoning); a cut-off on the last member raises `FallbackExceptionGroup`. A text-only
+agent's chain falls back on nothing else; any spec with a schema to fail (a model,
+`list[Model]`, a union, a `ToolOutput`, `[str, Model]`) keeps the invalid-output guard,
+which validates answers exactly as pydantic-ai does for that spec, with the agent's
+`validation_context`.
 
 ### Decisions on Jev (`provider="typesafe"`)
 
