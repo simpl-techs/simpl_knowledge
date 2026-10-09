@@ -64,6 +64,16 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   `search.index`, installed through `simpl-core[search]`). A run that fails posts to
   #error (`alert_on_failure`): a scoped run is started by hand and no schedule repeats
   it. A batch that fails to load is retried after 15 s, 1 min and 4 min first.
+- `gcp_company_search_index_flow` indexes every company with a description into
+  `sales_companies:1:4096` and the Zilliz collection
+  `sales_companies_v1` at 1024 dims (alias `sales_companies` once validated; ledger
+  `sales.company_search_index`, migration 083), replacing the never-refreshed
+  `sales_companies_hybrid`. Each run discovers new and changed companies
+  (`CompanyScanner`: a one-off walk of every company, then the created_at/updated_at
+  cursors with fingerprints) and indexes until the queue is empty; the nightly
+  maintenance sweep removes companies merged away. Reads `sales.company` only, with no
+  trigger or index added. The logic lives in simpl_core (`search.companies`). The
+  schedule stays off until migration 083 is applied.
 - `gcp_search_index_maintenance_flow` maintains the search index datasets of every kind
   (`datasets`: posts and landing pages): compaction, index segment merges and a week of
   versions, every 15 minutes; at 02:30 UTC it first runs the posts sweep
