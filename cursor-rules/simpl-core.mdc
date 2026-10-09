@@ -1232,6 +1232,10 @@ runner = projection_runner(dataset, milvus, "my_kind_v1", collection, dims=512)
 - `Dataset.health()` reads, from the manifest, what maintenance has left
   (`DatasetHealth`: small and held fragments, rows outside the indexes, the most
   segments in an index); `problems()` names what is past normal.
+  - **What it costs:** each fragment's id sequence lives in the manifest, which every
+    commit rewrites.
+  - **Index types:** use BTREE and BITMAP only; zone map, bloom filter and FM indexes
+    don't survive compaction on such a table.
 
 ### Landing search (`search.landing`)
 
@@ -1300,6 +1304,31 @@ found = await search.best_per_company(
 - The ledger and cursors are simpl_flow migration 075; bodies need an `S3ObjectStore`
   over the crawl's bucket (`simpl-web-pages`). Install `simpl-core[search]`: the row
   store, lxml and the Zilliz parts.
+
+### Company search (`search.companies`)
+
+Every company with a description, in the row store and a Zilliz
+collection behind the `sales_companies` alias: one row per company, keyed by its id, its
+text the description (as `sales_companies_hybrid` embedded it).
+
+```python
+scanner = CompanyScanner(db)
+await scanner.discover(walk_pages=1)     # created/updated since last time, then the walk
+await scanner.sweep()                    # nightly: merged-away companies, one key slice
+
+indexer = company_indexer(db, dataset=companies_dataset,   # companies_dataset_spec(dims=4096)
+                          embedder=NebiusEmbedder(api_key=..., dims=4096,
+                                                  query_task=companies.QUERY_TASK),
+                          detect_language=detect)
+await indexer.run_batch(batch_size=1000)
+```
+
+- `DiscoverResult.found` is what a discovery added or marked; `walk_done` once every
+  company has been walked. A flow passes `discover` as the `refill` of its batch loop.
+- `COMPANY_COLLECTION` keeps the replaced collection's field names (`id`, `content`,
+  `sparse`, `dense`, `name`, `description`) and adds typed `industry_id`,
+  `industry_name`, `country`, `city`, `location`, sizes, `follower_count`, URLs,
+  `created_at` (epoch seconds) and `language`.
 
 ### Post search (`search.posts`)
 
