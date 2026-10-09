@@ -1164,7 +1164,11 @@ await posts.maintain()                       # indexes, bounded compaction and m
   segments like a binary counter, at most `INDEX_SEGMENT_MAX_ROWS` (2M) rows and
   `INDEX_MERGE_MAX_BYTES` (64 MiB) from `INDEX_SEGMENTS_PER_MERGE` (64) segments a
   merge (its memory is about six times the bytes it reads); segments the size of a commit's
-  always merge, and a backlog of them merges over successive runs. It drops indexes
+  always merge, and a backlog of them merges over successive runs. It also heals, best
+  effort, one segment over those caps a run (built before them, or of unknown size):
+  rebuilt from its fragments' rows as capped pieces, which frees the fragments
+  compaction held for it (`MaintenanceResult.segments_healed`; a failure is
+  `heal_error` and the rest of the run goes on). It drops indexes
   the spec no longer plans and builds a missing one per run (a new index reads its
   whole column).
   Its memory does not depend on fragment size or row width either: compaction reads
