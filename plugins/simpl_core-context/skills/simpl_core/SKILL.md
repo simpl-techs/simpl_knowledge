@@ -85,6 +85,17 @@ A change of use is a new assignment, never an edit of the past. A quiz answer is
 
 Prefer importing the specific service, repository, or model you need. Keep app-layer orchestration in the app repo and reusable domain behavior in `simpl_core`.
 
+
+ROI product identity: pass the transaction's `mcc` to `canonical_vendor(..., mcc=...)`
+in every reader and writer. ChatGPT descriptors keep their product name before
+card references are stripped; generic OpenAI is API spend. Apple MCC 5732 means
+hardware, 5817/5818 or an explicit `/bill` descriptor means digital services;
+Apple without evidence stays separate for review. Never infer the product from
+the amount. `first_triage(..., vendor=key)` supplies the matching proposal.
+Category `asset` contains Hardware (Comuni / Assegnati) and Domini. Asset rows
+receive spend and stay out of the time survey and ROI ranking; the existing
+`covers_months` setting controls spreading, with no new automatic lifetime.
+
 ## Rules and conventions
 
 - Put reusable platform business logic in `simpl_core`, not in `simpl_api` or `simpl_flow` copies.
@@ -1718,3 +1729,7 @@ failures into test failures.
 
 - Source: `https://github.com/simpl-techs/simpl_core`
 - Internal conventions: `.agent/INTERNAL.md`
+
+ROI categories live in `roi.categories` (`RoiCategory`, `roi.categories.CategoryRepository`).
+The database owns labels, ordering, default lag/ranking and `allows_time`; the survey
+catalog filters on that flag. New categories require data, not a Python enum.
