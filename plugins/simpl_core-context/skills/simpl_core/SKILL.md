@@ -1423,6 +1423,50 @@ an incident delivered. Context passes `redact_context` first, and the event's
 agent-framework config fallback to operators, and `unavailable_prefect_blocks` checks
 tracker JSON config blocks at startup without sending anything. Importing the module loads neither tracker, Prefect nor the agent framework.
 
+## Who takes the meetings: team hand-off
+
+`simpl_core.services.account_coordination.TeamHandoffService(session)` writes the team
+table (`sales.responsibility_assignment`) from two kinds of intent, the same for every
+customer (migrations/20261010b_team_handoff.sql):
+- **A member's own hand-off**, `sales.user.handoff_to_user_id`: whatever is theirs to take
+  goes to that colleague, who may hand it on. A sales identity (role `sales_identity`,
+  `SALES_IDENTITY_ROLE`) always has one and never owns a meeting; anyone else may.
+- **A team rule**, `sales.responsibility.owner_user_id` (`ResponsibilityDefinition.owner_user_id`):
+  one member takes that responsibility for everyone. Rules come first.
+- **The table is their projection** (`handoff.project`): for a ruled key everyone hands
+  off to its taker; otherwise each member's own taker owns it. An identity nobody can take
+  for gets no row, so it books nothing while colleagues own `calendar_booking`. Every rule
+  carries `calendar_booking`.
+- **Writes:** `set_member_handoff(customer_id=…, user_id=…, handoff_to_user_id=…,
+  actor_user_id=…)`, `save_rule(customer_id=…, key=None|key, description=…, owner_user_id=…,
+  actor_user_id=…)` (a new key is a slug of the description), `delete_rule(...)`, and
+  `sync(customer_id, actor_user_id=…)` after any change of role, activity or customer.
+  Each saves through `ResponsibilityPolicyRepository.save` (a narrowed cell bumps its
+  revision) and then runs `reconcile_policy`. The caller commits.
+- **Refusals** (`CoordinationError`): `identity_needs_handoff`; `invalid_handoff` (a
+  colleague who is inactive, another customer's, an identity, or who hands back along the
+  way); `invalid_policy`; `not_found`.
+- **First table:** a customer gets one the first time someone hands off (or is an
+  identity), or a rule is added: it starts with the catch-all `meetings`
+  (`DEFAULT_RESPONSIBILITY`). Nobody handing off: no table, and walks stay on the
+  ordinary path. A team with no active member (billing paused it) is left as it is.
+- **Safety net:** the `trg_user_fill_responsibilities` trigger gives a member who joins or
+  comes back to a customer with a table the rows an ordinary member has (owns, or hands
+  off to the rule's taker). It only adds rows and skips identities and personal hand-offs.
+- **Reads:** `snapshot(customer_id)` returns the members (own choice, resolved
+  `taker_user_id`, `needs_colleague`), the rules and the revision;
+  `colleagues_for(user_id)` lists who someone may hand off to; `colleague_by_email(...)`.
+
+`simpl_core.services.onboarding_choices` is what an onboarding parks before the person's
+`sales.user` row exists: `with_handoff(metadata, to_user_id=…|to_email=…)` (the colleague;
+by address for an invitee of the same setup) and `with_connection(metadata, slug=…,
+external_account_id=…)` (a mailbox or calendar connected while onboarding). The finalize
+calls `apply_onboarding_choices(session, user_id=…, customer_id=…, role=…, metadata=…)`
+once the row exists: it writes the hand-off, syncs the team table, attaches the
+connections (`integration.user_connection`) and promotes a mailbox's owner to the email
+stage (`simpl_core.services.email_stage_promotion`). Each part runs in a savepoint and
+never fails the finalize; what could not be applied is in `AppliedChoices.problems`.
+
 ## Meetings on the team's calendars, and bookings made by hand
 
 `simpl_core.services.account_coordination.LeadMeetings(session).for_lead(customer_id=…, lead_id=…)`
