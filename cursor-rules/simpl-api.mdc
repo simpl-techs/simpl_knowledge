@@ -34,6 +34,18 @@ poetry run uvicorn simpl_api.main:app --reload
 
 When adding API behavior, place HTTP route code under `src/simpl_api/api`, reusable business logic in `simpl_core` or `src/simpl_api/services`, and schemas under `src/simpl_api/schemas`.
 
+
+ROI assets and product separation require migration
+`20261010105000_roi_assets_vendor_products.sql` before simpl_core 0.8.83 and
+simpl_api 0.3.70 are deployed. Import, quiz, purchase decisions and rule
+application all pass the stored MCC to the shared vendor resolver. Old raw
+transactions need no rewrite or re-import. API spend, ChatGPT, Apple hardware
+and Apple digital services have independent vendor answers. Apple rows without
+product evidence remain to review. Assets use the existing category → line →
+project hierarchy: Hardware → Comuni / Assegnati, and Domini. They are not time
+survey choices or ranked initiatives. Confirm supplier decisions and apply them
+to update the ledger; existing manual attributions remain protected.
+
 ## Rules and conventions
 
 - Keep FastAPI route handlers thin. Move reusable domain behavior to `simpl_core` or a service module.
@@ -155,3 +167,13 @@ poetry run ruff check .
 - Bank statements: `src/simpl_api/api/v1/admin/bank_statements.py` (logic in `services/bank_statements.py`, tables from `migrations/20261001_bank_statement_import.sql`). The dashboard parses the bank's CSV and `POST /admin/finance/bank-statements` (`require_owner`, **dry run unless `dry_run: false`**) replaces every `financials.ledger` row of `account_id` dated inside `period_start`–`period_end` (or since the beginning when `from_account_opening`), plus any row of the account carrying one of the statement's transaction ids, with the statement's rows — one transaction. Replaced rows are kept whole in `financials.bank_statement_import.replaced_rows`; an outflow category on a replaced row is carried to the new row with the same id, and so is the sync's `external_leg_id` when the replaced transaction was a single leg (the sync and webhook upsert on it); the statement is refused (422) when its balances do not move by exactly its rows (inflows − outflows − fees; from zero with `from_account_opening`); month-end balances go to `financials.account_balance` (`source='statement'`). `PUT /admin/finance/accounts/{id}/balances` types balances (`source='manual'`; `balance: null` removes a typed one, never a statement's). `GET /admin/finance/accounts` and `GET /admin/finance/balances?since=` are `require_platform_admin`. Cash should be summed from balances: the ledger was never complete since each account opened.
 - Agent code: `src/simpl_api/agents`
 - Internal conventions: `.agent/INTERNAL.md`
+
+ROI category catalog: `GET /admin/roi/categories` reads live database rows;
+`POST /admin/roi/categories` accepts `label` and `allows_time` (default true),
+requires platform admin, and returns the category id. Repeated or concurrent
+submissions of the same normalized name reuse the category without changing it.
+New categories default to operative lag and unranked ROI. Survey and vendor quiz
+bootstraps include `categories`; the survey includes only `allows_time` categories.
+Apply `20261010112322_roi_live_categories.sql` after the Asset migration and before
+deploying core/API/dashboard: it replaces fixed category checks with foreign keys,
+preserves existing categories and allows service-role access only.
