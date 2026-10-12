@@ -154,6 +154,20 @@ A call site that forgets step 2 is no longer lost: the transport records it and
 names it `unwrapped:<caller>`. Step 2 is what gives it a process name and a
 pre-dispatch intent tied to the model call.
 
+**A process that loaded no tracker config still records its LLM spend.** Scripts,
+notebooks, backfills and flows run on a laptop often skip step 1. Their first paid
+request installs a tracker built from `SUPABASE_URL` and
+`SUPABASE_SERVICE_ROLE_KEY` (`configure_fallback_tracker`): LLM receipts only, no
+compute (a laptop is not billed), repo name from a discoverable `tracker.yaml`,
+else the Doppler project without its `simpl_` prefix. It is never built inside a
+pytest run or when `SIMPL_REQUEST_ACCOUNTING` is off. Without those credentials the
+request is reported as `llm_accounting.untracked_process`, as before.
+
+**A failed call is its receipt.** When a `@track_cost(service="ai_llm")` call
+raises after its request left a receipt (outcome `failed`), the decorator writes no
+error event: without `provider=` that event used to land as `ai_llm/unknown` on the
+cost-tracking channel for every failure.
+
 **Code that writes a run total after `agent.run`** (a direct `track_llm_call` from
 a result, outside `@track_cost`) must total only
 `simpl_tracker.unrecorded_responses(result)`: since 0.6.0 every request to a known
@@ -179,7 +193,8 @@ call (falling back to #error when it is unset), works without a `notifications`
 section in `tracker.yaml`, deduplicates by fingerprint and never raises.
 Reported there: a missing or disabled tracker and receipts switched off
 (`require_request_accounting` / `reassert_request_accounting` now return False and
-report), missing Supabase credentials, paid requests in a process with no tracker,
+report), missing Supabase credentials, paid requests in a process with no tracker
+and no Supabase credentials,
 receipts lost or still undelivered at shutdown, a backed-up receipt queue, compute
 sessions that fail or never open on Cloud Run, and cost entries skipped or not
 inserted. The scheduled cost jobs (`reconciliation_alert.py`,
@@ -189,8 +204,9 @@ path; never raise, exit non-zero or fail a job for it.
 
 **A request is never held up by its receipt.** The intent before dispatch gets one
 attempt of at most 2 s (`PRE_DISPATCH_DEADLINE_S`); if it fails the request is made
-and `llm_accounting.dispatched_unrecorded` reported. The charge is usually not lost:
-the completion receipt alone records it. After the response, synchronous clients
+and `llm_accounting.dispatched_unrecorded` logged as a warning, not alerted: nothing is
+lost yet, because the completion receipt alone records the charge, and a completion
+that cannot land either is reported as `llm_accounting.reconciliation_required`. After the response, synchronous clients
 write the receipt on a background thread; `flush_sync_receipts()` waits for them and
 `drain_llm_receipts()` includes them. `cost_tracking.block_when_unrecordable` is
 still accepted in `tracker.yaml` and has no effect.
@@ -284,3 +300,22 @@ keyterms and diarization add-ons. Unknown models/features/dates stay NULL and
 report a tracking gap. Public rates effective 2026-10-01 are estimates; account
 credits and negotiated discounts require invoice reconciliation. No historical
 rate is inferred before the effective date.
+
+## Recall.ai meeting bots
+
+`simpl_tracker.recall.record_recall_bot(tracker, bot, transcribed_recording_id=...,
+retention_hours=..., repo_name=..., process_name=..., user_id=..., customer_id=...)`
+records one ledger row per finished bot, from the bot JSON Recall returns
+(`GET /bot/{id}/`). Components, priced in `provider_pricing` (provider `recall_ai`,
+service `meeting_recording`): `bot` from the first `joining_call` to `done`
+(waiting room included; a `fatal` bot is free), `transcription` for the recording
+transcribed with Recall.ai transcription, and `storage` for media kept past the free
+week (units: recording seconds x 30-day periods). The row id comes from the bot id
+and `cost_tracking.record_usage_receipt` writes it once, so webhook retries,
+reconcile passes and backfills cannot count a bot twice. Blocking IO: call it off
+the event loop. It never raises: an unfinished bot, an unpriced component or a
+ledger failure is reported on the cost-tracking channel. Apply migration
+`20261012150000_recall_meeting_usage.sql` first. Public pay-as-you-go rates
+effective 2026-10-01 are estimates; Recall top-ups up to September 2026 are
+`infra_subscription` rows, so October onwards must not get one.
+
