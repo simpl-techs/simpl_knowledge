@@ -4,7 +4,6 @@
 simpl_api  cloudrun-prd
 simpl_flow  prefect-prd
 simpl_outreach  prefect-prd
-simpl_growth  cloudrun-prd
 simpl_scraping  runtime-prd
 simpl_ops  cloudrun-prd
 simpl_google_extension  cloudrun-prd

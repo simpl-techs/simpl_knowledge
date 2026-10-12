@@ -5,6 +5,5 @@ simpl_sales
 simpl_flow
 simpl_scraping
 simpl_dashboard
-simpl_growth
 simpl_ops
 simpl_google_extension
