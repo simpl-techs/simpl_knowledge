@@ -15,14 +15,12 @@ alwaysApply: true
 
 ## Naming
 
-- Python: `test_<unit_under_test>_<condition>_<expected_outcome>`
-  - ✅ `test_batch_events_when_queue_full_flushes_immediately`
-  - ❌ `test_1`, `test_batching`
-- TypeScript: describe/it style: `describe("batchEvents", () => { it("flushes immediately when queue is full", ...) })`
+- Python: `test_<unit_under_test>_<condition>_<expected_outcome>`, e.g. `test_batch_events_when_queue_full_flushes_immediately`. Never `test_1` or `test_batching`.
+- TypeScript: describe/it, e.g. `describe("batchEvents", () => { it("flushes immediately when queue is full", ...) })`.
 
 ## Structure: Arrange-Act-Assert
 
-Every test has three visible sections. Blank lines between them.
+Every test has three visible sections, separated by blank lines.
 
 ```python
 def test_batch_events_flushes_at_limit():
@@ -37,49 +35,40 @@ def test_batch_events_flushes_at_limit():
     assert tracker.flushed_count == 1
 ```
 
-## Fixtures
+## Fixtures and coverage
 
-- Shared fixtures go in `conftest.py` (Python) or `__tests__/setup.ts` (TS).
-- A fixture that's used in only one test file stays in that file.
-- No global state between tests. Ever. Use fixtures with proper teardown.
+- Shared fixtures go in `conftest.py` (Python) or `__tests__/setup.ts` (TS). A fixture used by only one test file stays in that file.
+- No global state between tests, ever: use fixtures with proper teardown.
+- Coverage target: 80% line coverage on new code (check the codecov bot on the PR), 100% on security-sensitive modules (`auth/`, `crypto/`, `billing/`). Coverage is not a goal in itself: meaningful assertions matter more than line count.
 
-## Coverage
+## Mocking (all levels)
 
-- Target: 80% line coverage on new code (check via codecov bot on PR).
-- 100% on security-sensitive modules (`auth/`, `crypto/`, `billing/`).
-- Coverage is not a goal in itself — meaningful assertions matter more than line count.
+- Mock the outside world, not the inside: external APIs (LLMs, third-party HTTP, payment providers), faked at their port, plus time (`freezegun`), randomness and the filesystem.
+- Never mock your own domain logic or services, the database, the ORM, Pydantic models or simple data classes.
+- Use a real database, not a mocked session: an ephemeral Postgres (test container or equivalent) with the real schema, real migrations and real RLS, triggers and views applied.
+- When mocking is genuinely needed, patch the seam the consumer actually uses (a provider property, a port), not a deep private function.
+- Needing 5+ mocks to test one function means the function is doing too much.
+- A test that asserts the value it told a mock to return tests nothing: tautological assertions are pure cost.
 
-## What to mock, what not to mock
+## Test discipline (unit, integration and end-to-end)
 
-- ✅ Mock: external HTTP APIs, time (`freezegun`), randomness, the filesystem.
-- ❌ Don't mock: your own domain logic, Pydantic models, simple data classes.
-- If you find yourself mocking 5+ things to test one function, the function is doing too much.
-
-## Test discipline
-
-These rules apply across unit, integration, and end-to-end levels.
-
-- **A test that doesn't turn red on a business-logic change defends nothing.** If the test only fails when its own scaffolding changes, delete it.
-- **A test that mocks a method's return and asserts that return tests nothing.** Tautological assertions ("I told the mock to return X, then I asserted X") are pure cost.
-- **Use a real database, not a mocked session.** Run tests against an ephemeral Postgres (test container or equivalent) with the real schema, real migrations, and real RLS/triggers/views applied.
-- **Mock the outside world, not the inside.** External APIs (LLMs, third-party HTTP, payment providers) get faked at their port; the database, the ORM, and your own services run for real.
-- **End-to-end paths are the default integration shape.** Drive the system through its real seams (HTTP handler → service → repository → DB) and assert observable state.
-- **Assert on state, not on call counts.** Prefer "row X is now in state Y" over "method Z was called twice"; call-count assertions break under harmless refactors.
-- **Test commands and queries separately.** Query tests assert returned shape and filtering; command tests assert state transitions, idempotency under retry, and concurrent-claim safety. (See `architecture-discipline` for the command/query model, `state-and-persistence` for the retry/claim semantics being tested.)
-- **Tests reference canonical import paths.** When code moves, tests update their imports — no shim to keep them green.
-- **Mock at the seam, not the internals.** When mocking is genuinely needed, patch the boundary the consumer actually uses (a provider property, a port), not a deep private function.
-- **Delete tests pointing at removed modules.** A failing import is signal, not noise.
-- **Integration tests live next to the canonical code.** Tests follow the code home.
+- A test that does not turn red on a business-logic change defends nothing. If it only fails when its own scaffolding changes, delete it.
+- End-to-end paths are the default integration shape: drive the system through its real seams (HTTP handler → service → repository → DB) and assert observable state.
+- Assert on state, not on call counts: prefer "row X is now in state Y" over "method Z was called twice". Call-count assertions break under harmless refactors.
+- Test commands and queries separately. Query tests assert returned shape and filtering; command tests assert state transitions, idempotency under retry and concurrent-claim safety. The command/query model is in `architecture-discipline`, the retry and claim semantics in `state-and-persistence`.
+- Tests import from canonical paths. When code moves, update the tests' imports; never add a shim to keep them green.
+- Delete tests pointing at removed modules: a failing import is signal, not noise.
+- Integration tests live next to the canonical code: tests follow the code home.
 
 ## Fixture data
 
-- **Real production data is confined to replay tests.** Real names, identifiers, contact details, and UUIDs do not appear in prompts, unit tests, or shared fixtures. The carve-out is replay tests whose explicit purpose is to reproduce a historical production trace.
-- **Generic example data is obviously fake.** Use values that cannot be mistaken for real ones (`example.com` domains, zero-padded numbers, all-zero UUIDs). Anonymized-real values are worse than obviously-fake ones because they pass eyeballing and hide PII leaks.
+Also in `data-flow-discipline` → *Test and fixture data discipline*.
 
-(Also see `data-flow-discipline` → *Test and fixture data discipline*.)
+- Real production data is confined to replay tests whose explicit purpose is to reproduce a historical production trace. Real names, identifiers, contact details and UUIDs never appear in prompts, unit tests or shared fixtures.
+- Generic example data is obviously fake: use values that cannot be mistaken for real ones (e.g. `example.com` domains, zero-padded numbers, all-zero UUIDs). Anonymized-real values are worse than obviously-fake ones because they pass eyeballing and hide PII leaks.
 
-## For agents specifically
+## For agents
 
-- When writing a new test, first look at 2-3 existing tests in the same repo. Match style.
-- Never delete or `@pytest.mark.skip` a failing test without asking the human — it may be catching a real regression.
-- If the human asks "write a test for X", write ONE focused test first, show it, then offer to add more.
+- Before writing a new test, read 2-3 existing tests in the same repo and match their style.
+- Never delete or `@pytest.mark.skip` a failing test without asking the human: it may be catching a real regression.
+- When the human asks "write a test for X", write ONE focused test first, show it, then offer to add more.
