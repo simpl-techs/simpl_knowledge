@@ -60,8 +60,8 @@ This skill is **always-on**. It covers where code lives and how it composes. The
 
 ## Versioning and packaging
 
-- **Pin git/internal deps to explicit tags.** No floating refs (head, branch names), no missing pins.
+- **Internal git deps follow `main`.** Declare simpl-techs packages as `@ git+https://github.com/simpl-techs/<repo>.git@main`, never a tag or a sha (team decision 2026-10-12). The committed lockfile fixes the exact commit; moving it is a deliberate `poetry update <pkg>`, and its diff shows everything else that `main` brought along: read it before merging.
 - **Bump the version on every PR.** PATCH by default, new public surface included; MINOR only when the PR body justifies it; MAJOR only for breaking changes and only as a team decision. Full policy: `git-workflow` → *Version bumps*.
-- **Update transitive pins in lock-step.** When a shared package bumps, every package pinning it bumps and updates the pin in the same change.
+- **Relock consumers in lock-step.** When a shared package changes what its consumers need, relock every consumer in the same rollout (`poetry update <pkg>`), so no service runs a commit that its dependencies have moved past.
 - **Commit lockfiles** for reproducible builds across environments.
 - **One packaging metadata convention per package.** Mixing styles in the same manifest causes drift.
