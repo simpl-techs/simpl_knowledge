@@ -153,6 +153,14 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   "page_kind", "snippet"}]}}`, the snippet cut around the first keyword (the text lives
   only in the index, so it travels with the match). `page_kind` `site` is the site's
   template (menu, footer), shown at the home URL.
+- An **include filter** (`sales.icp_filters.filter_type = 'include'`, wish_list
+  `company.id IN ('…', …)`) names companies an ICP holds on top of its rules. The
+  matcher upserts them in a separate pass with none of the ICP's clauses (a union, never
+  ANDed), `match_source = 'included'`, under the same refresh timestamp. The
+  `icp_match_fallback` supply takes included companies first and does not hold them to
+  `min_company_score`; claimed connections, a missing LinkedIn id and exclusive-mode
+  assignment still exclude them. Only the uuids are read out of the clause. simpl_api's
+  company import writes it when a user adds a list to an existing target.
 - A Customer company (lead status 10) and a company imported with a `Dummy Imported`
   connection are watched, never proposed: their signals land in
   `opportunity.icp_signal_monitor` (the watchlist), but they are never a new or
