@@ -222,6 +222,21 @@ describe('Claude plugin refresh', () => {
   });
 });
 
+describe('Claude candor context', () => {
+  it('injects the candor body synchronously, without frontmatter', () => {
+    const hooks = JSON.parse(fs.readFileSync(path.join(root, 'plugins/simpl-standards/hooks/hooks.json'))).hooks.SessionStart[0].hooks;
+
+    const result = spawnSync(process.execPath, [path.join(root, 'plugins/simpl-standards/scripts/hooks/candor-context.js')], { encoding: 'utf8' });
+
+    succeeds(result);
+    const context = JSON.parse(result.stdout).hookSpecificOutput.additionalContext;
+    assert.match(context, /^\[simpl-standards\/candor, always on\]\n\n# Candor\n[\s\S]*Disagree, then follow/);
+    assert.doesNotMatch(context, /^name: candor/m);
+    // Async hook output reaches the session after the first turn.
+    assert.equal(hooks.find(h => h.command.includes('candor-context.js')).async, undefined);
+  });
+});
+
 describe('legacy cache migration', () => {
   it('moves the checkout outside Claude garbage collection and relinks old skills', () => {
     const f = fixture();

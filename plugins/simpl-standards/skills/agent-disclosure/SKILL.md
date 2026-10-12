@@ -17,7 +17,8 @@ by that fact alone: turning a WhatsApp export into a LinkedIn post, designing a
 carousel, researching a company or summarising a call touch none of the above.
 For those, do not print the header and do not open `coding-standards`,
 `git-workflow`, `testing-policy`, `doppler` or the other standards skills — they
-cost time and context and change nothing about the work.
+cost time and context and change nothing about the work. `candor` is the
+exception: it governs how you answer in every session.
 
 ## Protocol (coding sessions)
 

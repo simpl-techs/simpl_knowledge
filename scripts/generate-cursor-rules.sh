@@ -38,6 +38,7 @@ ALWAYS_APPLY = {
     "state-and-persistence",
     "data-flow-discipline",
     "doppler",
+    "candor",
 }
 
 for skill, name, base in rules:

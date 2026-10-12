@@ -25,6 +25,7 @@ bash scripts/team-bootstrap.sh
 ```
 
 - **Auto-heal**: `simpl-standards` SessionStart runs `plugin-refresh.js` — `fetch` + `reset --hard` on `~/.claude/plugins/marketplaces/simpl`, then `claude plugin update` when installed versions lag `marketplace.json`. New versions load next session.
+- **Always-on in Claude**: Claude Code has no always-on list; a skill opens when its description matches the request. `candor` matches no request in particular, so a synchronous SessionStart hook (`candor-context.js`) injects its body into every session.
 
 ## Cursor
 
