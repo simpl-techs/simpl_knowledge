@@ -45,6 +45,7 @@ Types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`, `build`, `ci`
 - Body from `.github/pull_request_template.md`: What · Why (ticket or context) · How to test (steps a reviewer can run) · Agent context touched? (`.agent/SKILL.md` if the public API changed, `.agent/INTERNAL.md` if conventions changed).
 - Under ~400 lines gets same-day review; split bigger PRs.
 - Every PR bumps the version (below); reviewers do not approve without it.
+- Agents: after a merge you ran (only when the user asked for it) succeeds, delete the PR's branches. Remote: `git push origin --delete <head>`. Tracking ref: `git fetch --prune`. Local: `git branch -D <head>`, only if the branch is not checked out (here or in another worktree) and its tip equals the PR head (`gh pr view <n> --json headRefOid`); a checked-out branch stays, say so. Never delete `main`, `dev`, `staging` or release branches (e.g. the head of a `dev` → `main` PR). Do not use `gh pr merge --delete-branch`: it checks out the base branch when you are on the PR branch.
 
 ## Agents: Linear
 
