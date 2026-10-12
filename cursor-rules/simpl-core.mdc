@@ -10,6 +10,8 @@ alwaysApply: false
 > **Maintained by**: the `simpl_core` repo, auto-synced to simpl_knowledge.
 > **Source of truth**: `simpl-techs/simpl_core/.agent/SKILL.md`
 
+Payment frequency is separate from cost allocation: `payment_frequency` is `one_time`, `monthly`, `annual`, or null (unknown). Vendor assignments and manual expense batches persist it; classification carries it to the ledger and preserves manual decisions. It does not generate future transactions or require an end date. Existing decisions remain null; `covers_months` is never interpreted as cadence. Apply the additive `roi_payment_frequency` migration before deploying the updated Core/API.
+
 ## What this library is
 
 `simpl_core` is the shared Python business layer for the simpl platform. It contains reusable domain models, repositories, and services for autopilot, outreach, CRM, email, notifications, reports, ROI / capital allocation (`simpl_core.roi`), and related platform workflows.
