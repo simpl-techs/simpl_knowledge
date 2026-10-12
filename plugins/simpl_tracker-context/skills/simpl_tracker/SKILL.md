@@ -303,19 +303,28 @@ rate is inferred before the effective date.
 
 ## Recall.ai meeting bots
 
-`simpl_tracker.recall.record_recall_bot(tracker, bot, transcribed_recording_id=...,
-retention_hours=..., repo_name=..., process_name=..., user_id=..., customer_id=...)`
-records one ledger row per finished bot, from the bot JSON Recall returns
-(`GET /bot/{id}/`). Components, priced in `provider_pricing` (provider `recall_ai`,
-service `meeting_recording`): `bot` from the first `joining_call` to `done`
-(waiting room included; a `fatal` bot is free), `transcription` for the recording
-transcribed with Recall.ai transcription, and `storage` for media kept past the free
-week (units: recording seconds x 30-day periods). The row id comes from the bot id
-and `cost_tracking.record_usage_receipt` writes it once, so webhook retries,
-reconcile passes and backfills cannot count a bot twice. Blocking IO: call it off
-the event loop. It never raises: an unfinished bot, an unpriced component or a
-ledger failure is reported on the cost-tracking channel. Apply migration
-`20261012150000_recall_meeting_usage.sql` first. Public pay-as-you-go rates
-effective 2026-10-01 are estimates; Recall top-ups up to September 2026 are
-`infra_subscription` rows, so October onwards must not get one.
+`simpl_tracker.recall.record_recall_bot(tracker, bot, repo_name=..., process_name=...,
+user_id=..., customer_id=...)` records one ledger row per finished bot. Every quantity
+comes from the bot JSON Recall returns (`GET /bot/{id}/`), never from our config.
+Components, priced in `provider_pricing` (provider `recall_ai`, service
+`meeting_recording`):
+- `bot`: from the first `joining_call` to `done` (waiting room included; a `fatal`
+  bot is free). Matches Recall's own `GET /billing/usage/` to the second.
+- `transcription`: recordings whose transcript shortcut is `done` with a Recall
+  provider (`recallai_async`, `recallai_streaming`).
+- `storage`: recording seconds x 30-day periods from 7 days after `completed_at` to
+  `expires_at`. A recording with no `expires_at` is kept and billed every month
+  forever: it is left out, listed in `metadata.unbounded_storage_recordings` and
+  reported as `meeting_recording.unbounded_storage`.
 
+The row id comes from the bot id and `cost_tracking.record_usage_receipt` writes it
+once, so webhook retries, reconcile passes and backfills cannot count a bot twice.
+Blocking IO: call it off the event loop. It never raises: an unfinished bot, an
+unpriced component or a ledger failure is reported on the cost-tracking channel.
+Migration `20261012150000_recall_meeting_usage.sql` holds the pay-as-you-go list
+prices (bot $0.50/h, transcription $0.15/h, storage $0.05 per recorded hour per 30
+days). Verified 2026-10-12 against what we paid: on this measure they account for
+$239.90 of the 24 x $10 top-ups bought between 2026-04-23 and 2026-10-09. The
+account is self-serve pay-as-you-go (prepaid credit, automatic $10 top-ups), not a
+monthly plan. Top-ups up to September 2026 are `infra_subscription` rows; October
+onwards must not get one.
