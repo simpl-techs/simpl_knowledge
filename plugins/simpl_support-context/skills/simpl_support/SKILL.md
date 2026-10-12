@@ -38,6 +38,9 @@ import { SupportInbox } from "@simpl/support/inbox"
 //   renderThreadPanel={({ thread, technicalContext }) => …}  right column (22rem)
 //   renderThreadIdentity={(thread) => …}                      line under the title
 //   onActiveThreadChange={(threadId) => …}                     e.g. sync ?thread=
+//   staffNames={{ [userId]: name }}                            who threads are assigned to
+//   onAssign={({ thread, assignTo, createLinearIssue }) => …} host assignment (Linear)
+//   offerLinearIssue                                           "Linear issue" tick on assign
 ```
 
 `thread.customer_id` / `customer_name` are snapshots from thread creation (`customer_id` may come
@@ -55,7 +58,10 @@ export const POST = createSupportNotifyRoute({
 
 Hosts should use `html2canvas-pro` (Tailwind v4 `oklch`) — not stock `html2canvas`.
 Until `support` is in Exposed schemas, pass `SUPPORT_APP_BRIDGE` (default in widget/inbox).
-Apply migrations `001`, `002` (app bridge), `003` (own-thread sender is user).
+Apply migrations `001`, `002` (app bridge), `003` (own-thread sender is user), `004` (sender
+identity), `005` (assignment and Linear issue: assignee must be staff, `set_thread_linear_issue`,
+customers lose direct INSERT/UPDATE on `support.thread`).
+The notify route emails only the assignee of an assigned thread, the team otherwise.
 
 ## Strict rules
 
