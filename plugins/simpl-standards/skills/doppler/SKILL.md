@@ -7,56 +7,38 @@ description: Org-wide Doppler secrets at simpl — local DOPPLER_TOKEN + doppler
 
 > **Auto-distributed via simpl_knowledge. Propose edits with a PR on `simpl-techs/simpl_knowledge`.**
 
-One Doppler project per main repo. Developers never open the dashboard. Shared keys come from Doppler; a new key may live in a gitignored `.env` only until a maintainer writes it in Doppler.
+One Doppler project per main repo: `simpl_api`, `simpl_growth`, `simpl_ops`, `simpl_google_extension`, `simpl_flow`, `simpl_outreach`, `simpl_sales`, `simpl_dashboard`, `simpl_scraping`. Each has configs `dev`, `stg`, `prd`; local always uses `dev`. Shared keys come from Doppler. Generic helpers: `scripts/doppler/` in a `simpl_knowledge` clone (not `workspace/scripts/`).
 
-Generic helpers: `scripts/doppler/` in a `simpl_knowledge` clone (not `workspace/scripts/`).
-
-## Install (local)
+## Local setup
 
 1. Install the [Doppler CLI](https://docs.doppler.com/docs/install-cli).
-2. Ask **Raff, Iacopo, or Flavio** for a **read-only service token** for **this repo's Doppler project**, config **`dev`**. One token = one project. Never a `prd` token.
-3. Put it in gitignored `.env` as `DOPPLER_TOKEN`, or pass the file to `scripts/doppler/setup-dev.sh`.
-4. Run with `doppler run --config dev -- <command>`. Checked-in `doppler.yaml` points at `prd` (images/admin); local always forces `--config dev`.
-
-Do **not** tell anyone to run `doppler login`. Workplace login is only those three maintainers.
-
-## 90% path
+2. Ask **Raff, Iacopo or Flavio** for a **read-only service token** for this repo's Doppler project, config **`dev`**. One token = one project. Never a `prd` token: no one gives a developer one.
+3. Put it in the gitignored `.env` as `DOPPLER_TOKEN`, or pass the file to `scripts/doppler/setup-dev.sh`. Once the keys are in Doppler, `.env` holds only `DOPPLER_TOKEN`.
+4. Locally, always force `--config dev`. The checked-in `doppler.yaml` points at `prd` (images, admin): without the flag a `dev`-only token fails or the run points at production.
 
 ```bash
-# .env contains only DOPPLER_TOKEN (keys already in Doppler)
 doppler run --config dev -- poetry run pytest
 doppler run --config dev -- npm run dev
 ```
 
-**New key the team does not have in Doppler yet** (devs have no dashboard):
+Check: a process started this way sees the shared keys, and `.env` holds only `DOPPLER_TOKEN`.
 
-1. Add it to local `.env` (gitignored) so work can continue.
+## New env var (not in Doppler yet)
+
+Developers have no dashboard, so:
+
+1. Add the key to the local gitignored `.env` so work can continue.
 2. In the PR, list for the maintainer: name, purpose, required/optional, configs (`dev` and whether `stg`/`prd`). **No secret values in the PR.**
-3. Maintainer writes the key in Doppler, then publishes (Vercel sync / new Cloud Run revision / `prefect deploy`).
-4. Dev **deletes** that key from `.env`. Left behind: `DOPPLER_TOKEN` + `doppler run`.
+3. The maintainer writes the key in Doppler, then publishes (Vercel sync / new Cloud Run revision / `prefect deploy`).
+4. The developer **deletes** the key from `.env`, leaving `DOPPLER_TOKEN` + `doppler run`. A leftover key makes local and team configs drift.
 
 A PR that introduces an env var is **not done** without that maintainer block.
 
-## Projects and configs
-
-Projects: `simpl_api`, `simpl_growth`, `simpl_ops`, `simpl_google_extension`, `simpl_flow`, `simpl_outreach`, `simpl_sales`, `simpl_dashboard`, `simpl_scraping`.
-
-Configs on each: `dev`, `stg`, `prd`. Local always uses `dev`.
-
 ## Runtime
 
-**Vercel** (`simpl_sales`, `simpl_dashboard`): Doppler → Vercel integration, config `prd` → Production, variables **Sensitive**. That is enough. Do not mount GCP secrets. Do not sync Preview (free-plan sync slots). Redeploy after the first sync.
+**Vercel** (`simpl_sales`, `simpl_dashboard`): Doppler → Vercel integration, config `prd` → Production, variables **Sensitive**. That is enough: do not mount GCP secrets. Do not sync Preview (free-plan sync slots). Redeploy after the first sync.
 
-**Cloud Run**: container env is only `DOPPLER_TOKEN` (CLI contract). GCP Secret Manager is **per service** — never a generic secret named `DOPPLER_TOKEN`:
-
-| Service | GCP secret |
-|---|---|
-| API | `SIMPL_API_DOPPLER_TOKEN` |
-| Growth | `SIMPL_GROWTH_DOPPLER_TOKEN` |
-| Ops | `SIMPL_OPS_DOPPLER_TOKEN` |
-| Proxy | `SIMPL_PROXY_DOPPLER_TOKEN` |
-
-Deploy: `--clear-env-vars --set-secrets DOPPLER_TOKEN=<that-secret>:latest`. Image entrypoint is `doppler run` (see `library-repo-template/scripts/doppler-entrypoint.sh` for **new** services). Updating a value in Doppler does **not** reach Cloud Run until a new revision / redeploy.
+**Cloud Run**: the container env is only `DOPPLER_TOKEN` (CLI contract); app secrets are never Cloud Run env vars. The token comes from a **per-service** GCP Secret Manager secret, never (re)use a generic secret named `DOPPLER_TOKEN`: API `SIMPL_API_DOPPLER_TOKEN`, Growth `SIMPL_GROWTH_DOPPLER_TOKEN`, Ops `SIMPL_OPS_DOPPLER_TOKEN`, Proxy `SIMPL_PROXY_DOPPLER_TOKEN`. Check that each service (Growth included) mounts its own. Deploy with `--clear-env-vars --set-secrets DOPPLER_TOKEN=<that-secret>:latest`. The image entrypoint is `doppler run` (new services copy `library-repo-template/scripts/doppler-entrypoint.sh`). Cloud Run reads Doppler at revision start, so a value changed in Doppler reaches it only with a new revision (redeploy).
 
 **Prefect**: one Secret block per token (`doppler-token-flow`, `doppler-token-outreach`, `doppler-token-ops`). Everything else lives in Doppler.
 
@@ -64,54 +46,32 @@ Deploy: `--clear-env-vars --set-secrets DOPPLER_TOKEN=<that-secret>:latest`. Ima
 
 From a `simpl_knowledge` clone, after workplace `doppler login` (maintainers only):
 
-| Script | Job |
-|---|---|
-| `scripts/doppler/setup-dev.sh` | Dev: scope a `dev` token to the current directory |
-| `scripts/doppler/create-tokens.sh` | Create read-only tokens from `projects.txt` / `prd-runtime.txt` |
-| `scripts/doppler/set-secret.sh KEY` | One key onto every project in `key-targets.txt` (prd, dev, stg, or only the configs after `@`, e.g. `KEY@prd`) |
-| `scripts/doppler/gcp-secret.sh` | Secret Manager + IAM; `SERVICE`, `SECRET_NAME`, `TOKEN_FILE` required |
-| `scripts/doppler/prefect-blocks.sh` | Prefect Secret blocks from `*-prd` token files |
-| `scripts/doppler/mirror-prd-to-dev.sh` | Copy `prd` → `dev` (keeps an existing `OPENAI_API_KEY` on `dev`; skips `@prd` keys) |
+- `scripts/doppler/setup-dev.sh`: for developers (no login needed), scopes a `dev` token to the current directory.
+- `scripts/doppler/create-tokens.sh`: creates read-only tokens from `projects.txt` / `prd-runtime.txt`.
+- `scripts/doppler/set-secret.sh KEY`: writes one key onto every project in `key-targets.txt` (prd, dev, stg, or only the configs after `@`, e.g. `KEY@prd`). Use it, not a one-off script per vendor key.
+- `scripts/doppler/gcp-secret.sh`: Secret Manager + IAM; `SERVICE`, `SECRET_NAME`, `TOKEN_FILE` required.
+- `scripts/doppler/prefect-blocks.sh`: Prefect Secret blocks from `*-prd` token files.
+- `scripts/doppler/mirror-prd-to-dev.sh`: copies `prd` → `dev` (keeps an existing `OPENAI_API_KEY` on `dev`; skips `@prd` keys).
 
-Use `set-secret.sh`, not a one-off script per vendor key.
+`DISCORD_COST_TRACKING_WEBHOOK_URL` is `@prd` in `key-targets.txt`: in `dev`, every local run would post its cost-tracking gaps to the production channel. To rotate it: `scripts/doppler/set-secret.sh DISCORD_COST_TRACKING_WEBHOOK_URL`, then the `simpl_tracker` repository secret, then redeploy the Cloud Run services (they read Doppler at revision start).
 
 ## Rules for agents
 
 - Open this skill before adding an env var, changing `.env.example`, or instructing how to run a service.
+- Never tell anyone to run `doppler login` (workplace login is only the three maintainers), and never tell a developer to open dashboard.doppler.com. Say: ask Raff / Iacopo / Flavio for the project's `dev` token.
 - Local run: `doppler run --config dev -- …`. Do not invent a second secrets runtime.
 - `.env.example` is `DOPPLER_TOKEN` (and comments pointing at the README catalog). Do not dump every secret name as if developers fill them by hand.
-- README still catalogs every var the code reads (see `repo-docs-consistency`). The catalog is documentation; Doppler is the store.
-- Never print tokens. Never commit `.env`. Never put secret values in a PR or commit.
-- Never say `doppler login` to a developer. Say: ask Raff / Iacopo / Flavio for the project's `dev` token.
-- Never give a developer a `prd` token.
-- Never reuse GCP secret `DOPPLER_TOKEN`. Use the per-service names above.
-- Do not tell developers to open dashboard.doppler.com.
+- The README still catalogs every var the code reads (see `repo-docs-consistency`). The catalog is documentation; Doppler is the store.
+- Never print tokens. Never commit `.env`. Never put secret values in git, skills, PRs or commits.
 
-## Pitfalls
+## Not covered here
 
-- `doppler.yaml` in git says `prd`. Forgetting `--config dev` locally fails a `dev`-only token or points at production.
-- Cloud Run still serving old values: Doppler change without a new revision.
-- Growth (or any service) mounted the wrong GCP secret: each service has its own secret name.
-- Leaving new keys in `.env` after they exist in Doppler `dev` — local and team configs drift.
-- `DISCORD_COST_TRACKING_WEBHOOK_URL` in `dev`: every local run posts its cost-tracking gaps to the production channel. It is `@prd` in `key-targets.txt`. To rotate it: `scripts/doppler/set-secret.sh DISCORD_COST_TRACKING_WEBHOOK_URL`, then the `simpl_tracker` repository secret, then redeploy (Cloud Run reads Doppler at revision start).
-
-## Testing
-
-- Shared keys: process started with `doppler run --config dev` sees them; `.env` has only `DOPPLER_TOKEN`.
-- New-key PR: maintainer block present; no values in the diff.
-- Cloud Run: service env is `DOPPLER_TOKEN` from the **named** GCP secret; app secrets are not listed as Cloud Run env vars.
-
-## What this skill does NOT do
-
-- Teach `doppler login` as team onboarding (maintainers only; not in this skill as a step to follow).
-- Replace per-repo `doppler.yaml` or already-deployed `scripts/doppler-entrypoint.sh` copies (Docker COPY must stay in the image context). New services copy `library-repo-template/scripts/doppler-entrypoint.sh`.
-- Own flow-only inventory scripts (`check-doppler-parity.py`, `doppler_inventory.py`, `seed-doppler-from-prefect.py`).
-- Sync Vercel Preview, or treat Vercel apps as Cloud Run (no GCP Doppler secret for sales/dashboard).
-- Store secret values in git, skills, or PRs.
+- Per-repo `doppler.yaml` and already-deployed `scripts/doppler-entrypoint.sh` copies stay in each repo (Docker COPY must stay in the image context).
+- Flow-only inventory scripts (`check-doppler-parity.py`, `doppler_inventory.py`, `seed-doppler-from-prefect.py`).
 
 ## Pointers
 
-- `coding-standards` — hub routing.
-- `python-environment` — Conda/Poetry; run via Doppler.
-- `repo-docs-consistency` — README catalog + PR maintainer note.
-- `team-onboarding` — CLI + token handoff.
+- `coding-standards`: hub routing.
+- `python-environment`: Conda/Poetry; run via Doppler.
+- `repo-docs-consistency`: README catalog + PR maintainer note.
+- `team-onboarding`: CLI + token handoff.
