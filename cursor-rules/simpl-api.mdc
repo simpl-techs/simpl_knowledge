@@ -12,6 +12,8 @@ alwaysApply: false
 
 Payment frequency is separate from cost allocation: `payment_frequency` is `one_time`, `monthly`, `annual`, or null (unknown). Vendor assignments and manual expense batches persist it; classification carries it to the ledger and preserves manual decisions. It does not generate future transactions or require an end date. Existing decisions remain null; `covers_months` is never interpreted as cadence. Apply the additive `roi_payment_frequency` migration before deploying the updated Core/API.
 
+Google Play descriptors resolve to `google play` before bank references are stripped; Google Cloud descriptors, with or without a star, resolve to `google cloud`. Play and unidentified Google charges are proposed for purchase-by-purchase review. Do not infer an app or payment frequency from the amount.
+
 ## What this service is
 
 `simpl_api` is the FastAPI backend for the simpl sales intelligence platform. It exposes app/admin API routes, webhook handlers, guided/autopilot endpoints, prompt/template services, background jobs, and agent-facing backend workflows.
