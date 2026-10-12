@@ -5,16 +5,17 @@ description: simpl-wide coding conventions, style rules, and the engineering-pri
 
 # simpl coding standards
 
-> **Auto-distributed via simpl_knowledge. Propose edits with a PR on `simpl-techs/simpl_knowledge`.**
+> **Auto-distributed via simpl_knowledge. Edit it in `simpl-techs/simpl_knowledge`, where changes go straight to `main`.**
 
 This skill is the always-on hub: universal engineering principles plus a routing table to the deeper, scoped standards skills, which it points to and never duplicates.
 
 ## Languages and stacks
 
-- **Backend**: Python 3.12+, FastAPI, Pydantic v2, async-first
-- **Frontend**: TypeScript (strict mode), React 18, Vite
-- **Data**: Postgres 16, SQLAlchemy 2.x (async), Alembic migrations
-- **Infra**: Docker + docker-compose for local; Google Cloud Run (services, worker pools, jobs, Prefect flows) and Vercel (Next.js apps) for prod
+- **Backend**: Python 3.12–3.13 (`>=3.12,<3.14`, Conda + Poetry), Pydantic v2, async-first. HTTP services on FastAPI (`simpl_api`, `simpl_ops`, the extension gateway `simpl-proxy`); pipelines on Prefect 3 (`simpl_flow`, `simpl-outreach`, `simpl_scraping`, `simpl_ops`); LLM work on pydantic-ai with Langfuse, through `simpl_ia`.
+- **Shared libraries**: domain logic `simpl_core`, models and async repositories `simpl_orm` (SQLModel on async SQLAlchemy 2 + asyncpg), LLM/vector `simpl_ia`, cost tracking `simpl_tracker` (catalog: `internal-libraries-awareness`).
+- **Frontend**: TypeScript (strict mode) and React on the Next.js App Router: `simpl_sales` and `landing-page` on Next 14 / React 18, `simpl_dashboard` and `simpl_console` on Next 16 / React 19; Tailwind, `@supabase/supabase-js`, Vitest, Zod. `simpl_support` is a React component library (`@simpl/support`, built with `tsc`); `simpl-google-extension` is a plain-JS Manifest V3 extension.
+- **Data**: Postgres on Supabase. Schema changes are SQL files in each repo's `migrations/` (Alembic only in `simpl_orm`); access through `simpl_orm`, asyncpg, psycopg or the Supabase clients.
+- **Infra**: Docker images (docker-compose for local in `simpl_api`, `simpl_flow`, `simpl_scraping`); in prod Google Cloud Run (services via `cloudbuild.yaml`, worker pools, jobs, Prefect flows) and Vercel (Next.js apps); secrets from Doppler.
 
 If a task requires a stack outside this list, stop and flag it to the human before proceeding.
 
