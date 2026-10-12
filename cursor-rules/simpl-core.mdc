@@ -196,6 +196,23 @@ resolver = DefinitionLLMClientResolver(
 )
 ```
 
+Each target names the API its model speaks: `api: chat` (the default) for a
+language model, `api: decisions` for a decision model on `openrouter` -- any model
+OpenRouter serves on its decisions API, such as
+`perplexity/pplx-decider-v1.1-27b-20261006`, keyed by the same `openrouter`
+binding as chat. A chain may mix the two; one name may appear once per API.
+
+```yaml
+model:
+  name: perplexity/pplx-decider-v1.1-27b-20261006
+  provider: openrouter
+  api: decisions
+  provider_routing: {zdr: true}
+  fallbacks:
+    - name: z-ai/glm-5.3-flash
+      provider: openrouter
+```
+
 Credentials are never authored in a policy document — the document names a
 provider, the host binds it. `Loader.validate_boot()` checks every typed policy
 against the resolver it will run on — the host's, or `default_llm_client_resolver()`
@@ -222,16 +239,21 @@ built with `client.make_agent(...)` from that client rather than from the host's
 `build_node_coordinator(llm_client_resolver=...)` take a host resolver when there is
 one. Their `agent_runs` rows name the target that answered — model, provider,
 reasoning, fallback index — and the chain's attempts, as `LLMAgent`'s do.
+`LLMAgent.last_api` is the answering target's API, and `execute_agent` puts it
+beside `provider` in the execution's `audit` payload (`"api": "decisions"` for a
+decision model's answer), so a caller can tell the two apart without reading model
+names.
 `answered_target(client, run_result, agent_id=...)` names the target that answered
 a run built outside `LLMAgent`.
 
-**A producer's output keeps the confidence its model answered with.** Jev
-(TypeSafe's System One) answers each field of the output type with a probability,
-which pydantic-ai puts in the response's `provider_details`. `LLMAgent` adds it to
-the producer's output as `_confidence` (`MODEL_CONFIDENCE_KEY`): `fields`, each
-field's confidence from 0 (undecided) to 1, and `probabilities`, each pick-one
-field's full distribution. A language model reports none, so an answer from a
-fallback behind Jev has no `_confidence`. The key is on the `agent_runs` output and
+**A producer's output keeps the confidence its model answered with.** A decision
+model (`api: decisions`, such as TypeSafe's Jev) answers each field of the output
+type with a probability, which pydantic-ai puts in the response's
+`provider_details`. `LLMAgent` adds it to the producer's output as `_confidence`
+(`MODEL_CONFIDENCE_KEY`): `fields`, each field's confidence from 0 (undecided) to 1,
+and `probabilities`, each pick-one field's full distribution. A language model
+reports none, so an answer from a fallback behind a decision model has no
+`_confidence`. The key is on the `agent_runs` output and
 on the run surface as `<node>._confidence`. An edge routes on it directly with a
 dotted key — `{key: <node>._confidence.probabilities.seller.owner, op: gt, value: 0.1}`,
 or `{key: <node>._confidence, op: is_null}` for a fallback's answer — and a
