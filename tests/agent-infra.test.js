@@ -222,18 +222,20 @@ describe('Claude plugin refresh', () => {
   });
 });
 
-describe('Claude candor context', () => {
-  it('injects the candor body synchronously, without frontmatter', () => {
+describe('Claude always-on context', () => {
+  it('injects every-session bodies and names every coding skill, synchronously', () => {
+    const lists = JSON.parse(fs.readFileSync(path.join(root, 'plugins/simpl-standards/always-on.json')));
     const hooks = JSON.parse(fs.readFileSync(path.join(root, 'plugins/simpl-standards/hooks/hooks.json'))).hooks.SessionStart[0].hooks;
 
-    const result = spawnSync(process.execPath, [path.join(root, 'plugins/simpl-standards/scripts/hooks/candor-context.js')], { encoding: 'utf8' });
+    const result = spawnSync(process.execPath, [path.join(root, 'plugins/simpl-standards/scripts/hooks/always-on-context.js')], { encoding: 'utf8' });
 
     succeeds(result);
     const context = JSON.parse(result.stdout).hookSpecificOutput.additionalContext;
-    assert.match(context, /^\[simpl-standards\/candor, always on\]\n\n# Candor\n[\s\S]*Disagree, then follow/);
+    assert.match(context, /^\[simpl_knowledge always-on context\]\n\n# Candor\n[\s\S]*Disagree, then follow/);
     assert.doesNotMatch(context, /^name: candor/m);
+    for (const name of lists.coding_sessions) assert.ok(context.includes(`\`${name}\``), name);
     // Async hook output reaches the session after the first turn.
-    assert.equal(hooks.find(h => h.command.includes('candor-context.js')).async, undefined);
+    assert.equal(hooks.find(h => h.command.includes('always-on-context.js')).async, undefined);
   });
 });
 

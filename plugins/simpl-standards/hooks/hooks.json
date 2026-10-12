@@ -12,7 +12,7 @@
           },
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/candor-context.js\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/always-on-context.js\"",
             "timeout": 5
           }
         ]

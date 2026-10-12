@@ -1,0 +1,15 @@
+{
+  "every_session": ["candor"],
+  "coding_sessions": [
+    "agent-disclosure",
+    "architecture-discipline",
+    "coding-standards",
+    "data-flow-discipline",
+    "doppler",
+    "git-workflow",
+    "internal-libraries-awareness",
+    "simpl_knowledge_system",
+    "state-and-persistence",
+    "testing-policy"
+  ]
+}

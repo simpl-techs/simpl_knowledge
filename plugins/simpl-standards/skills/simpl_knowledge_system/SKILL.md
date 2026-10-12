@@ -25,7 +25,7 @@ bash scripts/team-bootstrap.sh
 ```
 
 - **Auto-heal**: `simpl-standards` SessionStart runs `plugin-refresh.js` — `fetch` + `reset --hard` on `~/.claude/plugins/marketplaces/simpl`, then `claude plugin update` when installed versions lag `marketplace.json`. New versions load next session.
-- **Always-on in Claude**: Claude Code has no always-on list; a skill opens when its description matches the request. `candor` matches no request in particular, so a synchronous SessionStart hook (`candor-context.js`) injects its body into every session.
+- **Always-on in Claude**: Claude Code has no always-on list; a skill opens when its description matches the request. A synchronous SessionStart hook (`always-on-context.js`) fills the gap from `plugins/simpl-standards/always-on.json`: it injects the `every_session` skill bodies (`candor`) and names the `coding_sessions` skills to open before coding work.
 
 ## Cursor
 
@@ -41,7 +41,7 @@ bash scripts/team-bootstrap.sh
 - Skills: every `plugins/*/skills/<name>` in the cache is symlinked into `~/.agents/skills` and `~/.codex/skills` (both Codex global skill dirs), so Codex sees the org standards *and* every `<lib>-context` skill without a plugin install.
 - Instructions: `~/.codex/AGENTS.md` holds a block between `<!-- simpl_knowledge:start -->` / `:end` markers listing the always-on skills. Text outside the markers is the developer's own and is never touched.
 - Wiring: `sync-codex-knowledge.js` (shared hook) runs from `team-bootstrap.sh` / `install-team.sh` and again from every `session-refresh`. Because skills are symlinks, a cache refresh updates their content with no re-link.
-- The always-on list is derived from `cursor-rules/*.mdc` frontmatter (`alwaysApply: true`) — one source of truth across the three harnesses.
+- The always-on list is derived from `cursor-rules/*.mdc` frontmatter (`alwaysApply: true`), which `generate-cursor-rules.sh` writes from `plugins/simpl-standards/always-on.json` — one source of truth across the three harnesses.
 
 ## Update loop (library)
 

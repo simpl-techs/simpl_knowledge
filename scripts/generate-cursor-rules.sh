@@ -20,26 +20,17 @@ if clashes:
         print(f"  - {clash}", file=sys.stderr)
     sys.exit(1)
 
+import json
 import yaml  # only the writer needs it; the check above is stdlib-only
+
+# Always on in Cursor. The same file drives Claude's always-on-context hook,
+# and Codex reads the alwaysApply frontmatter written here.
+always_on = json.loads(pathlib.Path("plugins/simpl-standards/always-on.json").read_text(encoding="utf-8"))
+ALWAYS_APPLY = set(always_on["every_session"]) | set(always_on["coding_sessions"])
 
 out = pathlib.Path("cursor-rules")
 shutil.rmtree(out, ignore_errors=True)
 out.mkdir()
-
-# Standards + org meta-skill: always on in Cursor.
-ALWAYS_APPLY = {
-    "coding-standards",
-    "git-workflow",
-    "testing-policy",
-    "simpl_knowledge_system",
-    "internal-libraries-awareness",
-    "agent-disclosure",
-    "architecture-discipline",
-    "state-and-persistence",
-    "data-flow-discipline",
-    "doppler",
-    "candor",
-}
 
 for skill, name, base in rules:
     source_fm, body = split_frontmatter(skill.read_text(encoding="utf-8"))

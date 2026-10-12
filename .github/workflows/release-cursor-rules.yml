@@ -9,6 +9,7 @@ on:
       - main
     paths:
       - "plugins/**/SKILL.md"
+      - "plugins/simpl-standards/always-on.json"
       - "scripts/generate-cursor-rules.sh"
       - "scripts/cursor_rule_names.py"
       - ".github/workflows/release-cursor-rules.yml"
