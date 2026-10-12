@@ -41,6 +41,7 @@ import { SupportInbox } from "@simpl/support/inbox"
 //   staffNames={{ [userId]: name }}                            who threads are assigned to
 //   onAssign={({ thread, assignTo, createLinearIssue }) => …} host assignment (Linear)
 //   offerLinearIssue                                           "Linear issue" tick on assign
+//   resolveUserNames={(userIds) => Promise<{ [userId]: name }>} live names in the list/title
 ```
 
 `thread.customer_id` / `customer_name` are snapshots from thread creation (`customer_id` may come
