@@ -213,5 +213,5 @@ poetry run ruff check .
 - Source: `https://github.com/simpl-techs/simpl_flow`
 - Flow code: `src/simpl_flow/flows`
 - Pipeline code: `src/simpl_flow/pipelines`
-- ROI ingest: `src/simpl_flow/pipelines/roi` (Revolut → `roi.transactions`, A-Cube → `roi.revenues`, tagging apply)
+- ROI ingest: `src/simpl_flow/pipelines/roi` (Revolut → `roi.transactions` daily at 03:15 UTC with payer, MCC, type and FX fee like the CSV statement, EUR legs only; A-Cube → `roi.revenues`). Classification runs in simpl_api's nightly `roi_vendor_rules` job, not in `apply_rules_flow` (old text rules, never deployed)
 - Internal conventions: `.agent/INTERNAL.md`
