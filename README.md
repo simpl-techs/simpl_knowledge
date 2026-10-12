@@ -18,12 +18,12 @@ In pratica contiene:
 Ci sono due flussi distinti:
 
 1. **Il developer consuma la knowledge**: installa il marketplace e le regole; da quel momento gli agent ricevono standard, catalogo e skill.
-2. **Il maintainer di una libreria pubblica knowledge**: aggiorna `.agent/SKILL.md` nel repo della libreria; il workflow apre una PR su `simpl_knowledge`; dopo merge gli altri developer ricevono l’aggiornamento.
+2. **Il maintainer di una libreria pubblica knowledge**: aggiorna `.agent/SKILL.md` nel repo della libreria; il workflow lo pubblica direttamente su `main` di `simpl_knowledge`; alla sessione successiva gli altri developer ricevono l’aggiornamento.
 
 ```mermaid
 flowchart LR
   libraryRepo[Repo libreria] --> skillFile[.agent/SKILL.md]
-  skillFile --> syncPr[PR verso simpl_knowledge]
+  skillFile --> syncPr[Push su main di simpl_knowledge]
   syncPr --> marketplace[Marketplace Claude]
   syncPr --> cursorRules[Regole Cursor]
   syncPr --> codexSkills[Skill Codex]

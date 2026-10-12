@@ -5,7 +5,7 @@ description: Standard that mandates every simpl repo's docs (README, agent docs,
 
 # Repo Docs & Env-Var Consistency
 
-> **Auto-distributed via simpl_knowledge. Propose edits with a PR on `simpl-techs/simpl_knowledge`.**
+> **Auto-distributed via simpl_knowledge. Edit it in `simpl-techs/simpl_knowledge`, where changes go straight to `main`.**
 
 ## The rule
 
@@ -13,7 +13,7 @@ Every simpl repo's documentation — **both human-facing and agent-facing** — 
 
 If a repo deviates from the template, either:
 1. Bring the repo back in line with simpl_knowledge, **or**
-2. Open a PR on `simpl-techs/simpl_knowledge` to update the template — and only after it's merged, propagate the new pattern to repos.
+2. Update the template in `simpl-techs/simpl_knowledge` (changes there go straight to `main`) — and only after it's on `main`, propagate the new pattern to repos.
 
 Never let a repo drift unilaterally. One-off doc styles fragment the team's mental model and break the agent context that ships through the marketplace.
 

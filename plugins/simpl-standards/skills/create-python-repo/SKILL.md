@@ -11,7 +11,7 @@ description: >-
 
 # create-python-repo
 
-> **Distributed via simpl_knowledge. Propose edits with a PR on `simpl-techs/simpl_knowledge`.**
+> **Distributed via simpl_knowledge. Edit it in `simpl-techs/simpl_knowledge`, where changes go straight to `main`.**
 
 ## What this covers
 

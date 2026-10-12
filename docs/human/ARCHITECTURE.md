@@ -70,8 +70,8 @@ Se il repo `simpl_tracker` cambia il modo corretto di tracciare eventi:
 
 1. il maintainer aggiorna `.agent/SKILL.md` in `simpl_tracker`;
 2. merge su `main`;
-3. il workflow apre una PR su `simpl-techs/simpl_knowledge`;
-4. dopo merge, il plugin `simpl_tracker-context` e il catalogo vengono aggiornati;
+3. il workflow pubblica direttamente su `main` di `simpl-techs/simpl_knowledge`;
+4. il plugin `simpl_tracker-context` e il catalogo vengono aggiornati;
 5. alla sessione successiva, plugin Claude e regole Cursor sono già aggiornati;
 6. quando chiede all’agent di aggiungere tracking, l’agent sa usare `simpl_tracker` invece di inventare una soluzione nuova.
 

@@ -16,7 +16,7 @@
 
 ## Session conventions
 
-- Branch off `main`. Use `feat/`, `fix/`, `chore/` prefixes.
+- Branches: base `dev` when the repo has one, else `main` (confirm with the user); prefixes `feature/`, `bug/`, `hotfix/`, `chore/`, `docs/`, `refactor/`, `test/`. See `git-workflow`.
 - Conventional Commits for commit messages. See `git-workflow` skill.
 - Every PR bumps the version (PATCH by default; MINOR/MAJOR need a written justification in the PR). See `git-workflow` → *Version bumps*.
 - Run `make check` before pushing.

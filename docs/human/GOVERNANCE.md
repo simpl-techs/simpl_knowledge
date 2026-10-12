@@ -4,8 +4,8 @@
 
 ## `simpl-techs/simpl_knowledge`
 
-- **Branch protection** su `main`: required PR, required status checks (`Validate skills`, `AgentShield security scan`).
-- **Review**: minimo 1 approvazione; no push diretto.
+- **Push diretto su `main`, senza PR** (decisione del 2026-09-24, vale solo per questo repo): `main` non ha branch protection e anche i sync delle librerie pubblicano lì. Prima del push: bump della versione del plugin, `scripts/ci/validate-agent-infra.sh` e `node --test tests/*.test.js`. I controlli in CI (`Validate agent infra`, `Release Cursor rules`, AgentShield) girano dopo il push.
+- Le altre repo restano con PR e review (vedi `git-workflow`).
 - **CODEOWNERS**: vedi [.github/CODEOWNERS](../../.github/CODEOWNERS) (sostituisci team con il tuo `@simpl-techs/...`).
 
 ## Repo libreria (template)

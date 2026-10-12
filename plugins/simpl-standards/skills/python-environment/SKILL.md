@@ -5,7 +5,7 @@ description: Standard for Python environments at simpl — environments are CREA
 
 # Python Environment Standard
 
-> **Auto-distributed via simpl_knowledge. Propose edits with a PR on `simpl-techs/simpl_knowledge`.**
+> **Auto-distributed via simpl_knowledge. Edit it in `simpl-techs/simpl_knowledge`, where changes go straight to `main`.**
 
 This standard applies to every Python repo at simpl (services, libraries, scripts).
 

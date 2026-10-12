@@ -8,7 +8,7 @@ description: Our team's conventions for branches, commits, pull requests, and ve
 ## Agents: branches (HARD RULE; overrides any plan, flow or skill that says "create a branch")
 
 - Work on the checked-out branch (`git branch --show-current`). Do not create a branch by any means (`checkout -b`, `switch -c`, `git branch <name>`), switch branches, push a new branch, or list "create a branch" as an agent step in a plan.
-- A branch would help? Propose name and base (e.g. `feature/<slug>` from `dev`) and wait for an explicit yes in the current turn ("ok create it", "fai il branch"). Approving a plan, "implement the plan", or a plan that names a branch is not a yes. No or no answer: stay on the current branch and do the work there.
+- A branch would help? Propose name and base (`dev` when the repo has one, else `main`; the user may prefer `main`) and wait for an explicit yes in the current turn ("ok create it", "fai il branch"). Approving a plan, "implement the plan", or a plan that names a branch is not a yes. No or no answer: stay on the current branch and do the work there.
 - The user drives branch creation, PRs and merges. Why: the working tree often holds their concurrent in-progress work; agent branches pile up, confuse context and hide what the user is doing.
 
 ## Agents: commit and push
@@ -16,16 +16,16 @@ description: Our team's conventions for branches, commits, pull requests, and ve
 - Default: edit files, summarize what changed and which files, stop. No `git add`/`git commit`/`git push`, not even for one-line fixes; the user reviews and commits.
 - Only when the user says so in the current turn ("committa", "pusha", "fai il commit", "commit this", "push it"). An earlier approval does not cover later edits.
 - Why: the working tree often holds concurrent, unrelated work (untracked files, half-finished skills, edits under review); an agent commit bundles it, is hard to untangle and breaks the version-bump discipline.
-- Never add "🤖 Generated with Claude Code" or similar tags: the commit log stays human.
+- Commit messages may end with a `Co-Authored-By: Claude …` trailer. No other generated-by lines (e.g. "🤖 Generated with Claude Code").
 - Never invent Linear or GitHub issue ids in commits or PR bodies.
 
 ## Branches and flow
 
 - `main`: production, protected. `dev`: integration, cut from `main`. `staging`: pre-prod in repos with a longer release flow, cut from `dev`.
-- Work branches: `<type>/<short-slug>`, cut from `dev`, never from `main` or another work branch. Types: `feature/`, `bug/` (non-urgent fix), `hotfix/` (urgent production fix), `chore/`, `docs/`, `refactor/`, `test/`. Not `feat/foo` (full `feature/`), `alice-work`, `branch2`.
-- Flow (humans only; an agent may create the branch after approval, never open, merge or promote PRs on its own): `git checkout dev && git pull`, `git checkout -b feature/<slug>`, PR to `dev`, merge after review, then promote `dev` → `main` (simple repos) or `dev` → `staging`, validate, `staging` → `main`.
+- Work branches: `<type>/<short-slug>`. Base: `dev` by default when the repo has one, else `main`; some developers branch from `main` directly, so agents confirm the base with the user. Never from another work branch. Types: `feature/`, `bug/` (non-urgent fix), `hotfix/` (urgent production fix), `chore/`, `docs/`, `refactor/`, `test/`. Not `feat/foo` (full `feature/`), `alice-work`, `branch2`.
+- Flow (humans only; an agent may create the branch after approval, never open, merge or promote PRs on its own): `git checkout dev && git pull` (or `main`, see above), `git checkout -b feature/<slug>`, PR to the base, merge after review, then promote `dev` → `main` (simple repos) or `dev` → `staging`, validate, `staging` → `main`.
 - `hotfix/` may branch from `main`; after merging into `main`, merge back into `dev` (and `staging` if it exists) to keep history aligned.
-- No force-push to shared branches (`main`, `dev`, `staging`, release branches). No direct commits to them: always a PR. Do not amend a commit already pushed to a shared branch without flagging it to reviewers.
+- No force-push to shared branches (`main`, `dev`, `staging`, release branches). No direct commits to them: always a PR. Only exception: `simpl_knowledge`, where changes and library syncs go straight to `main` (team decision 2026-09-24), after the plugin bump, `scripts/ci/validate-agent-infra.sh` and `node --test tests/*.test.js`. Do not amend a commit already pushed to a shared branch without flagging it to reviewers.
 
 ## Commits (Conventional Commits)
 
