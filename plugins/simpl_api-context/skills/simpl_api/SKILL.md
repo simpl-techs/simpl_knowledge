@@ -156,6 +156,7 @@ poetry run ruff check .
 - ROI classification: `POST /admin/roi/rules/apply` (no body) runs `services/roi_classify.apply_vendor_rules`.
   - It registers any vendor the catalog lacks (lines loaded before the catalog), then applies vendor and trip decisions to every line as rule-sourced attributions. Manual ones always win, and a rerun writes nothing.
   - It then rebuilds `roi.people_costs`, since the set of PAYROLL lines may have changed.
+  - Every night at 04:00 UTC `background_jobs/roi_vendor_rules.py` runs `classify_synced_lines` (trip grouping, then this apply) on the lines simpl_flow's Revolut sync loaded at 03:15. Both take one advisory lock, so a run never overlaps another.
   - It answers `classified`, `unchanged`, `protected`, `pending` (counts by reason) and `people_cost_rows`.
   - Migration `20261003_roi_vendor_rules.sql` turns off the 115 old text rules and creates the transit row `NON-SPESA` for transfers to our other account. What the old rules wrote stays in the ledger until the engine decides the same line.
   - `POST /admin/roi/attributions` with `remember: true` now writes a vendor assignment (the whole vendor, from the start) instead of a text rule; the `pattern` field is gone.
