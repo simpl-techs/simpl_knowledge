@@ -153,6 +153,33 @@ fan-outs tolerate `partial` and `empty` aggregates; agent fan-outs pass only
 when every branch passes. Public consumer-envelope fields are exposed to
 `domain_inputs` resolvers and may not shadow a domain key.
 
+**A `data_producer` reads a table without code.** Its `read` names a `table`, the
+`columns` to take and `where` clauses whose values are literals or resolved from the
+run (`domain_inputs`, `producer_output`, `verdicts`); `cardinality` is `one` or `many`.
+The table is one of the platform database's by default. With `source: row_store` it
+is a table of the row store instead, named as the store names it
+(`{dataset}__v{version}`), and the read returns its live rows:
+
+```yaml
+- kind: data_producer
+  id: post_text
+  read:
+    source: row_store
+    table: sales_posts__v2
+    columns: [text, language]
+    where:
+      - column: key
+        op: eq
+        value: {resolver: domain_inputs, path: source_key}
+  output_schema:
+    text: {type: str, column: text}
+    language: {type: "str | None", column: language}
+```
+
+A host that runs such a read needs the `row-store` extra and `ROW_STORE_URI`. The
+live validation checks the columns and their declared types against the table in the
+store, as it checks a database table. Writes (`data_consumer`) go to the database only.
+
 An `llm_agent`'s `model` is a nested policy — a primary target plus ordered
 fallbacks — resolved per agent through an `LLMClientResolver` built from
 host-supplied credentials:
@@ -887,6 +914,39 @@ open, so when both connections carry an open one the merge raises
 `FkReference(on_conflict="refuse")` is how a registry entry asks for that
 instead of the default drop.
 
+## CRM providers
+
+`get_crm_service` / `get_crm_export_provider` (`services/crm/factory.py`) build
+a provider from `integration.integration_configuration.provider`, which must
+equal the row's `slug` and the Composio toolkit slug: `hubspot` or `attio`. Both
+run through Composio and the customer's `customer_connection`, and both pin a
+toolkit version in `composio/client.py`. Callers never branch on the provider;
+every provider returns the same shapes:
+
+- `search_deals` rows: `{"id", "properties": {"dealstage", ...},
+  "associations": {"companies": {"results": [{"id"}]}}}`.
+- One stage-id string everywhere: `get_pipelines()` stage ids, `dealstage`,
+  `get_deal_stages()` values and what `upsert_deal_stage_for_company` echoes.
+- Fatal failures raise `CrmAuthError` / `CrmQuotaExceededError` /
+  `CrmRateLimitError` (the scope's circuit breaker); per-record ones raise plain
+  exceptions.
+- `search_companies_owned_by(owner_id, filters)` and `company_linkedin_url()`
+  hide where a provider keeps a company's owner and LinkedIn URL; filters use
+  the neutral `{propertyName, operator: EQ|IN, value|values}` shape.
+
+**Attio** (`attio.py`, `attio_export.py`), as it differs from HubSpot:
+
+| Concern | Attio |
+|---|---|
+| Objects | `companies`, `people` (Simpl leads), `deals`; flows name them so |
+| Pipeline | the deals `stage` status attribute; pipeline id `stage`, stage ids are status ids, written by title |
+| Matching | LinkedIn URL (any spelling), domain, email; a uniqueness conflict on `domains` / `email_addresses` links the existing record without writing to it |
+| Values | formatted per attribute type from the live schema; attributes the workspace lacks are dropped |
+| Deal | `owner` is required: the seller's workspace member, else the member who connected Attio; `associated_company` / `associated_people`; unique `simpl_deal_key` text attribute (visible, Attio has no hidden attributes) |
+| Associations | a person's `company` is set only when empty; a flow association `label` names the deal's record-reference attribute |
+| Messages | a note on the person (else company, else deal); found again by parent, timestamp, title and body, since notes carry no custom fields; Attio cannot edit notes, so an update keeps the note and recreates it only if deleted |
+| Bulk link by owner | needs an `owner` workspace-member attribute on companies |
+
 ## CRM sync scopes
 
 A `crm_export_config` row is a *scope*. It is born in `dry_run` mode, and the
@@ -1207,6 +1267,11 @@ await posts.maintain()                       # indexes, bounded compaction and m
   runner applies commits past the projection's watermark, one window at a time, and
   never reads past an open commit. Registering a projection with `applied_seq = 0` and
   running it is a rebuild.
+- **A reader without the spec opens the table by name.** `StoredTable(config,
+  "sales_posts__v2")` gives `schema()` and `read(columns, where=...)`: live rows only,
+  `where` a pyarrow expression. It never writes, so it takes no lease and needs no
+  catalog. The agent framework's `data_producer` reads the row store through it
+  (`source: row_store`).
 - `RowStoreConfig.from_env()` reads `ROW_STORE_URI` (`gs://<bucket>`, optionally with
   a prefix). Lance reaches the bucket with Application Default Credentials (the job's
   service account on Cloud Run, `gcloud auth application-default login` locally); no
