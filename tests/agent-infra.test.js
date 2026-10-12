@@ -233,7 +233,8 @@ describe('Claude always-on context', () => {
     const context = JSON.parse(result.stdout).hookSpecificOutput.additionalContext;
     assert.match(context, /^\[simpl_knowledge always-on context\]\n\n# Candor\n[\s\S]*Disagree, then follow/);
     assert.doesNotMatch(context, /^name: candor/m);
-    for (const name of lists.coding_sessions) assert.ok(context.includes(`\`${name}\``), name);
+    assert.match(context, /before you start \(Skill tool\): `agent-disclosure`, `coding-standards`\./);
+    for (const name of lists.coding_on_demand) assert.ok(context.includes(`\`${name}\``), name);
     // Async hook output reaches the session after the first turn.
     assert.equal(hooks.find(h => h.command.includes('always-on-context.js')).async, undefined);
   });

@@ -25,7 +25,7 @@ bash scripts/team-bootstrap.sh
 ```
 
 - **Auto-heal**: `simpl-standards` SessionStart runs `plugin-refresh.js` — `fetch` + `reset --hard` on `~/.claude/plugins/marketplaces/simpl`, then `claude plugin update` when installed versions lag `marketplace.json`. New versions load next session.
-- **Always-on in Claude**: Claude Code has no always-on list; a skill opens when its description matches the request. A synchronous SessionStart hook (`always-on-context.js`) fills the gap from `plugins/simpl-standards/always-on.json`: it injects the `every_session` skill bodies (`candor`) and names the `coding_sessions` skills to open before coding work.
+- **Always-on in Claude**: Claude Code has no always-on list; a skill opens when its description matches the request. A synchronous SessionStart hook (`always-on-context.js`) fills the gap from `plugins/simpl-standards/always-on.json`: it injects the `every_session` skill bodies (`candor`), names the `coding_start` skills to open before coding work (`agent-disclosure`, the `coding-standards` hub) and lists the `coding_on_demand` skills to open per area. Cursor applies all three lists always.
 
 ## Cursor
 

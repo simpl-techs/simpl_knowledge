@@ -1,9 +1,8 @@
 {
   "every_session": ["candor"],
-  "coding_sessions": [
-    "agent-disclosure",
+  "coding_start": ["agent-disclosure", "coding-standards"],
+  "coding_on_demand": [
     "architecture-discipline",
-    "coding-standards",
     "data-flow-discipline",
     "doppler",
     "git-workflow",

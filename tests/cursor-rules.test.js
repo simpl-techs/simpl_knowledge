@@ -67,16 +67,16 @@ describe('Cursor rule names', () => {
 });
 
 describe('Cursor always-apply rules', () => {
-  it('take alwaysApply from both always-on.json lists and nothing else', () => {
+  it('take alwaysApply from every always-on.json list and nothing else', () => {
     const temp = marketplace(['simpl-standards']);
-    for (const name of ['every', 'coding', 'scoped']) skill(temp, 'simpl-standards', name, name);
-    write(path.join(temp, 'plugins/simpl-standards/always-on.json'), JSON.stringify({ every_session: ['every'], coding_sessions: ['coding'] }));
+    for (const name of ['every', 'start', 'demand', 'scoped']) skill(temp, 'simpl-standards', name, name);
+    write(path.join(temp, 'plugins/simpl-standards/always-on.json'), JSON.stringify({ every_session: ['every'], coding_start: ['start'], coding_on_demand: ['demand'] }));
 
     const result = run('bash', [path.join(root, 'scripts/generate-cursor-rules.sh')], { cwd: temp });
 
     assert.equal(result.status, 0, result.stderr);
     const always = name => /alwaysApply: true/.test(fs.readFileSync(path.join(temp, `cursor-rules/simpl-${name}.mdc`), 'utf8'));
-    assert.deepEqual(['every', 'coding', 'scoped'].map(always), [true, true, false]);
+    assert.deepEqual(['every', 'start', 'demand', 'scoped'].map(always), [true, true, true, false]);
   });
 });
 
