@@ -155,7 +155,13 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
 - A Customer company (lead status 10) and a company imported with a `Dummy Imported`
   connection are watched, never proposed: their signals land in
   `opportunity.icp_signal_monitor` (the watchlist), but they are never a new or
-  `fallback_monitoring` opportunity, so autopilot never gets them either.
+  `recycled_fallback` opportunity, so autopilot never gets them either.
+- Opportunity sources (`opportunity.icp_signal_opportunities.source_type`): `new_signal`,
+  `recycled_fallback` (a company the customer already worked, proposed again; called
+  `fallback_monitoring` before 2.5.69), `icp_match_fallback`, `manual`. With the
+  fallback strategy `reassign_stale`, a recycled company goes only to a seller who never
+  had a connection there, once its connections are quiet for `min_age_days` and nobody
+  replied.
 - Discord alerts: agent framework failures, autopilot per-user failures and
   opportunities per-ICP failures post to #warning once per failure, and a failure that
   keeps recurring edits one message and escalates to #error after an hour. Dropped
