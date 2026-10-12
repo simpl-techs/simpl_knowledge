@@ -1380,7 +1380,8 @@ hits = await search.search(text="impianti fotovoltaici",
   the site's best chunk (`url`, `title`, `section`, `content`; `page_id` is null for the
   site template). `company_ids=None` searches the best 1,024 sites and maps them back.
   Pages carry no date, so there is no window. `KeywordFilter.locate(text)` gives the
-  span of the first keyword, for a snippet.
+  span of the first keyword, for a snippet; `landing_evidence(hit, keywords)` is what a
+  match shows (`url`, `title`, `section`, `page_kind`, `snippet` around the first keyword).
 
 ```python
 found = await search.best_per_company(
@@ -1388,6 +1389,24 @@ found = await search.best_per_company(
     vector=topic_vector, min_score=0.5,                   # omit for keywords only
     keywords=KeywordFilter(["ISO 9001", "UNI EN ISO 9001"]),
 )
+```
+
+- **Preview a website signal** (`open_landing_preview`): the same search, without
+  storing anything, on the ICP's companies (`PreviewScope.ICP`, read from
+  `opportunity.icp_company_matches` 1,024 at a time, 6 pages at once, no page started
+  after 20 s: `cut_short` and `companies_searched` / `icp_companies` say how far it got)
+  or the whole index (`PreviewScope.ALL`: the best 1,024 sites or chunks). Zilliz comes
+  from the environment (`AsyncMilvusStore.from_env`), the collection's width from the
+  alias (`dense_dims`).
+
+```python
+async with open_landing_preview(db, nebius_api_key=key) as previewer:
+    preview = await previewer.preview(
+        WebsiteSignalQuery(topic="ISO 9001 certified", min_score=0.5,
+                           keywords=KeywordFilter(["ISO 9001"])),   # either or both
+        scope=PreviewScope.ICP, icp_id=icp_id, limit=100,
+    )
+preview.companies_matched, preview.matches[0].company_name, preview.matches[0].hit.url
 ```
 
 - `landing_indexer(..., pages_per_batch=400)` sizes batches by pages: `run_batch`'s
