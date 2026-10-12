@@ -47,8 +47,8 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   (a backfill marks every post) drains through the schedule; by hand with
   `promote_alias` it moves that alias to the collection once caught up. The logic lives in simpl_core (`row_store`, `search.posts`);
   needs the Doppler `ROW_STORE_URI`, `NEBIUS_API_KEY` and `MILVUS_*` keys; the job's
-  service account reaches the bucket (no Google key in the environment). It alerts
-  #error when its previous runs keep failing, like maintenance.
+  service account reaches the bucket (no Google key in the environment). Alerts are
+  the shared search index ones (below).
 - `gcp_landing_search_index_flow` indexes company websites as the crawl stores them, one
   document per site, into `landing_pages:1:4096` and the Zilliz collection
   `landing_pages_v1` (alias `landing_pages`; ledger `sales.landing_search_index`,
@@ -60,9 +60,9 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   what changed, adding none. Reads only the crawl's tables; bodies come from the
   crawl's bucket (`simpl-web-pages`) through the Doppler `WASABI_ACCESS_KEY` and
   `WASABI_SECRET_KEY` keys. The logic lives in simpl_core (`search.landing` on
-  `search.index`, installed through `simpl-core[search]`). A run that fails posts to
-  #error (`alert_on_failure`): a scoped run is started by hand and no schedule repeats
-  it. A batch that fails to load is retried after 15 s, 1 min and 4 min first.
+  `search.index`, installed through `simpl-core[search]`). Alerts are the shared
+  search index ones (below): a scoped run is started by hand, so its failure posts at
+  once. A batch that fails to load is retried after 15 s, 1 min and 4 min first.
 - `gcp_company_search_index_flow` indexes every company with a description into
   `sales_companies:1:4096` and the Zilliz collection
   `sales_companies_v1` at 1024 dims (alias `sales_companies` once validated; ledger
@@ -72,7 +72,8 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   cursors with fingerprints) and indexes until the queue is empty; the nightly
   maintenance sweep removes companies merged away. Reads `sales.company` only, with no
   trigger or index added. The logic lives in simpl_core (`search.companies`). The
-  schedule stays off until migration 083 is applied.
+  schedule runs every 5 minutes (on since 2.5.67); nothing reads `sales_companies_v1`
+  until the alias is promoted by hand once the backfill is validated.
 - **Which dataset each search index flow writes, and how, is `row_store.dataset_configs`**
   (simpl_core migration `20261009_row_store_dataset_configs.sql`, seeded by migration
   084), not deployment parameters. Each kind (`posts`, `landing`, `companies`) writes
@@ -91,9 +92,23 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   companies: those merged away, a slice fingerprinted again), unless the row sets
   `sweep: false`. A run can still name `datasets` and `sweeps` itself. A new kind adds
   a spec to `KINDS` (`search_index_runtime`) and a sweep to `SWEEPS` if it needs one.
-  It alerts #error when its previous runs keep failing (second failure in a row, then
-  every fourth) and #warning, hourly, when a dataset's health (`Dataset.health`) shows
-  maintenance not keeping up; `search_index_maintenance.health` logs it every run.
+  A sweep or dataset that fails does not stop the others; the run then fails naming
+  each one (`MaintenanceFailed`).
+- **Search index alerts** (posts, landing and companies index flows, and maintenance;
+  `services/run_health.py`, `services/search_index_health.py`):
+  - **#error, a run that failed:** a run started by hand posts its own failure at once;
+    a run its schedule started leaves it to the next run, which posts when the
+    deployment's runs keep failing (second failure in a row, then every fourth). A run
+    killed for memory is caught the same way.
+  - **#warning, documents that failed for good** (their fifth failure; they stay
+    `failed` until they change again): once per index run, with the ledger to read.
+  - **#warning, hourly, from maintenance:** a row store table maintenance does not keep
+    up with (`Dataset.health`, a segment heal that failed), and for each `active`
+    dataset an index that does not keep up (`read_index_progress`): documents due and
+    no commit for `params.maintenance.stalled_after_minutes` (60 by default; 0 turns it
+    off, as migration 085 does for landing while its runs are held), or a Zilliz
+    projection that far behind the store. `search_index_maintenance.health` and
+    `.progress` log them every run.
 - `gcp_memory_projection_flow` runs every five minutes and incrementally applies
   pending `agent_memory` revisions to Zilliz. It requires `NEBIUS_API_KEY`,
   `MILVUS_URI`, and `MILVUS_TOKEN`; do not replace it with routine collection
