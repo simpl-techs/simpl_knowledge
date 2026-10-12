@@ -7,7 +7,7 @@ alwaysApply: true
 
 # Data-flow discipline
 
-> **Auto-distributed via simpl_knowledge. Propose edits with a PR on `simpl-techs/simpl_knowledge`.**
+> **Auto-distributed via simpl_knowledge. Edit it in `simpl-techs/simpl_knowledge`, where changes go straight to `main`.**
 
 This skill is **always-on**. It governs the shape and direction of data as it moves through the stack. The universal principles and the routing table live in the `coding-standards` hub. Not covered here:
 - Where code lives, including layered packaging and where DTOs (shared layer) and resolvers sit: `architecture-discipline`.

@@ -7,9 +7,9 @@ alwaysApply: true
 
 # Doppler (org secrets)
 
-> **Auto-distributed via simpl_knowledge. Propose edits with a PR on `simpl-techs/simpl_knowledge`.**
+> **Auto-distributed via simpl_knowledge. Edit it in `simpl-techs/simpl_knowledge`, where changes go straight to `main`.**
 
-One Doppler project per main repo: `simpl_api`, `simpl_growth`, `simpl_ops`, `simpl_google_extension`, `simpl_flow`, `simpl_outreach`, `simpl_sales`, `simpl_dashboard`, `simpl_scraping`. Each has configs `dev`, `stg`, `prd`; local always uses `dev`. Shared keys come from Doppler. Generic helpers: `scripts/doppler/` in a `simpl_knowledge` clone (not `workspace/scripts/`).
+One Doppler project per main repo: `simpl_api`, `simpl_ops`, `simpl_google_extension`, `simpl_flow`, `simpl_outreach`, `simpl_sales`, `simpl_dashboard`, `simpl_scraping`. Each has configs `dev`, `stg`, `prd`; local always uses `dev`. Shared keys come from Doppler. Generic helpers: `scripts/doppler/` in a `simpl_knowledge` clone (not `workspace/scripts/`).
 
 ## Local setup
 
@@ -40,7 +40,7 @@ A PR that introduces an env var is **not done** without that maintainer block.
 
 **Vercel** (`simpl_sales`, `simpl_dashboard`): Doppler → Vercel integration, config `prd` → Production, variables **Sensitive**. That is enough: do not mount GCP secrets. Do not sync Preview (free-plan sync slots). Redeploy after the first sync.
 
-**Cloud Run**: the container env is only `DOPPLER_TOKEN` (CLI contract); app secrets are never Cloud Run env vars. The token comes from a **per-service** GCP Secret Manager secret, never (re)use a generic secret named `DOPPLER_TOKEN`: API `SIMPL_API_DOPPLER_TOKEN`, Growth `SIMPL_GROWTH_DOPPLER_TOKEN`, Ops `SIMPL_OPS_DOPPLER_TOKEN`, Proxy `SIMPL_PROXY_DOPPLER_TOKEN`. Check that each service (Growth included) mounts its own. Deploy with `--clear-env-vars --set-secrets DOPPLER_TOKEN=<that-secret>:latest`. The image entrypoint is `doppler run` (new services copy `library-repo-template/scripts/doppler-entrypoint.sh`). Cloud Run reads Doppler at revision start, so a value changed in Doppler reaches it only with a new revision (redeploy).
+**Cloud Run**: the container env is only `DOPPLER_TOKEN` (CLI contract); app secrets are never Cloud Run env vars. The token comes from a **per-service** GCP Secret Manager secret, never (re)use a generic secret named `DOPPLER_TOKEN`: API `SIMPL_API_DOPPLER_TOKEN`, Ops `SIMPL_OPS_DOPPLER_TOKEN`, Proxy `SIMPL_PROXY_DOPPLER_TOKEN`. Check that each service mounts its own. Deploy with `--clear-env-vars --set-secrets DOPPLER_TOKEN=<that-secret>:latest`. The image entrypoint is `doppler run` (new services copy `library-repo-template/scripts/doppler-entrypoint.sh`). Cloud Run reads Doppler at revision start, so a value changed in Doppler reaches it only with a new revision (redeploy).
 
 **Prefect**: one Secret block per token (`doppler-token-flow`, `doppler-token-outreach`, `doppler-token-ops`). Everything else lives in Doppler.
 

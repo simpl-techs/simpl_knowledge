@@ -7,7 +7,7 @@ alwaysApply: true
 
 # Architecture discipline
 
-> **Auto-distributed via simpl_knowledge. Propose edits with a PR on `simpl-techs/simpl_knowledge`.**
+> **Auto-distributed via simpl_knowledge. Edit it in `simpl-techs/simpl_knowledge`, where changes go straight to `main`.**
 
 This skill is **always-on**. It covers where code lives and how it composes. The universal principles (no defensive code, errors are loud, search before writing, simple linear atomic operations) and the routing table live in the `coding-standards` hub. Not covered here (open the named skill instead):
 - State, transactions, locking, async/IO, bounded execution, observability: `state-and-persistence`.

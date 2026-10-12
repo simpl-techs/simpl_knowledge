@@ -7,7 +7,7 @@ alwaysApply: true
 
 # State and persistence discipline
 
-> **Auto-distributed via simpl_knowledge. Propose edits with a PR on `simpl-techs/simpl_knowledge`.**
+> **Auto-distributed via simpl_knowledge. Edit it in `simpl-techs/simpl_knowledge`, where changes go straight to `main`.**
 
 This skill is always-on. It governs the runtime behavior of code that owns state or talks to slow IO.
 

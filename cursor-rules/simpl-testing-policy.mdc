@@ -70,5 +70,5 @@ Also in `data-flow-discipline` → *Test and fixture data discipline*.
 ## For agents
 
 - Before writing a new test, read 2-3 existing tests in the same repo and match their style.
-- Never delete or `@pytest.mark.skip` a failing test without asking the human: it may be catching a real regression.
+- Never delete or `@pytest.mark.skip` a failing test without asking the human: it may be catching a real regression. Exception: tests of removed modules, which you delete (see above).
 - When the human asks "write a test for X", write ONE focused test first, show it, then offer to add more.
