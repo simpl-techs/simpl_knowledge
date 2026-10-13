@@ -743,6 +743,12 @@ one. Ranking on apex-URL, has-LinkedIn or newer `created_at` is not evidence
 about which company a message came from, and guessing produces confident wrong
 matches.
 
+Rows storing one LinkedIn page under different spellings (`/x` and `/x/`,
+`caff%C3%A8` and `caffè`, a country host) are one candidate set. Among rows
+naming one page, the row holding `company_linkedin_id` is the page's record and
+is kept, even over a duplicate carrying the claim's exact name: the LinkedIn
+enricher merges the other rows into it and deletes them.
+
 Identity precedence, strongest first — company: `company_linkedin_id`,
 LinkedIn URL, exact normalized landing host, a registrable-domain fallback, then
 name+location (proposed, never applied). Lead: LinkedIn URL,
@@ -940,6 +946,12 @@ it; `tests/test_dedup_merge_completeness.py` checks the registries against
 `pg_constraint` to keep that drift detectable. `MergeResult.skipped_tables`
 lists reference tables absent from the current database — check it, because a
 skipped table is also skipped by the safety sweep.
+
+A company merge also rewrites the source's id to the survivor's in every
+`sales.icp_filters.wish_list` that names it (`IcpFilterRepository.repoint_company`;
+count in `MergeResult.wish_lists_repointed`). Company-list imports pin targets
+and exclusions with `company.id IN ('…')` / `NOT IN` there, which no foreign key
+reaches.
 
 A merge runs in its own savepoint and is all-or-nothing: it blanks the source's
 uniquely-indexed identity columns and flushes *before* repointing references, so
