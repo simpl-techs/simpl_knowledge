@@ -28,3 +28,7 @@ DISCORD_BOT_TOKEN_3@prd  simpl_ops
 # Cost-tracking alerts (simpl_tracker report_tracking_gap): prd only, so local and
 # staging runs never post to the channel.
 DISCORD_COST_TRACKING_WEBHOOK_URL@prd  simpl_api simpl_ops simpl_google_extension simpl_flow simpl_outreach simpl_scraping simpl_sales
+# Sales WBR background jobs (simpl_api): they write sales.customer_activation and
+# sales_wbr.metric_cache in the production database, which dev also reads: prd only.
+ACTIVATION_RECONCILE_ENABLED@prd  simpl_api
+WBR_FILL_ENABLED@prd  simpl_api
