@@ -1353,6 +1353,11 @@ runner = projection_runner(dataset, milvus, "my_kind_v1", collection, dims=512)
   share one `commit_seq`); `drain()` waits for every batch in hand and commits the
   group (a scoped run drains before `walk.advance`); `deferred`/`stopped` say why it
   stopped. The embedder never gets more than `embed_concurrency` requests at once.
+  A commit never carries a document twice: a batch holding a document already
+  waiting commits the group first.
+- A scanner's mark must leave a claim in place (never `claim_token = NULL`): the batch
+  holding the row gives it back after its commit, and it is claimed again from its new
+  state. Clearing it lets one run hold the document twice.
 - `Dataset.health()` reads, from the manifest, what maintenance has left
   (`DatasetHealth`: small and held fragments, rows outside the indexes, the most
   segments in an index); `problems()` names what is past normal.
