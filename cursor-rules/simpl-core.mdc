@@ -85,6 +85,7 @@ ROI vendor catalog (`simpl_core.roi.vendors`): `vendor_key` cleans a bank descri
 - `payer`: each charge follows the survey hours of the card holder who paid it (`payer_person` maps "Nicolo' Fugallo" to the roster name "Nicolò").
 - `payroll`: people cost.
 - `excluded`: not a cost.
+- `split`: shared by several lines or projects. `shares` holds `(initiative_id, percent)` pairs adding up to 100 (any number of lines, `require_valid_shares`); `split_weights` turns them into ledger weights rounded to 4 decimals that add up to exactly 1 (the largest share takes the rounding), so the line's euro is spent once. `roi.vendor_assignments.shares` (jsonb, SQL NULL for other modes) stores them. It spreads over months like `line` and can be a line-by-line answer.
 
 A change of use is a new assignment, never an edit of the past. A quiz answer is valid from `FROM_THE_START`. `roi.vendors.proposed_*` is the answer the quiz offers already selected, never a decision. `assignment_on(assignments, vendor, day)` picks the one in force. `require_valid_assignment` is the same rule the table's checks enforce. `roi.vendors.area` and `reviewer` only decide who is asked about a vendor. `first_triage(mccs)` guesses a new vendor's area from its merchant codes: all travel or meals means `travel` with the Team e retreat proposal, all software means `tech`, anything else `admin`. `VendorRepository.fold_into(key, into)` makes a duplicate an alias; its own aliases follow it. `roi.transactions` also keeps the Revolut `kind` and the card `payer`.
 
