@@ -193,7 +193,8 @@ and no Supabase credentials,
 receipts lost or still undelivered at shutdown, a backed-up receipt queue, compute
 sessions that fail or never open on Cloud Run, and cost entries skipped or not
 inserted. The scheduled cost jobs (`reconciliation_alert.py`,
-`cheaper_inference_costs.py --apply`) post their problems there too and always exit 0.
+`cheaper_inference_costs.py --apply`, `provider_spend.py --apply`) post their problems
+there too and always exit 0.
 Silence means recorded. Use `report_tracking_gap` for any new "cost not recorded"
 path; never raise, exit non-zero or fail a job for it.
 
@@ -227,6 +228,50 @@ tokens are what separate a wrong rate from a request that never reached the ledg
 
 A number that agrees on cost but not on tokens is not reconciled. Report the
 difference; do not append an export to the ledger to close it.
+
+### OpenRouter and DeepSeek: measured every hour from the account's spend
+
+Neither offers that export over an API, but both report the account's spend:
+OpenRouter's `/api/v1/credits` the cumulative usage, DeepSeek's `/user/balance` the
+balance left, each for the whole account whatever key asks. `scripts/provider_spend.py`
+(hourly in `.github/workflows/provider-spend.yml`; dry run by default, `--apply`
+writes, always exits 0 and reports problems through `report_tracking_gap`) stores a
+snapshot of each in `provider_spend_snapshot`, then compares the last day of
+snapshots with the ledger over the same intervals (`ledger_spend_between`) and stores
+the result in `provider_reconciliation`, which `reconciliation_alert.py` watches. An
+interval with a DeepSeek top-up is left out of both sides. It says how much the
+ledger misses, net; `reconcile_providers.py` with an export says which requests.
+
+```bash
+doppler run --config dev -- python scripts/provider_spend.py [--apply]
+```
+
+It needs `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `SUPABASE_URL`,
+`SUPABASE_SERVICE_ROLE_KEY` and migration `20261013170100_provider_spend_snapshots`;
+the logic is in `simpl_tracker.provider_spend`.
+
+### OpenRouter streams cancelled before their answer
+
+OpenRouter bills a stream its caller cancels for what was generated until then; a
+reasoning model can generate for minutes before the client reads a single chunk, so the
+receipt (`interrupted`, `unpriced`) has no body id and no amount. Since 0.8.7 it is named
+by the `x-generation-id` header OpenRouter sends with the status line, and
+`scripts/openrouter_costs.py settle --apply` (hourly, the first step of
+`provider-spend.yml`) asks `GET /api/v1/generation?id=` what each such generation was
+billed and settles it through `settle_llm_receipts`. Services pick this up when they
+relock simpl-tracker. Logic: `simpl_tracker.openrouter`.
+
+### Answers without a price
+
+An answer whose model has no rate in `provider_pricing` is recorded with its tokens and
+no amount (`state = 'unpriced'`), and its cost is in no total. On 2026-10-13 that was
+$765 of OpenAI `gpt-6-sol`/`gpt-6-luna` over three weeks, because the models were
+priced only under `cheaper_inference`. `cost_tracking.unpriced_llm_answers` lists them
+per model, `reconciliation_alert.py` alerts on every row, and pg_cron runs
+`reprice_unpriced_llm_receipts` hourly: add the model's rates (every token kind it
+bills, cache writes included) and its history is priced within the hour. When a
+service moves a model to a new provider, add the rates under that provider in the
+same change.
 
 ### Cheaper Inference: priced from its catalog, settled from its export
 
