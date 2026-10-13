@@ -765,6 +765,25 @@ consults the company, and can return someone employed elsewhere.
   a host match is only accepted against a candidate with no LinkedIn identity
   of its own.
 
+A company nobody has yet is stood in by `CompanyPlacementService.resolve_or_placeholder`
+(a placeholder keyed by domain, then LinkedIn page, then name, recorded in the claim
+ledger); never write a `sales.company` row inline. Placement holds
+`CompanyPlacementService.lock_lookup_keys(claim, session=…)` before it resolves, so two
+writers founding one company at once found it once; a caller that resolves first and
+places later takes them itself before resolving.
+
+`LeadIdentityClaim(customer_id=…)` resolves within what that customer may see (addresses
+through global rows or rows private to its users, a name only through exactly one fitting
+namesake, never a Dummy lead); `LeadPlacementService` keys such a claim per customer and
+writes its placeholder no global address. `simpl_core.services.dedup.lead_resolver.profiles_contradict`
+is the one rule for a stored LinkedIn profile contradicting a weak match.
+
+A lead whose company is unknown waits on the shared `(Unknown company)` row
+(`simpl_core.services.dedup.parking`: `park_lead`, `record_parked_claim`,
+`move_parked_lead`), with a pending claim `LeadPlaceholderReconciler` tries on every pass
+(current experience, then the claim's company evidence). Run the reconciler, and it moves
+the lead with its connections and runs once one resolves.
+
 ### Judging a conversation thread
 
 `simpl_core.services.conversation_processing` judges one stored thread and, for a
@@ -1786,6 +1805,102 @@ The id in a tag is never trusted: the frontend resolves every tag against the ca
 - **Per customer, per window.** `simpl_core.services.reports.period_metrics` reads `sales_view.customers_metrics_overview_v2` (simpl_api migration 20261002f): `fetch_period_metrics(conn, from_day=, to_day=, customer_id=None, user_ids=None, tz_name=None, include_external=False)` -> `PeriodMetrics` per customer (companies and people taken apart, distinct companies proposed, contacted / replied people, engaged companies, meetings, calls and wins as `CohortSplit`, the rates on the cohort with their numerators, active users, the stock, `previous`, `daily`); `fetch_customer_period_metrics` for one; `combine` / `totals(metrics, is_internal=)` to add customers up (rates from the sums) with and without SimpL; `metrics_payload(m, view)` and `definitions_payload()` for the API shape. The admin table, customer page, app strip, Report Wrapped and ICP cards all read it.
 - **Outreach is people.** `compute_outreach_for_user_ids(..., include_external=False)` and `compute_outreach_sankey(..., include_external=False)` count people only (a company placeholder is never an outreach lead) and SimpL's unless asked (`funnel.fetch_connection_scope`); results carry `split` (contacted / messaged / emailed / replied as cohort + earlier) and `responseRate` is the cohort's. `sankey.compute_company_sankey(conn, user_ids, from_ts, to_ts, include_external=)` is the company Sankey (proposed -> taken -> contacted -> engaged -> meeting -> call -> won), companies only.
 - **Report Wrapped** months are Europe/Rome calendar months; `won` / `closed` are the month's wins (facts), `companiesClaimed` / `leadsClaimed` apart (`claimed` = people), the payload carries `contract` + `definitions`, and the Average / Top compare only billed customers that are not SimpL (`fetch_benchmark_customer_ids`).
+
+## Inbound signals (ingestion)
+
+`simpl_core.services.ingestion` turns what a customer's inbound sources report (SDK, signed
+webhooks; transport lives in simpl_ingestion) into leads owned by the right seller, with an
+`inbound_signal` trigger outreach walks. Tables: `integration.ingestion_inbox`,
+`integration.ingestion_rule` (migrations/20260808_ingestion_inbox_and_rules.sql), one
+`(Unknown company)` row (`INBOUND_UNKNOWN_COMPANY_ID`, migrations/20260820_inbound_unknown_company.sql).
+- **Accept:** `IngestionService(session).accept(customer_id=…, connection_id=…, signal=IngestedSignal)`
+  -> `IngestionAcceptResult(inbox_id, created, status)`; idempotent on `(connection_id, external_id)`;
+  the caller commits. `IngestedSignal` refuses an empty `external_id`, `source` or `name`,
+  `properties` over 16 KB of JSON (`MAX_PROPERTIES_BYTES`) and unknown fields, at the top level
+  and inside `person`, `company`, `context`, `consent` and `owner_hint` (a misspelled
+  `person.linkedin` is refused, not dropped): a sender passes a stable `external_id` per event
+  and `person.linkedin_url` when it knows it.
+- **Drain:** `drain_ingestion_inbox(db, *, batch_size=10, max_batches=5, default_owner_by_customer=None) -> int`
+  (rows processed). One transaction per row, holding the row's lock while it is still this
+  drain's claim: a claim reclaimed by another drain (stale after 300 s) is left to that drain,
+  so a row's triggers are queued once. A failing row goes back to `pending` with
+  `last_error`, is retried by the next drain and ends `failed` after `max_attempts` (8). Rows
+  end `completed` (outreach queued, or `notify_only`) or `ignored`; `resolution` holds an
+  `IngestionResolution` (`reason`: `ignored_by_rule`, `no_matching_rule`, `own_team`,
+  `opted_out`, `unresolved_identity`, `not_in_pipeline`, `notify_only`; `contacts_blocked`:
+  the contact types the owner could not get because another user holds them privately).
+- **Rules:** the first enabled rule by priority decides. `create_lead` may add somebody new;
+  `attach_signal` reaches only a person an active seat of the customer is already connected
+  to (anybody else, even a lead SimpL's shared base knows, is `not_in_pipeline`);
+  `notify_only` records who the person is and who would own them, writing nothing; `ignore`.
+  A customer with no rules at all gets `create_lead` for a person signal with an email or
+  LinkedIn URL; once a customer has any rule, enabled or not, an unmatched signal is
+  `no_matching_rule`, so disabling rules stops the lane.
+- **Stops before any lookup:** the customer's own people are `own_team`, by the rule email
+  ingestion applies (`simpl_core.services.email.internal_identity`): a user's address or the
+  customer's own mail domain (`+tag` ignored), an active seat's Supabase login, or a user's
+  LinkedIn profile. An address in `gdpr.email_opt_out` is `opted_out`. Nothing else
+  suppresses: a pending draft or a lost stage reaches the agent, which decides.
+- **Identity (one person, one lead):** dedup's `LeadResolver` on a claim scoped to the
+  receiving customer: by LinkedIn profile, then by email through
+  `LeadContactRepository.leads_for_addresses(customer_id=…, addresses=…, preferred_user_id=None)`
+  (global rows and rows private to the customer's users; never Dummy or nameless leads),
+  then by exact full name at the company the signal names (exactly one lead with a public
+  identity or known to the customer). A lead found by email or name whose stored profile
+  contradicts the signal's is somebody else (`profiles_contradict`). Profile URLs go
+  through the one parser, `simpl_core.utils.linkedin_identity.linkedin_profile_identifier`
+  (any LinkedIn host, the segment after `/in/`; a company page or another host is no
+  profile).
+- **Owner** (`OwnerStrategy`; `ingestion_rule.owner_strategy` stores `fixed`, or `default` /
+  `existing` / `hint` / `round_robin`, which all mean `existing_owner`; a rule writer stores
+  `STORED_OWNER_STRATEGY[strategy]`, i.e. `existing` or `fixed`): `existing_owner`
+  keeps a person with the active seat already connected to them (the most advanced stage
+  wins among several), else the signal's owner hint, the rule's owner, the host's default
+  owner, the oldest active seat. `fixed` is the rule's owner always (an inactive one fails
+  the row). Every other seat holding the person gets an `inbound_signal` carrying
+  `took_over_by_user_id`, once per stand-down: a seat whose newest signal already says this
+  owner took the person (read in the order its walk reads them, by `occurred_at`) hears
+  nothing more from later signals of the person, while a seat the person came back to in
+  between, or a takeover by another owner, is told again. The owner's trigger carries
+  `took_over_from_user_id` on every signal.
+- **Writes:** somebody new is placed by `LeadPlacementService` (a LinkedIn profile makes a
+  real lead of origin `inbound`, an address alone a `placeholder` lead in the claim ledger)
+  on the company the signal names: resolved (the person's work domain helps), else a
+  placeholder from `CompanyPlacementService` founded from what the signal says of the
+  company (its site, LinkedIn page or name; never the person's email domain), else parked
+  on `(Unknown company)` with a pending claim the reconciler keeps trying. A parked lead
+  moves once a later signal or the reconciler finds its company, and its connections and
+  their journey runs follow it
+  (`UserLeadConnectionRepository.reassign_company_for_lead(lead_id=…, from_company_id=…,
+  to_company_id=…) -> CompanyReassignment(connections, journey_runs)`: only rows still on
+  the old company move, so the app's cards, which file drafts under the run's company, show
+  them under the new one). A lead on any other company never moves. Drains writing one
+  lead take turns (an advisory lock on the lead), whatever keys their signals name the
+  person by, and drains that may found one company take turns
+  (`CompanyPlacementService.lock_lookup_keys`), so colleagues naming their new company at
+  once found it once; the owner's connection in their Not Connected stage (origin
+  `inbound`); the email and phone as contacts private to the owner
+  (`LeadContactRepository.record_user_contact`: never global, never someone else's row); the
+  triggers. A lead found by name alone is never written to (no profile, title or name), and
+  gets no address or phone of a type its owner can already reach
+  (`LeadContactRepository.find_best_contact`). `ingestion_rule.delay_seconds` is ignored.
+- **Trigger:** `inbound_signal` (`INGESTION_TRIGGER_TYPE`, defined in
+  `simpl_core.models.ingestion`), due at the transaction's `now()` like the `lead_claimed` a
+  new connection queues, so both are claimed in one batch. The queue ranks it first, with
+  replies and seller regenerates; unlike replies it waits out the seller's vacation, together
+  with its `lead_claimed`.
+  `trigger_data` is `InboundSignalTriggerData`: `trigger_source`, `inbox_id`, `occurred_at`,
+  `signal{source,name,kind}`, `properties`, `payload` (the facts under the channel catalog's
+  names: its `property` fields, or `properties` when the channel has no catalog; a field of
+  any other role fills the signal's own fields and never reaches `payload`), `channel_id`,
+  `channel_name`, `agent_context` (a rule's `action_config.agent_context` wins over the
+  channel's), `page_path`, `anonymous_id`, `browsing_summary` (the page views the visitor
+  left up to `occurred_at` on the site the channel names in `ChannelConfig.analytics_site_id`,
+  newest 8 paths and the full `page_view_count`; `null` when the channel names no site),
+  `consent`, `owner_strategy`
+  (`OwnerChoice`: `existing_owner`, `fixed`, `owner_hint`, `rule_owner`, `default_owner`,
+  `oldest_active_seat`), `took_over_from_user_id`, `took_over_by_user_id`, and the legacy
+  aliases `source`, `kind`, `name`.
 
 ## Common pitfalls
 
