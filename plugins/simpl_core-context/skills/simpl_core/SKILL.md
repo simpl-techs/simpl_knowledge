@@ -1641,6 +1641,13 @@ Recall and the calendar providers are never called.
 - **Each meeting carries:**
   - `status`: `upcoming` / `in_progress` / `past` / `cancelled`;
   - `recorded`;
+  - `lead_spoke`: `true` when simpl_api's speaker links (`capture_metadata.call_lead_links`)
+    hear this lead on the recording, so the call took place even if the lead wrote before
+    it that nobody had joined; `false` when the recording was linked without them; `null`
+    when nothing is recorded or linked yet;
+  - `call_type`: the sales classifier's label of the recording (`discovery`, `demo`,
+    `no_show`, ...), or `null`. Only these two paths of `capture_metadata` are read, never
+    the transcript;
   - the `organizer` (resolved to a user of the customer);
   - `lead_attendee {email, response_status}`;
   - `capture_job_ids`, with the organizer's row first.

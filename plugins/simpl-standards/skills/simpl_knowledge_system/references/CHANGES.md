@@ -1,3 +1,4 @@
+- `2026-10-13` sync `simpl-techs/simpl_core` @ `1a842d0` → `simpl_core-context` **v1.0.85**
 - `2026-10-13` sync `simpl-techs/simpl_api` @ `8c6e92f` → `simpl_api-context` **v1.0.83**
 - `2026-10-13` sync `simpl-techs/simpl_api` @ `167ee21` → `simpl_api-context` **v1.0.82**
 - `2026-10-13` sync `simpl-techs/simpl_api` @ `111ace5` → `simpl_api-context` **v1.0.81**
