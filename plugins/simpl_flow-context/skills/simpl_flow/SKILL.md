@@ -64,9 +64,13 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   once. A batch that fails to load is retried after 15 s, 1 min and 4 min first.
 - `gcp_company_search_index_flow` indexes every company with a description into
   `sales_companies:1:4096` and the Zilliz collection
-  `sales_companies_v1` at 1024 dims (alias `sales_companies` once validated; ledger
-  `sales.company_search_index`, migration 083), replacing the never-refreshed
-  `sales_companies_hybrid`. Each run discovers new and changed companies
+  `sales_companies_v1` at 1024 dims (ledger `sales.company_search_index`, migration
+  083), replacing the never-refreshed `sales_companies_hybrid`: once validated, that
+  collection is renamed away and `sales_companies_hybrid` and `sales_companies` become
+  aliases of `sales_companies_v1`, so readers keep their collection name. The
+  collection is a strict projection of the row store: nothing else writes to it (the
+  article bot stopped uploading the companies it creates in 2.5.82; the index finds
+  them by created_at). Each run discovers new and changed companies
   (`CompanyScanner`: a one-off walk of every company, then the created_at/updated_at
   cursors with fingerprints) and indexes until the queue is empty; the nightly
   maintenance sweep removes companies merged away. Reads `sales.company` only, with no
