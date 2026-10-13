@@ -793,6 +793,78 @@ A lead whose company is unknown waits on the shared `(Unknown company)` row
 `move_parked_lead`), with a pending claim `LeadPlaceholderReconciler` tries on every pass
 (current experience, then the claim's company evidence). Run the reconciler, and it moves
 the lead with its connections and runs once one resolves.
+### Email word lists
+
+Three tables in the `mappings` schema hold the words simpl_core's email checks
+use. Add or remove a word as a row; running services pick it up within ten
+minutes.
+
+- `mappings.email_provider_domain`: the domains that name a mail provider, never
+  a company. `free_mail` (gmail.com, libero.it…) and `certified_mail` (Italian
+  PEC hosts: pec.it, legalmail.it…). The domain after the `@` is matched exactly.
+- `mappings.email_role_local_part`: local parts of a mailbox a team shares
+  (info, sales, fatture…), matched against the whole part before the `@`.
+- `mappings.email_automated_pattern`: text marking a mailbox nobody reads
+  (noreply, mailer-daemon…), matched anywhere in the address.
+
+The checks in `simpl_core.services.email.domain_policy` (`classify_domain`,
+`is_generic_domain`, `should_resolve_company_by_domain`, `is_role_address`,
+`is_automated_address`, …) and the colleague rule in `internal_identity`
+(`internal_domains_of`) read an in-memory copy of the tables. Core's own
+services load it. Code that calls these checks directly loads it first, or they
+raise `AddressListsNotLoaded`:
+
+```python
+from simpl_core.services.email.address_lists import (
+    ensure_address_lists,
+    ensure_address_lists_from,
+)
+
+await ensure_address_lists(session)   # with a session
+await ensure_address_lists_from(db)   # with a DatabaseManager
+tenant_domains = internal_domains_of(tenant_emails)
+```
+
+Both are free while the copy is under ten minutes old. Tests install a copy with
+`use_address_lists(EmailAddressLists(...))`.
+
+### A customer's own addresses
+
+`simpl_core.services.email.tenant_identity.load_tenant_identity(session,
+customer_id)` answers which addresses and domains are a customer's own people's:
+each user's profile email, what their email connections record (the synced
+mailbox and the send-from alias), and the active rows of
+`sales.customer_email_identity` (aliases, with the user each belongs to, and
+domains). Every such address's domain counts too, unless a mail provider owns
+it. Email sync files a participant on one of them as the owner (the owner's own
+aliases, whose messages are the owner's) or a colleague, never a lead; the
+conversation backfill never takes one for the counterpart.
+
+```python
+identity = await load_tenant_identity(session, customer_id)
+identity.contains("someone@alias-domain.example")  # one of the customer's
+identity.user_of("nico@alias-domain.example")      # the user an alias is recorded for
+identity.alias_match(address, display_name)        # AliasMatch(user_id, sure) or None
+```
+
+A row's `source` is `manual`, `provider` (the mailbox's verified send-as or
+proxy addresses), `sent_mail` (the From of a message in a user's Sent folder) or
+`name_match`; its `status` is `active`, `proposed` (waiting for someone to set it
+active or rejected) or `rejected`. Email sync fills it as it runs:
+
+- once a day per connection it reads the mailbox's verified send-as addresses
+  from the provider (Gmail's send-as settings, Outlook's proxy addresses) and
+  records each one no user holds yet as that user's (`provider`; the
+  connection's `config.send_as_checked_at` holds when);
+- the From address of every message the provider files as sent (Gmail's SENT
+  label, Outlook's Sent Items) is the owner's: it writes as the owner for the
+  rest of the run and is recorded as theirs (`sent_mail`), unless it is
+  another user's or a machine's;
+- an outside address whose local part and display name are both a user's is
+  recorded as that user's (`name_match`, active); one with only one of the two
+  is proposed.
+
+Add an alias domain by hand with a `manual` domain row.
 
 ### Judging a conversation thread
 
@@ -833,13 +905,32 @@ connection anyway, and a LinkedIn sponsored message the owner never answered
 connection to (`connection_existed`, with `reading.existing_ulc_id`): the lead
 ingestion linked, or, for a counterpart linked to no lead or to a dummy, the
 single lead its email or LinkedIn identity matches; a name alone never counts.
+On email, a LinkedIn profile link in the counterpart's own messages (signature,
+quoted replies cut) is part of that identity. It also settles a counterpart
+working for one of the owner's company's active customers (`existing_customer`):
+anyone on the owner's team holds their lead or their company at Customer, or,
+for the platform's own team, the platform's accounts hold that company with a
+running subscription or managed engagement (matched on the counterpart's address,
+or on their company domain).
 `process` opens the
-connection to a lead that already exists and is surely the counterpart (the one
-ingestion linked, unless it is a dummy, or the single lead its email or LinkedIn
-identity matches), with the lead's company (`company_id`, else its current
-role). It creates no lead or company and never writes the conversation; a
-counterpart no existing lead matches comes back `no_lead`, and several matches
-add a `lead_ambiguous` issue. `mode="report_only"` decides exactly the same and writes nothing
+connection for the counterpart: the lead ingestion linked (never a dummy), or the
+lead its email or LinkedIn identity matches; one it creates when none exists (from
+a LinkedIn identity the lead itself, from an email a placeholder with its claim);
+or, for a mailbox people share (a role address, or two LinkedIn accounts behind one
+address), the company's connection to its dummy lead
+(`company_connection_opened`). Among several leads holding the address, the one
+whose full name the counterpart's row or own messages carry is chosen; with
+nothing to choose between them they come back `no_lead` with a `lead_ambiguous`
+issue. A digest message (`head_snippets`, several messages run together) is no
+evidence of who its participant is: neither its signature links nor its names
+count. `EmailSyncOrchestrator.refill_thread(user_id, provider, thread)` reads such
+a thread (`MessageRepository.digest_threads`) again from the mailbox, stores each
+message on the thread's own record and marks its digests superseded, which the
+reader treats as absent; it returns how many messages the thread gains (counted,
+not written, on a dry-run orchestrator), or `None` when the mailbox no longer
+holds the thread. The
+connection takes the lead's company (`company_id`, else its current role), and the
+conversation is never written. `mode="report_only"` decides exactly the same and writes nothing
 (`incremental` and `backfill` behave the same here: the caller decides which
 threads to pass). `process` takes only a sales decision and raises `ValueError`
 on any other.
@@ -856,7 +947,12 @@ two years after it parks at Monitoring like an undated one. Every connection it
 opens without an immediate follow-up has its own `lead_claimed` closed with
 `BatchTriggerQueueRepository.settle_lead_claimed(ulc_id, reason=...)`, which any
 caller opening a connection that must not start with a first touch can use:
-outreach's connect fast path would otherwise send an invite at any stage.
+outreach's connect fast path would otherwise send an invite at any stage. Every
+connection it opens also gets the lead's earlier LinkedIn messages recorded as
+handled with `BatchTriggerQueueRepository.record_prior_lead_messages(ulc_id=...,
+user_id=..., lead_id=..., reason=...)`; any caller opening a connection on a
+conversation that already exists needs the same, or the LinkedIn pre-send guard
+refuses every send on it (`inbound_message_missing_trigger`).
 `simpl_core` never imports a model runtime: the sales check is the caller's.
 
 ### Unknown companies never block
@@ -929,6 +1025,23 @@ recorded payload, so an `ambiguous` verdict settles itself once the duplicates
 behind it merge. Each row is handled inside its own savepoint, and the queue
 leases with `FOR UPDATE SKIP LOCKED`, stamping every row it hands back so a pass
 always advances past claims that cannot resolve yet.
+
+`LeadPlaceholderReconciler` is the lead side. Enrichment records a discovered
+LinkedIn URL or URN on the placeholder's **claim**
+(`UnresolvedLeadClaimRepository.record_identity`), since `sales.lead.linkedin_url`
+is unique and the real person may already hold it. The pass merges the
+placeholder into the lead holding that identity; when no lead holds it yet, it
+creates the person first (`get_or_create_lead`, origin
+`lead_placeholder_reconciler`, exported as `RECONCILED_LEAD_ORIGIN`). Only the
+identity recorded on the claim creates a lead.
+
+`LeadTwinMerger.merge_if_twins(lead_ids, session=...)` merges leads that are
+one person stored twice, as `judge_lead_twins` decides: their LinkedIn
+identities agree (at most one profile id, at most one profile URL, and a row
+holding both when both appear), and every row without LinkedIn carries the
+survivor's full name. Two ids, two URLs, a URL and an id no row links, no
+LinkedIn at all, a Dummy or a placeholder: nothing is merged. Nor across
+connections of more than one customer.
 
 Retiring the claim is the **merge's** job, not the caller's. Any caller can
 merge a placeholder away — `simpl_flow`'s LinkedIn enricher does — and one that
@@ -1764,6 +1877,32 @@ Both return a `LinkedInSearchResultBatch`. A page that is not the expected scree
 provider error, comes back as a batch with `error` set, and its raw body stays in the
 ledger for debugging. Parsers read pages by structure only: headings, degree badges and
 counts are in the viewer's language.
+
+`fetch_profile_positions(context, public_identifier)` reads one profile's positions
+(`profile_positions`) and returns `ProfilePositions`: one `ObservedPosition` per position,
+its employer named by the numeric LinkedIn company id (`None` for a position with no
+company page), and `public_identifier` / `profile_urn`, the profile the response is about.
+Use the positions only when that is the lead's own profile. A provider error or an
+unreadable page comes back with `error` set and the page kept; a channel failure raises
+`LinkedInOperationError`. The caller reserves the pacing slot (`reserve_operation_slot`).
+The operation's row (`migrations/20261008b_profile_positions_operation.sql`) ships with
+`"enabled": false`, so a call raises `operation_disabled`: the response shape has not been
+checked against a real profile. Fetch one live profile, check the parser reads it, then
+enable the operation with a new config revision.
+
+`simpl_core.services.lead_positions.positions_to_experience(session, lead_id=…,
+positions=…, source=…, today=None)` writes those positions; it never commits.
+- **Companies:** found by numeric LinkedIn id only, through
+  `CompanyByIdService.get_or_create`: the row holding the id, else the single id-less row
+  on its LinkedIn company page (which takes the id), else a new row with `origin=source`.
+  A position without an id is skipped, never matched by name.
+- **Experience:** one `sales.lead_experience` row per position the lead does not have yet
+  (`LeadRepository.add_experience_if_absent`).
+- **Current employer:** when the positions held on `today` name exactly one company, it
+  fills `sales.lead.company_id` if that is NULL, and then the company of each of the
+  lead's connections that has none. A lead with another company keeps it.
+- **Result:** `PositionsWritten` (`outcome`, `companies`, `skipped`, `experience_added`,
+  `current_employer_id`, `lead_company_filled`, `connections_filled`).
 
 ## Autopilot yield (Sales Domain)
 
