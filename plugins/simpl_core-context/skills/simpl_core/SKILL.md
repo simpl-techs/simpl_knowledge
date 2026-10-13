@@ -976,9 +976,16 @@ every provider returns the same shapes:
 - Fatal failures raise `CrmAuthError` / `CrmQuotaExceededError` /
   `CrmRateLimitError` (the scope's circuit breaker); per-record ones raise plain
   exceptions.
-- `search_companies_owned_by(owner_id, filters)` and `company_linkedin_url()`
-  hide where a provider keeps a company's owner and LinkedIn URL; filters use
-  the neutral `{propertyName, operator: EQ|IN, value|values}` shape.
+- `resolve_owner_id(email)` answers `None` when the CRM has no such owner or
+  the connection cannot read owners (logged as a warning with the cause); quota
+  and rate-limit failures propagate.
+- `upsert_deal_stage_for_company` (the stage-mapping push) is one
+  `CrmExportProvider` method built on `create_process_object` /
+  `update_process_object`, the writes CRM flows use: a deal an earlier run
+  created under the same `simpl_deal_key` is adopted, never created twice, and
+  a rejected stage update raises.
+- The Composio plumbing (connection binding, error classification, retries) is
+  `services/crm/composio_provider.py`, shared by both providers.
 
 **Attio** (`attio.py`, `attio_export.py`), as it differs from HubSpot:
 
@@ -988,10 +995,9 @@ every provider returns the same shapes:
 | Pipeline | the deals `stage` status attribute; pipeline id `stage`, stage ids are status ids, written by title |
 | Matching | LinkedIn URL (any spelling), domain, email; a uniqueness conflict on `domains` / `email_addresses` links the existing record without writing to it |
 | Values | formatted per attribute type from the live schema; attributes the workspace lacks are dropped |
-| Deal | `owner` is required: the seller's workspace member, else the member who connected Attio; `associated_company` / `associated_people`; unique `simpl_deal_key` text attribute (visible, Attio has no hidden attributes) |
+| Deal | `owner` is required: the seller's workspace member, else the member who connected Attio; with neither the deal fails before writing; `associated_company` / `associated_people`; unique `simpl_deal_key` text attribute (visible, Attio has no hidden attributes) |
 | Associations | a person's `company` is set only when empty; a flow association `label` names the deal's record-reference attribute |
-| Messages | a note on the person (else company, else deal); found again by parent, timestamp, title and body, since notes carry no custom fields; Attio cannot edit notes, so an update keeps the note and recreates it only if deleted |
-| Bulk link by owner | needs an `owner` workspace-member attribute on companies |
+| Messages | a note on the person (else company, else deal); found again by parent, timestamp, title and body, since notes carry no custom fields (a failed lookup raises rather than writing a second note); Attio cannot edit notes, so an update keeps the note and recreates it only if deleted |
 
 ## CRM sync scopes
 
