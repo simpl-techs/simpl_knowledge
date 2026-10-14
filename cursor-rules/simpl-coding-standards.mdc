@@ -41,6 +41,7 @@ They apply to every piece of code at simpl and sit above style and any single de
 | Where code lives (packages, modules, layers), single source of truth, command/query separation, reusability, file size, imports hygiene, dependency direction, API surface, versioning | `architecture-discipline` |
 | State machines, status fields, idempotency, DB sessions/transactions/locking, queue-style claims, async/IO discipline, bounded retries/timeouts/concurrency, observability | `state-and-persistence` |
 | Deploying or creating anything on Google Cloud (Cloud Run service, worker pool, job, Prefect flow): compute and LLM cost tracking is mandatory; a cost that cannot be recorded is reported on the cost-tracking channel, never a failure | `state-and-persistence` (Observability) + `simpl_tracker` |
+| A real-world fact about a ULC (message, inbound, call scheduled/confirmed/held, charge, contract): it writes an `outreach_events` row, the single source for metrics and the ULC history; stage changes are not events | `state-and-persistence` (ULC events) |
 | Threading typed data through layers (no re-extracting from rendered output), single-source state resolution, validation layering, DTO/output invariants, failure surfacing vs silent no-op, fixture/PII data | `data-flow-discipline` |
 | Writing or reviewing tests | `testing-policy` |
 | Anything that could already be an internal simpl library | `internal-libraries-awareness` |
