@@ -342,12 +342,19 @@ walk. It is declared in the ledger like any other field, so it takes a new versi
   fan-out branch, a join, a validator), it loses its `agent_runs` row and nothing
   else.
 - Nothing inside an unaudited run can turn audit back on.
+- `audit_sample_rate` (`0` to `1`, not beside `audit: false`) audits that share of
+  the runs; the rest behave as `audit: false`. Drawn once per run.
+- Errors are always recorded: a node run ending on an unexpected error, or a failed
+  agent run, is written with the unrecorded node runs above it. Nothing else of the
+  unaudited run is. Expected interruptions are not errors.
 - The node still runs, routes, alerts and uses the cache as before. Run ids are still
   minted, so alerts and cost records can name a node run that has no row.
 
 A consumer that writes its own rows against a node run (say, a column pointing at
 `node_runs`) checks `simpl_core.agent_framework.audit_enabled()` first. The
-framework's own writers already do.
+framework's own writers already do. To record an error under an unaudited run,
+call `node_run.record_node_run_late(handle)` first and write only if it returns
+`True`.
 
 Full guide: `docs/agent_framework/11-operating-it.md#turning-the-audit-off`.
 
