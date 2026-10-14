@@ -1101,6 +1101,18 @@ Lead merges preserve customer scope: `sales.lead_contact` rows keep their
 deduplicated only within a single scope and owner. One customer's privately
 sourced contact details never become visible to another.
 
+Which contact rows a seller may use is one rule,
+`simpl_core.repositories.lead_contact.seller_contact_reach(user_id)`: the seller's
+own rows, a colleague's (`scope='user'`, owned by another user of the seller's
+customer) and global rows; never another customer's private rows, and a seller with
+no customer has no colleagues. It returns SQL conditions (`own`, `colleague`,
+`shared`, `visible`) and the ranking (`rank`: primary first, then own, colleague,
+global). `LeadContactRepository.find_best_contact`, `record_user_contact` (a
+colleague's row is `VISIBLE`; `BLOCKED_PRIVATE` means another customer's seller holds
+it) and `EnrichmentService.check_contact_availability_with_scope` read through it, and
+simpl-outreach's address choice must too, so a sender and the decision that wrote the
+send agree. The rows stay as they were written: nothing is promoted to `global`.
+
 A shared coordination objective follows a lead merge. When a seller is
 connected to both leads and one connection is dropped, the objective's
 `source_ulc_id` / `owner_ulc_id` (and its participants' `ulc_id`) move to the
