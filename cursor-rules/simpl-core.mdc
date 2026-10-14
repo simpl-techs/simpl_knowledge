@@ -938,12 +938,19 @@ reader treats as absent; it returns how many messages the thread gains (counted,
 not written, on a dry-run orchestrator), or `None` when the mailbox no longer
 holds the thread. The
 connection takes the lead's company (`company_id`, else its current role), and the
-conversation is never written. `mode="report_only"` decides exactly the same and writes nothing
+conversation is never written. Its origin is `conversation_processor`
+(`PROCESSOR_SOURCE`), or `inbound` (`INBOUND_ORIGIN`, `result.inbound`) for a
+decision with `inbound=True` -- the counterpart came interested in what the
+owner sells: how it works, what it costs, a trial, a purchase or a demo -- on a
+thread whose first message is the counterpart's. `mode="report_only"` decides exactly the same and writes nothing
 (`incremental` and `backfill` behave the same here: the caller decides which
 threads to pass). `process` takes only a sales decision and raises `ValueError`
 on any other.
 On a thread that waits on the counterpart it opens at Messaged and queues a
-`planner-follow-up-check` with it, so outreach proposes a follow-up; an active
+`planner-follow-up-check` with it, so outreach proposes a follow-up. On one at
+Connected or Messaged whose newest message is the counterpart's it queues that
+message as `message_received`, so outreach answers it
+(`result.reply_message_id`); an active
 stage on a thread older than 90 days opens at Monitoring, and so does a
 `deferred` stage ("maybe later") at any age. A deferral that named its day
 (`SalesDecision(..., stage="deferred", recontact_on=date(2026, 7, 1))`) opens at
