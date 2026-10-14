@@ -1,6 +1,6 @@
 ---
 name: state-and-persistence
-description: simpl-wide rules for state machines, idempotency, database sessions/transactions/locking, async/IO discipline, bounded execution, and observability. ALWAYS consult when touching status/state fields, writing repositories, opening transactions, claiming work in queue-style tables, holding sessions across awaits, retrying external IO, fanning out concurrent calls, adding background workers, instrumenting commands with logs/metrics, or deploying anything to Google Cloud (cost tracking is mandatory and must never block).
+description: simpl-wide rules for state machines, idempotency, database sessions/transactions/locking, async/IO discipline, bounded execution, and observability. ALWAYS consult when touching status/state fields, writing repositories, opening transactions, claiming work in queue-style tables, holding sessions across awaits, retrying external IO, fanning out concurrent calls, adding background workers, instrumenting commands with logs/metrics, adding or changing anything that happens to a ULC (user-lead connection: inbound, calls, contracts, stage changes; it must write an `outreach_events` row), or deploying anything to Google Cloud (cost tracking is mandatory and must never block).
 ---
 
 # State and persistence discipline
@@ -17,6 +17,17 @@ This skill is always-on. It governs the runtime behavior of code that owns state
 - Reclaim from the row's timestamp, not an in-process heartbeat, so a second worker takes over a stale claim without coordinating with the first worker's memory.
 - Terminal states (completed, failed, canceled) are terminal. A retry path creates a new attempt; it never resurrects the row.
 - Persist idempotency keys so they outlive the request and a retry from another process still deduplicates.
+
+## ULC events: `outreach_events`
+
+- **Everything that happens to a ULC (`sales.user_lead_connection`) is written as a row in `sales_outreach.outreach_events`**, with `ulc_id`, `lead_id` and `user_id` set. It is the one place metrics are computed from and the full pipeline of a ULC is read from. A step stored only in its own table (a stage column, a charge, a contract) does not exist for metrics.
+- **A new ULC step ships with its event, in the same change.** For example: inbound handled, contract sent or signed, call scheduled, call confirmed (negotiation started), call held, stage change. A feature that changes a ULC without writing its event is not finished.
+- **Write the event in the same transaction as the change it records**, so the two commit or roll back together. Python: `OutreachEventRepository.log_event` (simpl_core) on the session that writes the change. TypeScript and SQL triggers insert into the same table with the same columns.
+- **Naming:** `event_type` is lowercase, dot-separated and ends in a past-tense verb, like `linkedin.message.sent`, `email.message.received`, `user.action.approved`. Look up the existing types first and reuse one rather than add a synonym. `event_data` carries the ids of the source rows (meeting, charge, contract) so metrics can join them.
+- **`timestamp` is when the step happened**, not when the row was written.
+- **New metrics and ULC timelines read `outreach_events`**; they do not re-derive a step from the source tables.
+- **A new event type for a step that already happens in production comes with a backfill** from the source table, with the original timestamps, otherwise every metric on it starts from the deploy day.
+- **Tests:** the step's test asserts the event row (`event_type`, `ulc_id`, `timestamp`).
 
 ## Database access, transactions, locking
 
