@@ -681,6 +681,8 @@ For Outlook replies, consumers with a persisted conversation should pass both `t
 
 An Outlook reply can carry an attachment (one per send, as on Gmail). `OUTLOOK_REPLY_EMAIL` cannot attach, so such a reply goes through a reply draft: a file under 3 MiB is added with `OUTLOOK_ADD_MAIL_ATTACHMENT`, a larger one through a Graph upload session (`OUTLOOK_CREATE_ATTACHMENT_UPLOAD_SESSION`), whose bytes are PUT straight to the session's upload URL in chunks of 3 MiB (`simpl_core.services.email.outlook_upload_session`). A failed upload raises `IntegrationError` and the draft is not sent.
 
+`EmailDTO.to_email` is the whole To header (every recipient, as Gmail hands it over; the Outlook adapter joins Graph's `toRecipients` the same way, and fills `cc_email` / `bcc_email` from Graph too). Read it with `parse_email_address_list`, never as one address: mailbox sync files each recipient as a participant of its own, so the mailbox owner among several recipients is on the thread.
+
 Outlook gives a sent draft a new message id once it lands in Sent Items, so the `provider_message_id` that `send_email` returns is not the id mailbox sync later lists. `EmailDTO.internet_message_id` carries the RFC 5322 Message-ID, which survives the move. When persisting an Outlook send, pass it as `record_sent_email_message(..., internet_message_id=...)`: ingestion then recognizes the synced copy in the same thread and does not store the message twice.
 
 A `sales_outreach.journey_log` row is its `(action_type, channel)` pair, and the pair must be in `EXECUTION_KINDS` (`repositories/outreach/journey_dispatch_rules.py`, exported from `simpl_core.repositories.outreach`): `send_message` on `email`, `linkedin_message` or `call`; `linkedin_connect` on `linkedin_connect`; `invite_call` on `calendar`. `classify(payload)` returns `executable`, `non_executable` (a verb in `NON_EXECUTABLE_ACTION_TYPES`, whatever channel it carries) or `invalid`; `execution_kind(payload)` returns the pair or `None`. Write an invitation as `action_type = "linkedin_connect"`, never as `send_message` on the connect channel: approval (`set_pending_with_version`) and the database trigger refuse the row with `invalid_transition: ...` (409 in simpl_api), as they refuse an unknown verb, a missing verb and an email send without `recipient_email`. Mirror the sets (`EXTENSION_KINDS`, `EMAIL_KINDS`, `CALENDAR_KINDS`, `SELLER_EXECUTED_KINDS`, `CONTENT_DELIVERY_VERBS`, `STANDALONE_EXTENSION_TASKS`) with a parity test against this package rather than by hand; every one of them is declared here, the four executor sets partition `EXECUTION_KINDS`, and `(invite_call, calendar)` is a calendar kind run by simpl_api on approval, not a seller-executed one. Its approval is its execution: `invite_call` and `send_calendar_invite_manually` (`APPROVAL_EXECUTED_ACTION_TYPES`) never enter `PENDING`, because nothing claims them there; `set_pending_with_version` refuses them through `assert_queueable` (`invalid_transition: ...`, 409) and the trigger `trg_journey_log_never_queue_approval_executed` refuses raw-SQL writers. Book an invite with simpl_api's `execute-invite-call`.
@@ -852,7 +854,7 @@ each user's profile email, what their email connections record (the synced
 mailbox and the send-from alias), and the active rows of
 `sales.customer_email_identity` (aliases, with the user each belongs to, and
 domains). Every such address's domain counts too, unless a mail provider owns
-it. Email sync files a participant on one of them as the owner (the owner's own
+it, and so does any host under it (`team@sales.acme.io` is acme.io's). Email sync files a participant on one of them as the owner (the owner's own
 aliases, whose messages are the owner's) or a colleague, never a lead; the
 conversation backfill never takes one for the counterpart.
 
@@ -892,6 +894,7 @@ conversation reached. That insert is the whole outreach handoff.
 from simpl_core.services.conversation_processing import (
     ConversationProcessor,
     SalesDecision,
+    counterpart_identity,
     load_thread_bundle,
     render_transcript,
 )
@@ -905,6 +908,10 @@ if reading.skip_reason is None:
         counterpart=reading.counterpart,
         own_participant_ids=reading.own_participant_ids,
     )
+    # Who the transcript's "counterpart" is (name, email, LinkedIn profile):
+    # give it to the sales check beside the transcript, or an app's
+    # notification quoting a sale reads like the buyer.
+    who = counterpart_identity(reading.counterpart)
     decision = SalesDecision(verdict="sales", stage="messaged", reason="...")  # your sales check
     if decision.verdict == "sales":
         result = await processor.process(
@@ -1025,12 +1032,16 @@ company), always carries a name — a nameless one would collide with
 `unique_dummy_lead_per_company` — and records the address as a `lead_contact` so
 the next sighting resolves to the same person.
 
-`ConversationService.upsert_participants` is the live caller: an external
-participant it cannot identify now gets a placeholder lead instead of being
-parked on the company's dummy lead. Automated mailboxes
-(`is_automated_address` — `noreply@`, `bounce@`, `mailer-daemon@`) are excluded
-and stay `participant_type=2`; a placeholder exists so outreach can reach
-somebody, and there is nobody behind a bounce address. Dummy leads are still
+The conversation backfill (`ConversationProcessor.process`) is the live
+caller: it creates the lead for a counterpart nobody is yet, and links the
+participant row, only once its sales check has read the thread and judged it a
+sale. Email sync does not create leads: `ConversationService.upsert_participants`
+links a participant to the lead `LeadPlacementService.resolve` finds (writing
+nothing) and leaves anyone else `participant_type=2`, unlinked. Standing a
+placeholder in at sync made a lead of every notification, receipt and newsletter
+sender before anything had read them. Automated mailboxes
+(`is_automated_address` — `noreply@`, `bounce@`, `mailer-daemon@`) are never
+resolved at all. Dummy leads are still
 used for *company* pipeline placement
 (`get_or_create_company_dummy_ulc`), which represents a company rather than a
 person — that is a different job and is unchanged.
