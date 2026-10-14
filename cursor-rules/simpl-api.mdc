@@ -50,6 +50,8 @@ project hierarchy: Hardware → Comuni / Assegnati, and Domini. They are not tim
 survey choices or ranked initiatives. Confirm supplier decisions and apply them
 to update the ledger; existing manual attributions remain protected.
 
+Expenses product scope: `GET /api/v1/admin/spend/lines` includes `product_scope` (`status`, nullable `kind`, `reason`) from simpl_core's domain rule. Only explicit product-use tags admit a line; missing, mixed or contradictory tags stay outside reconciliation. Migration `20261014160000_expense_themes_and_product_scope.sql` seeds an exclusive operational theme catalog and six fixed use values, archives legacy context tags while preserving their assignments, and does not alter ROI allocations. Release simpl_core with `roi.spend_scope` first and refresh this service's locked core dependency before deployment. Deploy the dashboard and SimpL OS skill changes, then update the two finance roles through the reviewed role-seed diff without overwriting human edits. Existing bank lines require evidence-based classification before comparison becomes populated.
+
 ## Rules and conventions
 
 - Keep FastAPI route handlers thin. Move reusable domain behavior to `simpl_core` or a service module.
