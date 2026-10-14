@@ -310,6 +310,32 @@ them. `nebius_pace` lines (every 5 minutes) show where it stands. It waits out a
 time. `max_retries` covers connection errors, timeouts and 5xx. `provider.pacer.snapshot()`
 shows the limits and the pace.
 
+## Chunking along a page's elements
+
+`simpl_ia.core.chunking.blocks` cuts a page given as lines, each with the ids of the
+block elements it sits in (outermost first), into chunks that follow the page's
+structure. It is plain Python: no chunking extra is needed.
+
+```python
+from simpl_ia.core.chunking.blocks import BlockLine, chunk_blocks
+
+lines = [
+    BlockLine("# Services", (0, 1)),
+    BlockLine("## CNC turning", (0, 2, 3)),
+    BlockLine("Parts to drawing, from prototype to series.", (0, 2, 3)),
+]
+for chunk in chunk_blocks(lines, soft=1200, hard=1800):
+    print(chunk.section, chunk.text)   # "Services", the three lines joined by \n
+```
+
+- The largest element whose text fits `hard` characters stays in one chunk; an element
+  over `hard` is split into its children. A chunk closes at an element boundary once it
+  holds `soft` characters and never goes past `hard`.
+- Headings are lines starting with `#` marks; `section` is the heading path at the
+  chunk's first line, outermost first (`Services > CNC turning`). A heading a chunk
+  would end on moves to the next chunk.
+- Only a line over `hard` is split, at sentences, then words.
+
 ## Rules and conventions
 
 - Prefer `simpl_ia.core` for lightweight imports that must not pull `pymilvus` or torch. Use top-level `simpl_ia` only when Milvus or the full kitchen-sink surface is intentional.
