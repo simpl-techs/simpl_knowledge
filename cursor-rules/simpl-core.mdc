@@ -885,6 +885,27 @@ active or rejected) or `rejected`. Email sync fills it as it runs:
 
 Add an alias domain by hand with a `manual` domain row.
 
+### Handing a lead to a colleague
+
+`simpl_core.services.account_coordination.lead_handoff.LeadHandoffService.hand_over`
+records a lead-scoped `sales.account_handoff` (company and dummy connections NULL)
+with one `account_handoff_ulc` mapping: the source seller's connection with the
+lead to the target colleague's, each reused or created (origin `account_handoff`).
+The source's drafts waiting for approval are cancelled (`account_handed_off`), and
+`sales_outreach.evaluate_dispatch_authority` (rule 1b,
+`migrations/20261015_lead_scoped_account_handoff.sql`) cancels any later send from
+the source connection, coordination or not; outreach's trigger guard forwards the
+lead's replies on it to the target as `handoff_inbound_received`. The newest
+lead-scoped hand-off a connection takes part in decides: handed back, it writes
+again (`LeadHandoffRepository.silenced_ulc_ids` is the same test). The target's
+new connection gets no cold first touch: `wake` (a `LeadMessage`) queues
+`handoff_inbound_received` with the lead's message (and, for a forward,
+`trigger_data.forwarded_original`: sender, subject, text, note), unless that
+message already waits on the source (the guard forwards it) or the source wrote
+to the lead since it (its walk answered). Idempotent on `idempotency_key`; the
+lead is locked for the transaction. Logs `account.handoff.initiated` and
+`.completed` on both connections. Company-wide hand-offs are unchanged.
+
 ### Judging a conversation thread
 
 `simpl_core.services.conversation_processing` judges one stored thread and, for a
@@ -936,6 +957,23 @@ anyone on the owner's team holds their lead or their company at Customer, or,
 for the platform's own team, the platform's accounts hold that company with a
 running subscription or managed engagement (matched on the counterpart's address,
 or on their company domain).
+A thread among colleagues with no counterpart where a colleague forwarded the
+owner, in the last two weeks (`FORWARD_HANDOFF_WITHIN`), an outside person's
+message is settled as `colleague_forward` (`reading.forward`: the forward
+message, who forwarded it, to which users, and the original from
+`forwarded_original(body, is_internal=...)`, which reads past the forwarder's own
+reply down to the outside person's message). Only the receiver's copy counts,
+and only a message that is itself a forward (`is_forward_subject`: `Fwd:`, `Fw:`,
+`I:`, `WG:`, after a `[EXT]` tag); a reply quoting a forward is not one. Email
+sync stores such a thread only for backfill-enabled mailboxes and only under a
+forward subject or a reply to one (`is_forward_thread_subject`: `Re: Fwd:`,
+`R: I:` ...). `process_forward(bundle, reading, decision)`, for a forward a check
+judged a sale handed over, resolves or creates the lead and hands it from the
+forwarder to the one colleague the forward went to (see "Handing a lead to a
+colleague"); several colleagues, an inactive colleague, no status, a lead a third
+colleague still works, or a company handed to someone else are issues. Only an
+incremental run hands over: other modes report `would_hand_off`. `attach` queues
+no reply on a connection handed off lead by lead since the message.
 `process` opens the
 connection for the counterpart: the lead ingestion linked (never a dummy), or the
 lead its email or LinkedIn identity matches; one it creates when none exists (from
