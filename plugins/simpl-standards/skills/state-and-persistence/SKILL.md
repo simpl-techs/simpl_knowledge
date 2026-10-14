@@ -1,6 +1,6 @@
 ---
 name: state-and-persistence
-description: simpl-wide rules for state machines, idempotency, database sessions/transactions/locking, async/IO discipline, bounded execution, and observability. ALWAYS consult when touching status/state fields, writing repositories, opening transactions, claiming work in queue-style tables, holding sessions across awaits, retrying external IO, fanning out concurrent calls, adding background workers, instrumenting commands with logs/metrics, adding or changing anything that happens to a ULC (user-lead connection: inbound, calls, contracts, stage changes; it must write an `outreach_events` row), or deploying anything to Google Cloud (cost tracking is mandatory and must never block).
+description: simpl-wide rules for state machines, idempotency, database sessions/transactions/locking, async/IO discipline, bounded execution, and observability. ALWAYS consult when touching status/state fields, writing repositories, opening transactions, claiming work in queue-style tables, holding sessions across awaits, retrying external IO, fanning out concurrent calls, adding background workers, instrumenting commands with logs/metrics, recording a real-world fact about a ULC (user-lead connection: messages, inbound, calls, charges, contracts; it must write an `outreach_events` row; a stage change is not an event), or deploying anything to Google Cloud (cost tracking is mandatory and must never block).
 ---
 
 # State and persistence discipline
@@ -20,14 +20,15 @@ This skill is always-on. It governs the runtime behavior of code that owns state
 
 ## ULC events: `outreach_events`
 
-- **Everything that happens to a ULC (`sales.user_lead_connection`) is written as a row in `sales_outreach.outreach_events`**, with `ulc_id`, `lead_id` and `user_id` set. It is the one place metrics are computed from and the full pipeline of a ULC is read from. A step stored only in its own table (a stage column, a charge, a contract) does not exist for metrics.
-- **A new ULC step ships with its event, in the same change.** For example: inbound handled, contract sent or signed, call scheduled, call confirmed (negotiation started), call held, stage change. A feature that changes a ULC without writing its event is not finished.
-- **Write the event in the same transaction as the change it records**, so the two commit or roll back together. Python: `OutreachEventRepository.log_event` (simpl_core) on the session that writes the change. TypeScript and SQL triggers insert into the same table with the same columns.
-- **Naming:** `event_type` is lowercase, dot-separated and ends in a past-tense verb, like `linkedin.message.sent`, `email.message.received`, `user.action.approved`. Look up the existing types first and reuse one rather than add a synonym. `event_data` carries the ids of the source rows (meeting, charge, contract) so metrics can join them.
-- **`timestamp` is when the step happened**, not when the row was written.
-- **New metrics and ULC timelines read `outreach_events`**; they do not re-derive a step from the source tables.
-- **A new event type for a step that already happens in production comes with a backfill** from the source table, with the original timestamps, otherwise every metric on it starts from the deploy day.
-- **Tests:** the step's test asserts the event row (`event_type`, `ulc_id`, `timestamp`).
+- **`outreach_events` records what actually happens to a ULC (`sales.user_lead_connection`)**: a lead claimed, a message sent or received, a connection accepted, an inbound lead, a call scheduled, confirmed, held or missed, a charge, a contract signed. It is the one place metrics are computed from and the full history of a ULC is read from. Every row has `ulc_id`, `lead_id` and `user_id` set.
+- **A pipeline stage is not an event.** A stage is a name on the ULC; its changes live in `sales.user_lead_connection_history` (trigger `trg_log_status_change`). Keep the two apart even when they look alike: a ULC moved to Meeting Booked and a `call.scheduled` event both exist, one for the pipeline, one for the fact. Never write an event for a stage change, and never use a stage change as the record of a fact.
+- **A new ULC fact ships with its event, in the same change.** A feature that records a fact about a ULC without writing its event is not finished.
+- **Write the event in the code that records the fact, in the same transaction.** Python: `OutreachEventRepository.log_event` (simpl_core) on the session that writes the change. TypeScript: insert into `sales_outreach.outreach_events` in the same request, right after the write. Use a DB trigger only where a trigger already handles that fact, or where the change happens inside a SQL function. One fact has one writer: never both a trigger and code.
+- **Naming:** `event_type` is lowercase, dot-separated and ends in a past-tense verb, like `linkedin.message.sent`, `email.message.received`, `user.action.approved`. It names the fact, not the stage (`call.scheduled`, not `meeting_booked`). Look up the existing types first and reuse one rather than add a synonym. `event_data` carries the ids of the source rows (meeting, charge, contract) so metrics can join them.
+- **`timestamp` is when the fact happened**, not when the row was written.
+- **New metrics and ULC timelines read `outreach_events`**; they do not re-derive a fact from the source tables or from stage changes.
+- **A new event type for a fact that already happens in production comes with a backfill** from the source table, with the original timestamps, otherwise every metric on it starts from the deploy day.
+- **Tests:** the test of the code that records the fact asserts the event row (`event_type`, `ulc_id`, `timestamp`).
 
 ## Database access, transactions, locking
 
