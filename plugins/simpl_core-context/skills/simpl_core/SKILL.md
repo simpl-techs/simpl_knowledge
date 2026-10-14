@@ -2041,28 +2041,59 @@ The admin WBR page (simpl_api `admin/wbr`, contract `audits/2026-10-13-sales-wbr
 `simpl_core.services.ingestion` turns what a customer's inbound sources report (SDK, signed
 webhooks; transport lives in simpl_ingestion) into leads owned by the right seller, with an
 `inbound_signal` trigger outreach walks. Tables: `integration.ingestion_inbox`,
-`integration.ingestion_rule` (migrations/20260808_ingestion_inbox_and_rules.sql), one
+`integration.ingestion_rule` (migrations/20260808_ingestion_inbox_and_rules.sql,
+20261014c_ingestion_record_lead.sql), `integration.ingestion_playbook`
+(20261014d_ingestion_playbook.sql), one
 `(Unknown company)` row (`INBOUND_UNKNOWN_COMPANY_ID`, migrations/20260820_inbound_unknown_company.sql).
-- **Accept:** `IngestionService(session).accept(customer_id=…, connection_id=…, signal=IngestedSignal)`
+- **Accept:** `IngestionService(session).accept(customer_id=…, connection_id=…, signal=IngestedSignal, sender_dates_signal=bool)`
   -> `IngestionAcceptResult(inbox_id, created, status)`; idempotent on `(connection_id, external_id)`;
-  the caller commits. `IngestedSignal` refuses an empty `external_id`, `source` or `name`,
+  the caller commits. The row's `occurred_at` is the time everything the drain writes is
+  dated by (the connection's status history, the trigger, the event): the signal's own,
+  capped at now, when `sender_dates_signal` (a server key, SimpL's replay); the arrival
+  when not (a web page could backdate it). `IngestedSignal` refuses an empty `external_id`, `source` or `name`,
   `properties` over 16 KB of JSON (`MAX_PROPERTIES_BYTES`) and unknown fields, at the top level
   and inside `person`, `company`, `context`, `consent` and `owner_hint` (a misspelled
   `person.linkedin` is refused, not dropped): a sender passes a stable `external_id` per event
   and `person.linkedin_url` when it knows it.
-- **Drain:** `drain_ingestion_inbox(db, *, batch_size=10, max_batches=5, default_owner_by_customer=None) -> int`
-  (rows processed). One transaction per row, holding the row's lock while it is still this
+- **Drain:** `drain_ingestion_inbox(db, *, batch_size=10, max_batches=5, default_owner_by_customer=None, only=None, max_seconds=None, lock_timeout_ms=None) -> int`
+  (rows processed), rows in `occurred_at` order. A request drains what it accepted with
+  `only` (those rows, never another customer's), `max_seconds` (no batch claimed once spent)
+  and `lock_timeout_ms` (a row waiting on another writer of the person fails that attempt and
+  stays pending); the sweep drains the rest. One transaction per row, holding the row's lock while it is still this
   drain's claim: a claim reclaimed by another drain (stale after 300 s) is left to that drain,
   so a row's triggers are queued once. A failing row goes back to `pending` with
   `last_error`, is retried by the next drain and ends `failed` after `max_attempts` (8). Rows
-  end `completed` (outreach queued, or `notify_only`) or `ignored`; `resolution` holds an
+  end `completed` (outreach queued, `record_only` or `notify_only`) or `ignored`; `resolution` holds an
   `IngestionResolution` (`reason`: `ignored_by_rule`, `no_matching_rule`, `own_team`,
-  `opted_out`, `unresolved_identity`, `not_in_pipeline`, `notify_only`; `contacts_blocked`:
+  `opted_out`, `unresolved_identity`, `not_in_pipeline`, `notify_only`, `record_only`; `contacts_blocked`:
   the contact types the owner could not get because another user holds them privately).
 - **Rules:** the first enabled rule by priority decides. `create_lead` may add somebody new;
+  `record_lead` places the person as `create_lead` does but wakes nobody: the signal is written
+  as a processed `inbound_signal` (status `recorded`, read by outreach as handled; no
+  `scheduled_at`, queued at `occurred_at`) the next walk reads as history, the `lead_claimed` of
+  a connection it opened is settled with the same reason, a seat already holding the person
+  keeps them whatever the strategy and no other seat hears of it;
   `attach_signal` reaches only a person an active seat of the customer is already connected
   to (anybody else, even a lead SimpL's shared base knows, is `not_in_pipeline`);
   `notify_only` records who the person is and who would own them, writing nothing; `ignore`.
+  `match_conditions` take equality, `{"$exists": bool}` and `{"$any_word": [...]}` (the value
+  holds one of the words as a whole word, any case: `{"person.job_title": {"$any_word":
+  ["founder", "ceo"]}}`). `action_config.seller_approval_required: true` makes the walks the
+  rule wakes write only drafts the seller approves; `action_config.playbook_section` names the
+  playbook section its people follow; `action_config.wake_after_working_hours: n` makes the
+  owner's trigger on a connection that already existed due `n` of the owner's working hours
+  later (`BusinessHoursScheduler.add_working_hours` on their `active_hours`, default 09:00-18:00
+  Europe/Rome Mon-Fri; a new connection still wakes at once with its `lead_claimed`).
+- **Playbook** (`services/ingestion/playbook.py`, store `playbook_store.py`): one per customer,
+  `InboundPlaybook(free_text, sections=[PlaybookSection(key, label, applies_to{sources, names,
+  channels in linkedin|email}, fit, steps=[{when, action, link}], links)])`, bounded (12 sections,
+  20 steps, 10 http(s) links, 8,000 chars). `load_playbook(session, customer_id) -> StoredPlaybook`
+  (revision 0 when none), `save_playbook(session, customer_id, playbook, replaces_revision=,
+  updated_by=)` (a stale revision raises `repositories.ingestion.PlaybookRevisionConflict`; two
+  first writes cannot both win). `playbook_section_for(playbook, rule_section=, source=, name=,
+  channel=)` resolves the section: the rule's, else the first whose set lists all hold the
+  value, else the one with an empty `applies_to`. The drain stamps its key on the trigger
+  (`playbook_section`); outreach reads the playbook as the seller's own instructions.
   A customer with no rules at all gets `create_lead` for a person signal with an email or
   LinkedIn URL; once a customer has any rule, enabled or not, an unmatched signal is
   `no_matching_rule`, so disabling rules stops the lane.
@@ -2129,11 +2160,13 @@ webhooks; transport lives in simpl_ingestion) into leads owned by the right sell
   newest 8 paths and the full `page_view_count`; `null` when the channel names no site),
   `consent`, `owner_strategy`
   (`OwnerChoice`: `existing_owner`, `fixed`, `owner_hint`, `rule_owner`, `default_owner`,
-  `oldest_active_seat`), `took_over_from_user_id`, `took_over_by_user_id`, and the legacy
-  aliases `source`, `kind`, `name`.
+  `oldest_active_seat`), `took_over_from_user_id`, `took_over_by_user_id`,
+  `seller_approval_required` (the rule's, read by simpl-outreach's `prefs_for_walk`),
+  `playbook_section`, and the legacy aliases `source`, `kind`, `name`. `occurred_at` is the
+  inbox row's.
 - **Event:** every placed signal writes `inbound.lead.received`
   (`INBOUND_LEAD_RECEIVED_EVENT`) on the owner's connection in `outreach_events`, dated at
-  the signal's `occurred_at`, with `inbox_id`, `connection_id`, `external_id`, `rule_id`,
+  the inbox row's `occurred_at`, with `inbox_id`, `connection_id`, `external_id`, `rule_id`,
   `action`, `origin` (the signal's `source`), `signal_name`, `signal_kind`. Holders told of a
   takeover and `notify_only` signals get none.
 
