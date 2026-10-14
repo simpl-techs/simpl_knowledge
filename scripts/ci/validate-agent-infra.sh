@@ -116,6 +116,20 @@ from cursor_rule_names import collisions, skill_rules
 
 errors.extend(collisions(skill_rules(root)))
 
+# --- SKILL.md frontmatter must be valid YAML (generate-cursor-rules.sh parses it) ---
+# An unquoted ": " inside a description breaks the cursor-rules release.
+try:
+    import yaml
+except ImportError:
+    yaml = None
+if yaml:
+    from cursor_rule_names import split_frontmatter
+    for rule in skill_rules(root):
+        try:
+            yaml.safe_load(split_frontmatter((root / rule.skill).read_text(encoding="utf-8"))[0])
+        except yaml.YAMLError as e:
+            errors.append(f"{rule.skill}: invalid YAML frontmatter (quote the value?): {e}".replace("\n", " "))
+
 # --- marketplace vs plugin.json versions ---
 mp_path = root / ".claude-plugin" / "marketplace.json"
 mp = json.loads(mp_path.read_text(encoding="utf-8"))
