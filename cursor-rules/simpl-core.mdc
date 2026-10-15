@@ -2397,7 +2397,7 @@ webhooks; transport lives in simpl_ingestion) into leads owned by the right sell
   somebody no active seat holds, at a real company the customer's outreach works
   (`meetings.outreach_works_account(session, customer_id=…, company_id=…, person_lead_id=…,
   at=…) -> CompanyConnection | None`: a seat of the customer, active or not, messaged
-  somebody else there in the 90 days before the signal (`OUTREACH_LIVE_FOR`) on a connection
+  somebody else there in the 60 days before the signal (`OUTREACH_LIVE_FOR`) on a connection
   neither `inbound` nor `call_attendee` opened (`GUESSED_COMPANY_ORIGINS`), not to the
   company's Dummy lead, and opened before any `inbound` connection there:
   `UserLeadConnectionRepository.messaged_connection_at_company(customer_id=…, company_id=…,
