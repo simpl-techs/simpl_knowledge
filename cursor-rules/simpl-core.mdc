@@ -393,6 +393,117 @@ with that output even if a cancellation lands during close.
 
 Full guide: `docs/agent_framework/08-streaming-output.md`.
 
+### Composed prompts
+
+An `llm_agent`'s `prompt_id` may name a `prompt_composition` instead of a
+`prompt_definition`. The composition is assembled when the agent runs: its `core`
+first, then every fragment whose `when` matches the agent's `inputs`, in the order
+declared, each body stripped of trailing newlines and joined by `separator`.
+Members are ordinary `prompt_definition` entries.
+
+```yaml
+  - kind: prompt_composition
+    id: v1/outreach/writer-system         # what agent_definition.prompt_id names
+    version: 1
+    display_name: Writer System Prompt    # optional
+    core: v1/outreach/writer-core         # always first
+    separator: "\n\n"                     # the default
+    fragments:                            # ordered; included when `when` matches
+      - prompt_id: v1/outreach/writer-channel-email
+        when: {all: [{key: channel, op: eq, value: email}]}
+      - prompt_id: v1/outreach/writer-mode-reply
+        when: {all: [{key: writing_brief.mode, op: eq, value: reply}]}
+    is_active: true
+```
+
+- `when` is the routing grammar, read against the agent's `inputs` exactly as
+  `LLMAgent.check` receives them: dotted keys walk nested dicts, a missing key
+  reads null, an empty `all` always matches.
+- A `prompt_id` listed in several entries is included once, at its first entry's
+  position, when any entry matches: that is how a fragment says "A or B". Those
+  entries must be next to each other, so the order of `fragments` is the order of
+  the prompt; the schema rejects entries for one fragment split by another's.
+- A `prompt_composition` and a `prompt_definition` never share an id: the
+  composition would hide the definition. `af_config_migrate` and projection
+  reject the document.
+- `core` may not be listed as a fragment. `Loader.validate_boot()` fails when a
+  member does not resolve.
+- Two members of one composition never carry the same line: text two members
+  need goes in a fragment of its own, selected wherever both apply, or in the
+  core. `af_config_migrate` and projection reject a document in which two members
+  share a line of three or more words (whitespace collapsed);
+  `shared_member_lines(composition, definitions)` in
+  `simpl_core.agent_framework.prompt_composition` lists those lines offline.
+- Same composition version, same member versions, same inputs: same bytes. The
+  core is always the leading bytes, so provider prefix caching shares it across
+  every selection. Nothing per run belongs in a member; run data goes in the user
+  message.
+
+`PromptRegistry.resolve(prompt_id, loader=..., inputs=...)` and
+`resolve_for_execution(prompt_id, context=..., inputs=...)` take the inputs.
+`resolve` accepts `inputs=None` and keeps only the fragments that match with no
+input: the check-only form, for boot gates and previews. `resolve_for_execution`
+raises `ValueError` when the id names a composition and `inputs` is `None`, so a
+call never runs on the core alone by omission; a single-definition prompt still
+resolves without inputs. The resolved `ExecutablePrompt` names the composition
+(`prompt_id`, `version`) and carries the rendering on `composition`;
+`composition_pointer()` is what the run records.
+
+- `LLMAgent.check(inputs, prompt_selection=[...])` and `stream(...,
+  prompt_selection=[...])` compose with a fixed list of fragments instead of
+  evaluating `when`; they pass it as `selection=` to `resolve_for_execution`, which
+  `resolve` and `compose_prompt(..., selection=...)` also take. Use it to re-compose
+  an earlier rendering, such as a rewrite of a draft whose inputs are no longer
+  all at hand: pass the fragment ids of that draft's pointer (`members` after the
+  core). The body is the core, then exactly the named fragments, each once, in the
+  composition's declaration order whatever order the list has; `[]` is the core
+  alone. With a selection, `resolve_for_execution` accepts `inputs=None`. A
+  selection that names the core or an id that is not a fragment of the composition
+  raises `ValueError`, and so does a selection for a prompt id that is not a
+  composition. The recorded pointer keeps its shape: its members are the core and
+  the fragments used.
+- A loader you write for `PromptExecutionContext` needs only `get_prompt(prompt_id)`.
+  `get_prompt_composition(prompt_id)` is optional: it is called only when the
+  loader has it, and a loader without it (a test stub, say) serves no compositions,
+  so every id resolves as a definition or a registered fallback. Implement it,
+  returning `None` for an id that is not a composition, when the loader serves
+  compositions.
+
+`agent_runs.prompt_id` / `prompt_version` name the composition, and
+`agent_runs.prompt_composition` (also on `ProducerAuditSnapshot.prompt_composition`
+and the executor's `audit["prompt_composition"]`) holds the pointer:
+
+```json
+{"id": "v1/outreach/writer-system", "version": 1, "body_sha256": "<sha256 of the body>",
+ "separator": "\n\n",
+ "members": [{"prompt_id": "v1/outreach/writer-core", "version": 3, "body_sha256": "..."},
+             {"prompt_id": "v1/outreach/writer-mode-reply", "version": 1, "body_sha256": "..."}]}
+```
+
+The pointer and the versioned `prompt_definitions` rows it names are the record:
+no composed body is stored anywhere else.
+`simpl_core.agent_framework.prompt_composition.reproduce_composed_body(pointer,
+db=db)` rebuilds the exact body from those member versions and raises
+`ValueError` when a digest disagrees. `compose_prompt(composition=...,
+definitions=..., inputs=...)` and `select_fragments(composition, inputs)` are the
+pure functions behind it, for tests that check a composition offline.
+
+For a composed prompt, `(prompt_id, prompt_version)` identifies the composition,
+not the text the model read. Two runs with the same pair can carry different
+bodies: the fragments selected differ with the inputs, and the composition's
+version does not change when a member's text changes, since members are
+versioned on their own and pinned by the config version. An analysis that
+compares prompt text groups by `prompt_composition->>'body_sha256'`, or by the
+member versions in `prompt_composition->'members'`, not by `prompt_version`.
+
+Apply `migrations/20261015b_af_prompt_compositions.sql` before this version is
+merged or released. The `AgentRun` model maps `agent_runs.prompt_composition` on
+every write, and a loader without a manifest filters graph elements on the enum
+value `prompt_composition`, which errors on a database that lacks it. A service
+that pins this package at `main` picks the version up on its next relock.
+
+Full guide: `docs/agent_framework/11-operating-it.md#prompts`.
+
 Full guide: `docs/agent_framework/`.
 
 ### Alerting
