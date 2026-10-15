@@ -91,6 +91,9 @@ Providers: `openai`, `deepseek`, `openrouter` (models are `vendor/model` slugs),
 `cheaper_inference` (Cheaper Inference's gateway; bare model ids such as
 `glm-5.3-flash`, a slug is refused; the endpoint defaults to
 `https://api.cheaperinference.com/v1`, so a binding needs only the key),
+`self_hosted` (an OpenAI-compatible server you run, such as llama.cpp or vLLM:
+the target must name its `base_url`, needs no key, structured output is native,
+and no cost receipt is written, since no provider bills it),
 and `typesafe` (an alias of `openrouter` with `api="decisions"`, below). A
 target's `api` is the API its model speaks there: `chat` (the default) or
 `decisions` for a decision model on `openrouter` (below).
@@ -100,6 +103,31 @@ reports which chain member answered (`model`, `provider`, `api`, `reasoning`,
 decision model's answer from a language model's. With an
 `attempt_log` passed to `make_agent`, the member is credited by chain position,
 so a provider renaming what it serves is logged instead of failing the call.
+
+A target's `extra_body` is merged into every request body it sends, for fields the
+typed settings lack (`chat_template_kwargs`). A call adds its own with
+`make_agent(..., extra_body=...)`: nested objects merge and the call wins. A decision
+model takes none. Every model in the chain sends the call's `extra_body`, so every one
+must be `self_hosted`: `make_agent` raises `ValueError` naming each one that is not.
+`make_agent(system_prompt=None)` sends no system message, for a
+model whose prompt format has no place for one; `run(..., max_tokens=...)` caps the
+answer of every model in the chain.
+
+```python
+policy = ModelPolicy(
+    name="nuextract3",
+    provider="self_hosted",
+    base_url="http://127.0.0.1:8092/v1",
+    extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+)
+client = StructuredLLMClient.from_policy(policy)  # no binding needed
+agent = client.make_agent(
+    output_type=StructuredDict(answer_schema),
+    system_prompt=None,
+    extra_body={"chat_template_kwargs": {"template": template, "instructions": text}},
+)
+result = await client.run(agent=agent, user_prompt=document, temperature=0.0, max_tokens=1024)
+```
 
 Structured output mode (native JSON schema, a forced output tool, or the
 schema in the prompt) is resolved per chain member from the route's
