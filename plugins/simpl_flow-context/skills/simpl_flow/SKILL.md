@@ -168,6 +168,8 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   connection are watched, never proposed: their signals land in
   `opportunity.icp_signal_monitor` (the watchlist), but they are never a new or
   `recycled_fallback` opportunity, so autopilot never gets them either.
+- A company where the team holds a Non sales connection (lead status 11: a person met
+  for another reason) is a company already known: it is neither proposed nor watched.
 - Opportunity sources (`opportunity.icp_signal_opportunities.source_type`): `new_signal`,
   `recycled_fallback` (a company the customer already worked, proposed again; called
   `fallback_monitoring` before 2.5.69), `icp_match_fallback`, `manual`. With the
