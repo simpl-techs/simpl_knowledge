@@ -175,7 +175,9 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   failures.
 - `generate_opportunities_flow` works only ICPs someone receives, as defined by
   `sales_view.opportunity_recipient`: an active assignee, not on vacation, of a customer
-  whose `metadata.is_active` is not `false`. Each run deletes the non-manual
+  whose `metadata.is_active` is not `false`, of the ICP owner's customer (also active)
+  or a SimpL identity with an open `sales.identity_loan` on that ICP for a customer on
+  active pay per call. Each run deletes the non-manual
   opportunities nobody receives, and autopilot's candidate view applies the same rule, so
   deactivating a user, an ICP or a customer stops both without any other change.
 - A **post signal** (`sales.icp_signal.filter_json`) searches the LinkedIn posts in Zilliz
