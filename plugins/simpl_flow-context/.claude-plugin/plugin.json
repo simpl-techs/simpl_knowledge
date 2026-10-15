@@ -1,6 +1,6 @@
 {
   "name": "simpl_flow-context",
-  "version": "0.1.26",
+  "version": "0.1.27",
   "description": "Integration context for simpl_flow. Auto-synced from simpl-techs/simpl_flow.",
   "author": {
     "name": "simpl_flow maintainers"
