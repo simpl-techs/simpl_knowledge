@@ -160,6 +160,78 @@ agent's chain falls back on nothing else; any spec with a schema to fail (a mode
 which validates answers exactly as pydantic-ai does for that spec, with the agent's
 `validation_context`.
 
+### Plain completions on a self-hosted model
+
+`CompletionClient` makes one OpenAI-compatible `/chat/completions` call to a
+self-hosted server and returns the answer as the server sent it: no agent, no output
+tool, no `response_format`. It is for a model whose task travels as request fields
+(NuExtract reads its template from `chat_template_kwargs`); `simpl_core`'s `lm_model`
+agent kind calls it. It is a separate client, not a mode of `StructuredLLMClient`.
+
+```python
+from simpl_ia.agents import (
+    FAILURE_UNREACHABLE,
+    CompletionClient,
+    CompletionFailed,
+    ModelPolicy,
+)
+
+policy = ModelPolicy(
+    name="nuextract3",
+    provider="self_hosted",
+    base_url="http://127.0.0.1:8092/v1",
+    http_timeout_seconds=300,
+    extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+)
+client = CompletionClient(policy)  # ValueError unless every target is self_hosted
+attempts: list[dict] = []  # optional: filled as requests go, kept if the call is cancelled
+try:
+    completion = await client.complete(
+        document,
+        max_tokens=1024,  # temperature defaults to 0
+        extra_body={"chat_template_kwargs": {"template": template, "instructions": text}},
+        attempts=attempts,
+    )
+except CompletionFailed as failed:
+    failed.attempts  # every request of the call, each with outcome "raised" and a failure
+    server_down = all(a["failure"] == FAILURE_UNREACHABLE for a in failed.attempts)
+else:
+    completion.text, completion.finish_reason  # "" / None when the server sent none
+    completion.target  # SelectedTargetMetadata of the member that answered
+    completion.attempts  # every request, the failed ones before the answer included
+```
+
+- **The request**: the prompt is the only message, a user message; `max_tokens`,
+  `temperature` and the call's `extra_body` merged over the target's (nested objects
+  merge, the call wins). The key is the target's bound key, else `EMPTY`. An
+  `extra_body` setting `model`, `messages`, `max_tokens`, `temperature` or `stream` is
+  refused with `ValueError`. A target with `reasoning` or a non-`auto` `output_mode` is
+  refused when the client is built.
+- **Fallback and retries**: targets are asked in policy order. A connection that fails
+  or a busy status (408, 409, 429, 502, 503, 504; `RETRY_STATUSES`) is asked again on the
+  same target, up to `max_attempts_per_target` (3) requests, pausing
+  `retry_pause_seconds` (2 s) then twice that. Any other error status (500 included), a
+  dropped connection, an attempt timeout, or a body with no choice moves to the next
+  target at once. At most `len(policy.targets()) * max_attempts_per_target` requests per
+  call.
+- **Attempt timeout**: wall clock per request, the target's `http_timeout_seconds`, else
+  the environment's default (60 s, `AI_LLM_TIMEOUT_SECONDS`). Set it on a slow model.
+  Connecting gets at most 10 s (`CONNECT_TIMEOUT_SECONDS`), half the attempt timeout
+  when that is shorter, so a server that never accepts fails as `unreachable`.
+- **No checks on the answer**: a cut answer (`finish_reason="length"`) or an empty one is
+  returned; the caller decides.
+- **Attempt entries** carry the keys of `agents/attempts.py` (`outcome`, `model`,
+  `provider`, `fallback_index`, `latency_ms`, `finish_reason`, `error_class`,
+  `error_message`, ...) plus `failure` on a raised one, exported as `FAILURE_*`:
+  `unreachable` (no connection), `dropped` (the server took the request and closed the
+  connection without an answer), `http_status` (with `http_status`), `timeout` or
+  `malformed`. Pass `attempts=` to receive them as they are sent: a call cancelled by
+  the caller's deadline leaves its request in flight there with outcome `cancelled`.
+- **HTTP client**: requests go through the event loop's cached client, the one
+  `StructuredLLMClient` uses. A `transport=` is wrapped in a client of its own and never
+  closed: the caller owns it.
+- **No cost receipt**: no provider bills a self-hosted call.
+
 ### Decision models (`api="decisions"`)
 
 A decision model is not a language model: it answers the output type's fields
