@@ -434,6 +434,8 @@ for chunk in chunk_blocks(lines, soft=1200, hard=1800):
   chunk's first line, outermost first (`Services > CNC turning`). A heading a chunk
   would end on moves to the next chunk.
 - Only a line over `hard` is split, at sentences, then words.
+- `chunk.lines` holds the indices of the input lines in the chunk, in order (a split line is
+  in each of its chunks), so data kept per line can follow its chunk.
 
 ## Rules and conventions
 
