@@ -170,6 +170,8 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   `recycled_fallback` opportunity, so autopilot never gets them either.
 - A company where the team holds a Non sales connection (lead status 11: a person met
   for another reason) is a company already known: it is neither proposed nor watched.
+  The flow autopilot never claims a person its user holds in Non sales, found at another
+  company: their connection keeps its stage and gets no journey (`autopilot_root` 10).
 - Opportunity sources (`opportunity.icp_signal_opportunities.source_type`): `new_signal`,
   `recycled_fallback` (a company the customer already worked, proposed again; called
   `fallback_monitoring` before 2.5.69), `icp_match_fallback`, `manual`. With the
