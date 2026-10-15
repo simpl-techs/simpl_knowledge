@@ -97,7 +97,11 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   `sweep: false`. A run can still name `datasets` and `sweeps` itself. A new kind adds
   a spec to `KINDS` (`search_index_runtime`) and a sweep to `SWEEPS` if it needs one.
   A sweep or dataset that fails does not stop the others; the run then fails naming
-  each one (`MaintenanceFailed`).
+  each one (`MaintenanceFailed`). A row the code cannot read (a kind it does not know,
+  dims that do not fit its kind, an unknown setting) is left out and the rest are
+  maintained; the first run of each hour posts the rows left out to #warning
+  (`announce_skipped_configs`, gated by `health_alert_due`), and every run returns them
+  under `skipped`.
 - **Search index alerts** (posts, landing and companies index flows, and maintenance;
   `services/run_health.py`, `services/search_index_health.py`):
   - **#error, a run that failed:** a run started by hand posts its own failure at once;
@@ -111,12 +115,58 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
     dataset an index that does not keep up (`read_index_progress`): documents due and
     no commit for `params.maintenance.stalled_after_minutes` (60 by default; 0 turns it
     off, as migration 085 does for landing while its runs are held), or a Zilliz
-    projection that far behind the store. `search_index_maintenance.health` and
+    projection that far behind the store. The graphia extractor runs by hand
+    (`UNSCHEDULED_LEDGERS`): in its ledger only documents a run that stopped still holds
+    count, not documents waiting for the next run. `search_index_maintenance.health` and
     `.progress` log them every run.
 - `gcp_memory_projection_flow` runs every five minutes and incrementally applies
   pending `agent_memory` revisions to Zilliz. It requires `NEBIUS_API_KEY`,
   `MILVUS_URI`, and `MILVUS_TOKEN`; do not replace it with routine collection
   rebuilds.
+- `gcp_search_index_maintenance_flow` also builds, on a manual run, the vector and
+  full-text indexes a simpl_core dataset spec declares on a filled table:
+  `build_indexes` (with `datasets`), with more memory than the schedule's. A routine run
+  never builds them; its health check reports them as unbuilt.
+- `gcp_opportunity_matcher_flow` (no schedule, started by hand) is the new ICP, signal
+  and opportunity matcher, in shadow: Postgres and today's opportunity pipeline are
+  untouched. It matches `icp_ids` (every ICP with an active definition when none) under
+  `variant`: the agent framework walks policy `opportunity_matcher_root` (seed migration
+  098) once per ICP, on the row store's datasets (`pipelines/intelligence`: every active
+  dataset as a DuckDB view), and writes the row store datasets `icp_fit:1`,
+  `signal_hits:1` and `opportunities:1` (migration 096). Definitions are written in the
+  matchers' DSL (`pipelines/opportunities_v2/dsl.py`) and stored as versions in
+  `opportunity.icp_spec` / `opportunity.signal_spec` (migration 095), added with
+  `python -m simpl_flow.pipelines.opportunities_v2 spec-add`. Query texts are embedded
+  with `NEBIUS_API_KEY`; nothing goes to Zilliz. The lake reads through DuckDB's `lance`
+  extension, which the image installs (`DUCKDB_EXTENSION_DIRECTORY`). Plan and status:
+  `docs/knowledge-graph-matchers-plan.md`.
+- `gcp_graphia_extractor_flow` (no schedule, started by hand) is the knowledge graph
+  extraction job. It marks the posts (`p:<post id>`) and sites (`h:<host>`) given as
+  `source_keys` pending for `variant` in the ledger `knowledge_graph.extraction_index`
+  (migration 095), then extracts the pending rows in batches: the agent framework walks
+  the pipelines of policy `graphia_extractor_root` (seed migration 097), which read the
+  search datasets (`sales_posts`, `landing_pages`), call the model, check, link and
+  resolve, and commit one row per document to the row store dataset
+  `graphia_extractions:2`. A source that breaks a batch fails alone; the run claims no
+  new batch after 20 h of work, under the job's 24 h timeout, and the rest stays
+  pending for the next run. When the work ends it builds the variant's facts tables
+  again from everything the variant has stored: `facts:1`, `er:1` (the entities),
+  `facts_evidence:1`, `facts_edges:1`, and per edge type `facts_edge_<type>:1` and
+  `facts_edge_<type>_by_dst:1`, one row per item, for joins (columns in
+  `docs/knowledge-graph-typed-tables.md`); `build_tables=false` leaves them as they
+  are. Which datasets it writes is `row_store.dataset_configs` (migration 096: kind
+  `extractions`, and one kind per facts table, named as the table); a run stops at
+  start when one has no active row. Maintenance keeps them all. `variant` is required and names a model setup of
+  `pipelines/knowledge_graph/variants.yaml`; a run claims that variant's rows only and
+  leaves other variants' rows as they are. It needs an active schema version in
+  `knowledge_graph.schema_version` (migration 095, `schema-register --activate`: without
+  one a run stops at start) and `ROW_STORE_URI`. It reads no model key: variant
+  `nuextract3-cpu` runs NuExtract (the 4-bit base model) inside the job, on its CPUs,
+  from the server and the weights in the image, which is why the deployment has 8 vCPU
+  and 16 GiB. A run fails when the variant's model server
+  does not answer; the rows it left go back with no attempt counted. The model's calls
+  go through the policy's `lm_model` rows and write no cost receipt: the job's compute,
+  recorded under `knowledge_graph_extraction`, is the whole cost.
 - Flow-runner autopilot sessions end `completed` when at least one company succeeded,
   `error` when the run raised or companies failed and none succeeded, and `stopped` when
   the run was interrupted: lease lost, run cancelled, or every company re-queued because
