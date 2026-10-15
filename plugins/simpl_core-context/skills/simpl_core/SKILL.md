@@ -917,7 +917,8 @@ namesake, never a Dummy lead); `LeadPlacementService` keys such a claim per cust
 writes its placeholder no global address. `simpl_core.services.dedup.lead_resolver.profiles_contradict`
 is the one rule for a stored LinkedIn profile contradicting a weak match.
 
-A lead whose company is unknown waits on the shared `(Unknown company)` row
+A lead whose company is unknown waits on its own stand-in company (origin
+`inbound_person`; the shared `(Unknown company)` row is legacy and leads leave it)
 (`simpl_core.services.dedup.parking`: `park_lead`, `record_parked_claim`,
 `move_parked_lead`), with a pending claim `LeadPlaceholderReconciler` tries on every pass
 (current experience, then the claim's company evidence). Run the reconciler, and it moves
@@ -2228,7 +2229,8 @@ webhooks; transport lives in simpl_ingestion) into leads owned by the right sell
   `last_error`, is retried by the next drain and ends `failed` after `max_attempts` (8). Rows
   end `completed` (outreach queued, `record_only` or `notify_only`) or `ignored`; `resolution` holds an
   `IngestionResolution` (`reason`: `ignored_by_rule`, `no_matching_rule`, `own_team`,
-  `opted_out`, `unresolved_identity`, `not_in_pipeline`, `notify_only`, `record_only`; `contacts_blocked`:
+  `opted_out`, `unresolved_identity`, `not_in_pipeline`, `account_worked_outside_the_lane`,
+  `notify_only`, `record_only`; `contacts_blocked`:
   the contact types the owner could not get because another user holds them privately).
 - **Rules:** the first enabled rule by priority decides. `create_lead` may add somebody new;
   `record_lead` places the person as `create_lead` does but wakes nobody: the signal is written
@@ -2271,7 +2273,20 @@ webhooks; transport lives in simpl_ingestion) into leads owned by the right sell
   (global rows and rows private to the customer's users; never Dummy or nameless leads),
   then by exact full name at the company the signal names (exactly one lead with a public
   identity or known to the customer). A lead found by email or name whose stored profile
-  contradicts the signal's is somebody else (`profiles_contradict`). Profile URLs go
+  contradicts the signal's is somebody else (`profiles_contradict`). When the profile names
+  one lead and the address another the customer holds privately or works
+  (`LeadContactRepository.leads_customer_knows_by_address(customer_id=…, address=…) ->
+  list[KnownAddressHolder]`, worked longest first), the address's lead wins and the
+  profile's is reported as `IngestionResolution.twin_lead_id` (no merge), unless the
+  customer worked the profile's lead first
+  (`UserLeadConnectionRepository.customer_first_connected_at(customer_id=…, lead_id=…)`):
+  then the profile's lead keeps the signal and the address's is the twin. A meeting fact
+  (`calendar_booking`, `call_recording`) about somebody no seat holds is first looked for
+  among the leads the customer's active seats work at the company the signal places them
+  at or on their work domain's site
+  (`UserLeadConnectionRepository.customer_leads_at_company(customer_id=…, company_id=…,
+  site_host=…, limit=…) -> list[PipelineLead]`), by first and last name, accents and case
+  aside (`pipeline_match.find_in_pipeline`, `LeadMatch.PIPELINE_NAME`). Profile URLs go
   through the one parser, `simpl_core.utils.linkedin_identity.linkedin_profile_identifier`
   (any LinkedIn host, the segment after `/in/`; a company page or another host is no
   profile).
@@ -2286,13 +2301,36 @@ webhooks; transport lives in simpl_ingestion) into leads owned by the right sell
   owner took the person (read in the order its walk reads them, by `occurred_at`) hears
   nothing more from later signals of the person, while a seat the person came back to in
   between, or a takeover by another owner, is told again. The owner's trigger carries
-  `took_over_from_user_id` on every signal.
+  `took_over_from_user_id` on every signal. A meeting fact goes to the seat its owner hint
+  names for somebody new (whatever the rule), stays with the seat holding a held person,
+  and takes nobody over (`resolve_owner(..., meeting_fact=True)`).
 - **Writes:** somebody new is placed by `LeadPlacementService` (a LinkedIn profile makes a
   real lead of origin `inbound`, an address alone a `placeholder` lead in the claim ledger)
-  on the company the signal names: resolved (the person's work domain helps), else a
-  placeholder from `CompanyPlacementService` founded from what the signal says of the
-  company (its site, LinkedIn page or name; never the person's email domain), else parked
-  on `(Unknown company)` with a pending claim the reconciler keeps trying. A parked lead
+  on the company owner rule 2 places them at (`services/ingestion/company_placement.py`:
+  the company typed, by page or site, then by its exact name, then a placeholder for it;
+  else the work address's domain, found or founded as `domain:<host>`; else their current
+  LinkedIn role; else their own stand-in, never `(Unknown company)`), with a pending claim
+  the reconciler keeps trying while on a stand-in. The customer's own connections to the
+  person carry that company (`place_customer_connections`); a typed company the lead's does
+  not match goes on its inbound connections, never on the shared lead, and only when no
+  seat holds the person through another lane
+  (`UserLeadConnectionRepository.move_customer_connections(customer_id=…, lead_id=…,
+  to_company_id=…, replace_origin=…)` replaces a company only on connections of
+  `replace_origin`). A meeting fact about a person any seat holds through another lane
+  books nothing (`meetings.books_meetings(signal, holder_origins=…)`). A meeting fact about
+  somebody no active seat holds, at a real company the customer's outreach works
+  (`meetings.outreach_works_account(session, customer_id=…, company_id=…, person_lead_id=…,
+  at=…) -> CompanyConnection | None`: a seat of the customer, active or not, messaged
+  somebody else there in the 90 days before the signal (`OUTREACH_LIVE_FOR`) on a connection
+  neither `inbound` nor `call_attendee` opened (`GUESSED_COMPANY_ORIGINS`), not to the
+  company's Dummy lead, and opened before any `inbound` connection there:
+  `UserLeadConnectionRepository.messaged_connection_at_company(customer_id=…, company_id=…,
+  other_than_lead_id=…, excluded_origins=…, came_in_origin=…, sent_since=…, sent_until=…)`),
+  places the lead and its contacts private to the owner it would have had and nothing more:
+  no connection, booking, trigger or `inbound.lead.received`, the row `ignored` with
+  `account_worked_outside_the_lane` (an inbound connection would make that account's call
+  inbound, free for pay-per-call). Outreach that wrote there longer ago leaves it inbound.
+  Acquisition sources (`request_access`, forms) still open inbound connections there. A parked lead
   moves once a later signal or the reconciler finds its company, and its connections and
   their journey runs follow it
   (`UserLeadConnectionRepository.reassign_company_for_lead(lead_id=…, from_company_id=…,
@@ -2330,8 +2368,9 @@ webhooks; transport lives in simpl_ingestion) into leads owned by the right sell
 - **Event:** every placed signal writes `inbound.lead.received`
   (`INBOUND_LEAD_RECEIVED_EVENT`) on the owner's connection in `outreach_events`, dated at
   the inbox row's `occurred_at`, with `inbox_id`, `connection_id`, `external_id`, `rule_id`,
-  `action`, `origin` (the signal's `source`), `signal_name`, `signal_kind`. Holders told of a
-  takeover and `notify_only` signals get none.
+  `action`, `origin` (the signal's `source`), `signal_name`, `signal_kind`, `company_id`
+  (the connection's), and `event_id` / `capture_job_id` when the signal's properties carry
+  them. Holders told of a takeover and `notify_only` signals get none.
 
 ## Common pitfalls
 
