@@ -2019,6 +2019,64 @@ connections (`integration.user_connection`) and promotes a mailbox's owner to th
 stage (`simpl_core.services.email_stage_promotion`). Each part runs in a savepoint and
 never fails the finalize; what could not be applied is in `AppliedChoices.problems`.
 
+## SimpL identities lent to a customer: the work customer
+
+A SimpL sales identity can be lent to a pay-per-call customer (`sales.identity_loan`,
+model `IdentityLoan`; DDL in simpl_api `20261016100000_identity_loan`). Each connection it
+opens for the loan's ICP is stamped by the database (`UserLeadConnection.identity_loan_id`,
+`trg_ulc_identity_loan_stamp`, never written by callers except
+`get_or_create_ulc_for_lead(identity_loan_id=…)` for a referral of a stamped thread) and works
+for the loan's customer for the rest of its life, after the loan ends too.
+- **One definition:** the *work customer* is `coalesce(loan.customer_id, user.customer_id)`:
+  SQL `sales.connection_customer(ulc_id)` / `sales.work_connections(customer_ids)`, Python
+  `UserLeadConnectionRepository.work_customer_id(ulc_id)`.
+- **Read on the work customer:** account coordination (`_source` returns `customer_id` =
+  work, `home_customer_id`, `identity_loan`; the identity may act on a customer's objective
+  it was lent to; owners and targets are members), the colleague lookups
+  (`find_colleague_ulc_by_tokens` / `_by_name`, `find_lead_ulc_by_email`,
+  `find_existing_emails_in_customer`), `seller_contact_reach` (an identity's row on a lead it
+  works for the seller's customer), `LeadHandoffRepository.company_handoff_target`
+  (`account_handoff.customer_id`), `LeadTwinMerger`, and `evaluate_dispatch_authority`
+  (`migrations/20261016_identity_loan_dispatch_authority.sql`). `context_for_ulc` returns no
+  remembered answers when work ≠ home.
+- **`ConversationReadService.fetch_for_ulc(…, colleague_scope="home"|"work")`:** a walk passes
+  `work` (the customer's sellers are the thread's colleagues); the app keeps `home`.
+- **Team table:** `TeamHandoffService.sync(C)` projects every identity ever lent to C as a
+  `hands_off` row (C's rules win, else the latest loan's `handoff_to_user_id`);
+  `HandoffSyncResult.unrouted_identity_ids` names those nobody takes calls for (a loan writer
+  refuses `loan_without_route`). `validate_loan_handoff(C, identity, target)` (codes
+  `handoff_required`, `invalid_handoff`, `not_an_identity`), `lent_identities(C)`,
+  `customers_lent_to(identity)`, `sync_identity(identity, actor)` (home + every borrower).
+  `snapshot`/`members` never list a lent identity.
+- **Refusals:** `LeadHandoffService.hand_over` raises `ValueError` across work customers;
+  `process_forward` answers `forward_lead_lent` for a lead the forwarder works for another
+  customer; `LeadMergeService` raises `MergeConflictError` when one user's two connections
+  carry different loans.
+- **Moving an identity off an ICP:** `services.icp_pipeline.release_open_pipeline(conn, *,
+  user_id, icp_id, reason, change_ref, dry_run=False) -> PipelineRelease` (asyncpg, the caller
+  owns the transaction). Companies whose stage over all the user's connections there is open
+  and that nothing binds: the person connections on the ICP are unclaimed and marked
+  (`user_lead_connection.released_at`, which nothing else writes; no stage change, no history
+  row; the placeholder stays claimed), their `PENDING`/`PENDING_APPROVAL` rows cancelled,
+  `RUNNING` rows get `cancel_requested_at`, unclaimed wake-ups cancelled; the user's live
+  autopilot work units on the ICP expire. `dry_run` counts without locking or writing;
+  `PipelineRelease.as_dict()` is the admin move's `release` shape. A first contact planned
+  afterwards on such a connection is cancelled by the dispatch authority
+  (`identity_released`: an identity ever lent, a connection marked released, still
+  unclaimed, never contacted and not on an ICP the identity is assigned to now). A
+  connection made after the move (a referral on a thread that continues, an inbound
+  person) carries no mark and is worked.
+- **Borrower switched off:** the dispatch authority cancels anything a connection stamped
+  with a loan (open or ended) still has queued once the loan's customer is switched off
+  (`metadata.is_active = false`) or has no active pay-per-call subscription
+  (`loan_customer_inactive`, at insert, approval and the pre-send recheck), the same test
+  as simpl-outreach's `lent_customer_guard`.
+- **LinkedIn only:** a connection stamped with a loan (open or ended) never writes email: the
+  dispatch authority cancels any row on the `email` channel there, whatever its verb
+  (`lent_identity_email`; a lent identity's mailbox is SimpL's). The Python reference reads
+  it from `AuthorityFacts.email_on_lent_connection` (`is_email_channel(payload)` on a stamped
+  connection).
+
 ## Meetings on the team's calendars, and bookings made by hand
 
 `simpl_core.services.account_coordination.LeadMeetings(session).for_lead(customer_id=…, lead_id=…)`
