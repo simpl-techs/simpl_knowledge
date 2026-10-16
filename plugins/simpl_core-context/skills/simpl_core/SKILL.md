@@ -2279,14 +2279,16 @@ counts are in the viewer's language.
 `fetch_profile_positions(context, public_identifier)` reads one profile's positions
 (`profile_positions`) and returns `ProfilePositions`: one `ObservedPosition` per position,
 its employer named by the numeric LinkedIn company id (`None` for a position with no
-company page), and `public_identifier` / `profile_urn`, the profile the response is about.
-Use the positions only when that is the lead's own profile. A provider error or an
-unreadable page comes back with `error` set and the page kept; a channel failure raises
-`LinkedInOperationError`. The caller reserves the pacing slot (`reserve_operation_slot`).
-The operation's row (`migrations/20261008b_profile_positions_operation.sql`) ships with
-`"enabled": false`, so a call raises `operation_disabled`: the response shape has not been
-checked against a real profile. Fetch one live profile, check the parser reads it, then
-enable the operation with a new config revision.
+company page), and `public_identifier` / `profile_urn` / `full_name`, the profile the
+response is about. Use the positions and the name only when that is the lead's own profile
+(`LeadRepository.fill_full_name_if_null` gives a nameless lead the name). A provider error
+or an unreadable page comes back with `error` set and the page kept; a channel failure
+raises `LinkedInOperationError`. The caller reserves the pacing slot
+(`reserve_operation_slot`). LinkedIn serves the dash profile decorated (`elements[0]`, the
+positions nested in `profilePositionGroups`), as the first live fetch showed on 2026-10-16;
+the normalized (`included`) and legacy (`positionView`) shapes are read too. The operation
+is enabled by revision 2 (`migrations/20261016b_enable_profile_positions.sql`); revision 1
+(`20261008b`) shipped it disabled.
 
 `simpl_core.services.lead_positions.positions_to_experience(session, lead_id=…,
 positions=…, source=…, today=None)` writes those positions; it never commits.
