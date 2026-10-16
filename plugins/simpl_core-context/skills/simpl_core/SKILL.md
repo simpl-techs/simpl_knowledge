@@ -1150,7 +1150,11 @@ working for one of the owner's company's active customers (`existing_customer`):
 anyone on the owner's team holds their lead or their company at Customer, or,
 for the platform's own team, the platform's accounts hold that company with a
 running subscription or managed engagement (matched on the counterpart's address,
-or on their company domain).
+or on their company domain). A colleague's thread the owner was only copied on is
+settled as `colleague_thread`: the owner never wrote on it, a teammate did, and a
+colleague of the owner's customer still works the counterpart's lead (a connection
+not silenced by a lead hand-off). A second connection there would make the copied
+owner a second voice to the lead, woken by its own copy of every reply.
 A thread among colleagues with no counterpart where a colleague forwarded the
 owner, in the last two weeks (`FORWARD_HANDOFF_WITHIN`), an outside person's
 message is settled as `colleague_forward` (`reading.forward`: the forward
