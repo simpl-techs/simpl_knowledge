@@ -126,10 +126,15 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   pending `agent_memory` revisions to Zilliz. It requires `NEBIUS_API_KEY`,
   `MILVUS_URI`, and `MILVUS_TOKEN`; do not replace it with routine collection
   rebuilds.
-- `gcp_search_index_maintenance_flow` also builds, on a manual run, the vector and
-  full-text indexes a simpl_core dataset spec declares on a filled table:
-  `build_indexes` (with `datasets`), with more memory than the schedule's. A routine run
-  never builds them; its health check reports them as unbuilt.
+- `gcp_search_index_maintenance_flow` keeps the vector and full-text indexes a
+  simpl_core dataset spec declares as sections (simpl_core 0.8.155): every run, after
+  compaction, calls `Dataset.build_index(column, create=False)` on each index the table
+  has, which builds its next sections from at most 4M rows (a backlog takes a run per
+  4M; the writer lease is held meanwhile, so an indexer commit waiting past its
+  `lease_wait` defers its batch). An index a table does not have yet is created by a
+  manual run, `build_indexes` (with `datasets`), with memory for a first vector build's
+  training (`--job-variable memory=8Gi`); the health check reports it as unbuilt until
+  then. The deployment runs at 2 vCPUs and 4 GiB for the section builds.
 - `gcp_opportunity_matcher_flow` (no schedule, started by hand) is the new ICP, signal
   and opportunity matcher, in shadow: Postgres and today's opportunity pipeline are
   untouched. It matches `icp_ids` (every ICP with an active definition when none) under
