@@ -1173,6 +1173,17 @@ colleague still works, or a company handed to someone else are issues. Backfill
 and incremental runs hand over alike; `report_only` reports `would_hand_off`.
 `attach` queues no reply on a connection handed off lead by lead since the
 message.
+`vendor_pitch_gate(bundle, reading)` says whether a thread `read` left unsettled may
+become a vendor's cold pitch the owner answers with a pitch of their own (ENG-775):
+the counterpart wrote first and last, nobody on the owner's side wrote, their newest
+message is at most 14 days old, the address is a person's, a LinkedIn counterpart is
+1st-degree, and nobody on the team ever wrote to that address, profile or company
+(`ConversationRepository.team_wrote_to`; a freemail or PEC domain names no company).
+`process_vendor_pitch(bundle, reading, reason=...)` opens its connection as `process`
+does (Connected, no ICP, origin `conversation_processor`) with the counterpart's
+message queued flagged `vendor_pitch` and `seller_approval_required`, under an
+advisory lock per customer and person: the first teammate processed answers, the
+others get `vendor_pitch_duplicate`; a closed gate is `vendor_pitch_skipped:<why>`.
 `process` opens the
 connection for the counterpart: the lead ingestion linked (never a dummy), or the
 lead its email or LinkedIn identity matches; one it creates when none exists (from
