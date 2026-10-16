@@ -1689,7 +1689,7 @@ rows = await posts.get(keys, ["text"])       # by key; tombstones included
 runner = ProjectionRunner(posts, "zilliz:sales_posts_v2", target, columns=[...])
 await runner.run(max_seconds=120)            # None when another runner holds the lease
 await posts.maintain()                       # indexes, bounded compaction and merges, cleanup
-await posts.build_index("vector")            # a declared vector or text index, on request
+await posts.build_index("vector")            # sections of a declared vector or text index
 ```
 
 - **A commit upserts by `key`, and a row replaces the stored one only if its
@@ -1732,22 +1732,35 @@ await posts.build_index("vector")            # a declared vector or text index, 
   - `DatasetSpec(text_indexes=("text",))`: a BM25 (`INVERTED`) index under
     `TEXT_INDEX_OPTIONS`, one neutral analyzer for every language (split, lower case,
     accents folded; no stemming, no stop words), the Zilliz collections' analyzer.
-  - `Dataset.build_index(column)` builds either in pieces of whole fragments, so memory
-    follows a piece, not the column, and swaps them in with one `CreateIndex` commit,
-    replacing any index on the column (a rebuild is the same call). Vector: centroids
-    trained on a sample (`VECTOR_TRAIN_SAMPLE_BYTES`, 2 GiB of float32), one RaBitQ
-    rotation, runs of `VECTOR_PIECE_BYTES` grouped into segments of at most
-    `VECTOR_SEGMENT_MAX_BYTES` (128 MiB). Full-text: runs sized by
-    `TEXT_INDEX_ROW_BYTES` so each segment stays within `INDEX_MERGE_MAX_BYTES`. It holds
-    the writer lease throughout; writers wait and give up after `lease_wait`.
-  - `maintain` keeps them: commits index new rows as segments, segments merge within
-    their caps, compaction remaps them, heal splits a full-text segment over the caps.
-    It never builds a vector index, and builds a full-text index only on an empty table
-    (commits then grow it). An index on an undeclared column is dropped.
-  - `DatasetHealth.unbuilt_indexes` names a declared one not built yet, and
-    `problems()` reports it.
-  - Search a vector index with Lance's `nearest` (`nprobes`, `refine_factor`), a
-    full-text one with `full_text_query`; filter `NOT deleted` with `prefilter=True`.
+  - They are kept as **sections**: segments each built from the rows of a run of
+    fragments, by `Dataset.build_index(column)` alone. Lance's own update and merge of
+    such an index open every segment (every section's centroids, every section's word
+    dictionary), so their memory grows with the table; a section build reads only its own
+    rows. A section holds at most `SECTION_MAX_ROWS` (1M) rows.
+  - `build_index` is incremental. Without the index it trains the vector centroids on a
+    sample (`VECTOR_TRAIN_SAMPLE_BYTES`) and builds the first sections in fragment
+    order; with it, it builds the rows no section holds yet, together with the small
+    sections (`SECTION_SMALL_ROWS`, 100k), into larger ones, removing those in the same
+    `CreateIndex` commit. A vector section is built in pieces of `VECTOR_PIECE_ROWS`
+    (50k) merged into it, on the centroids of an existing section and a rotation of its
+    own (each section searches with its own model). One call builds from at most
+    `SECTION_ROWS_PER_BUILD` (4M) rows under the writer lease; `IndexBuild.rows_left`
+    is what the next call has. Call it on a schedule: rows no section holds are still
+    found by searches, which read them without the index. `build_index(column,
+    create=False)` returns None for an index the table does not have yet: a schedule
+    builds sections of the indexes a table has, and a first vector build, whose
+    training holds a sample of up to 2 GiB of vectors, is a run of its own with the
+    memory for it.
+  - Commits and `maintain` never touch these indexes: commits index new rows into the
+    scalar indexes only; maintenance does not update, merge or split a section, and
+    compaction leaves the fragments of a large section as they are (a small one's are
+    compacted, its remap is cheap). It never builds a vector index, and builds a
+    full-text index only on an empty table. An index on an undeclared column is dropped.
+  - `DatasetHealth`: `unbuilt_indexes` names a declared one not built yet;
+    `section_unindexed_rows` and `most_sections` say how far its builds are behind, and
+    `problems()` reports each past its threshold.
+  - Search a vector index with Lance's `nearest` (`refine_factor`), a full-text one with
+    `full_text_query`; filter `NOT deleted` with `prefilter=True`.
 - **Which datasets a host runs, and how, is a table: `row_store.dataset_configs`**
   (migration `migrations/20261009_row_store_dataset_configs.sql`). One row per dataset
   version: `kind` (the host code that builds and writes it), `dims`, `status`, and
