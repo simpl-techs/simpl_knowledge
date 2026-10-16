@@ -1185,7 +1185,12 @@ conversation is never written. Its origin is `conversation_processor`
 (`PROCESSOR_SOURCE`), or `inbound` (`INBOUND_ORIGIN`, `result.inbound`) for a
 decision with `inbound=True` -- the counterpart came interested in what the
 owner sells: how it works, what it costs, a trial, a purchase or a demo -- on a
-thread whose first message is the counterpart's. `mode="report_only"` decides exactly the same and writes nothing
+thread whose first message is the counterpart's. Such a connection writes
+`inbound.lead.received` in the same transaction, dated at the counterpart's first
+message, with `event_data` `origin` `conversation_backfill`, `company_id`,
+`conversation_id` and `thread_id` (`record_conversation_inbound` in
+`conversation_processing.inbound_event`; never a second one on a connection that has the
+event). `mode="report_only"` decides exactly the same and writes nothing
 (`incremental` and `backfill` behave the same here: the caller decides which
 threads to pass). `process` takes only a sales decision and raises `ValueError`
 on any other.
@@ -2547,7 +2552,7 @@ webhooks; transport lives in simpl_ingestion) into leads owned by the right sell
   `playbook_section`, and the legacy aliases `source`, `kind`, `name`. `occurred_at` is the
   inbox row's.
 - **Event:** every placed signal writes `inbound.lead.received`
-  (`INBOUND_LEAD_RECEIVED_EVENT`) on the owner's connection in `outreach_events`, dated at
+  (`INBOUND_LEAD_RECEIVED_EVENT`, in `services.ingestion.base`) on the owner's connection in `outreach_events`, dated at
   the inbox row's `occurred_at`, with `inbox_id`, `connection_id`, `external_id`, `rule_id`,
   `action`, `origin` (the signal's `source`), `signal_name`, `signal_kind`, `company_id`
   (the connection's), and `event_id` / `capture_job_id` when the signal's properties carry
