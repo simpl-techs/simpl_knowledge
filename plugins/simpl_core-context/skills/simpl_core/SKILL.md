@@ -1962,9 +1962,12 @@ async with open_landing_preview(db, nebius_api_key=key) as previewer:
 preview.companies_matched, preview.matches[0].company_name, preview.matches[0].hit.url
 ```
 
-- `landing_indexer(..., pages_per_batch=400)` sizes batches by pages: `run_batch`'s
-  `batch_size` caps the sites, `pages_per_batch` their pages; claims past it are released
-  (`released_keys`) and processed by a later batch.
+- `landing_indexer(..., html_bytes_per_batch=64 * 2**20)` sizes batches by the HTML
+  their sites read (`LandingSourceRepository.html_bytes`); `run_batch`'s `batch_size`
+  caps the sites. Claims past it are released (`released_keys`) and processed by a later
+  batch; the first site is always kept. A site reads its pages in URL order up to
+  `max_pages` and `max_site_bytes` (64 MiB of HTML, the first page always): pages past
+  either are left out. (0.8.160; `pages_per_batch` and `page_counts` are gone.)
 - A scope with no conditions must be named `all` (priority 0); other scopes need a
   condition and a priority of at least 1. Redefining a scope under the same name
   starts its walk over.
