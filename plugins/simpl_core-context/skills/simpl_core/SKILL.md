@@ -1779,6 +1779,7 @@ indexer = DocumentIndexer(
     dataset=dataset,             # needs text_hash, embedding_model and vector columns
     embedder=NebiusEmbedder(api_key=..., dims=4096, query_task="..."),
     name="my_kind",              # log events: my_kind.batch, my_kind.rows_failed
+    companion=notes,             # optional: a dataset without vectors, with doc_hash
 )
 result = await indexer.run_batch(batch_size=100)
 
@@ -1799,6 +1800,10 @@ runner = projection_runner(dataset, milvus, "my_kind_v1", collection, dims=512)
   come from `stored_row_keys(dataset, doc_keys)`, one read through the key index.
 - `BuiltDocument.text_hash`/`meta_hash` equal to the ledger's (same table) settle the
   document without writing; rows a new version no longer has get tombstones.
+- `BuiltDocument.companion` rows (`CompanionRow`, whatever the outcome) go to the
+  indexer's `companion` dataset in the same batch, rewritten only when
+  `companion_hash` differs from the `doc_hash` stored with them: a change to them alone
+  never rewrites the document's own rows nor reaches their projection.
 - A scoped run indexes exactly a selection: a kind's `ScopeWalk` stages a page of the
   scope (`ScopePage.pending` = its documents due now) and
   `run_batch(batch_size=..., keys=page.pending)` claims only those, then
@@ -1822,14 +1827,30 @@ runner = projection_runner(dataset, milvus, "my_kind_v1", collection, dims=512)
   segments in an index); `problems()` names what is past normal.
   - **What it costs:** each fragment's id sequence lives in the manifest, which every
     commit rewrites.
-  - **Index types:** use BTREE and BITMAP only; zone map, bloom filter and FM indexes
-    don't survive compaction on such a table.
+  - **Index types:** use BTREE, BITMAP and NGRAM only; zone map, bloom filter and FM
+    indexes don't survive compaction on such a table.
+- A `DatasetSpec` can declare `ngram_indexes` (string columns) for substring filters;
+  `Dataset.scan(where=...)` takes a Lance SQL string such as
+  `"contains(markup, 'pricing')"` to use them, since Arrow expressions cannot express a
+  substring match. Indexes are not part of `spec_hash`, so adding one keeps the dataset
+  version.
 
 ### Landing search (`search.landing`)
 
 Company websites, as the crawl stores them, in the row store and a Zilliz collection
 behind the `landing_pages` alias: one document per site (`h:{host}`), its pages' text
-chunked, its template (menu, footer) once. Sites enter the index through scoped runs
+chunked along each page's elements (1,200 to 1,800 characters: `CHUNK_SOFT_CHARS`,
+`CHUNK_HARD_CHARS`), its template (menu, footer) once, copies of a line or a chunk left
+out, every page with text kept however short. Its markup goes to its own dataset without
+vectors (`landing_markup_spec`, `landing_indexer(markup=...)`), one element per line: a
+start tag with every attribute where the text is kept (e.g. `<input type="email"
+name="EMAIL">`), the whole source where it is not (scripts, CSS, SVG, hidden elements,
+comments; only embedded binary file bytes are cut). Markup rows share the text rows' keys
+(each chunk's and the template's markup), plus one per page, `h:{host}#p:{page id}`: the
+page's `<html>`, `<head>`, `<body>` and trailing markup (a line on many of the site's pages
+only on the first page that has it) and the markup of what its text rows leave out. A site
+without text keeps its markup. Markup is neither embedded nor sent to Zilliz, and a change
+to it alone rewrites markup rows only. Sites enter the index through scoped runs
 (e.g. Italian companies, or `all`: every company); the general run keeps them in step
 with the crawl.
 
