@@ -56,7 +56,10 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   or `{"scope_name": "all"}` for every company) indexes exactly that scope, on its own
   cursor; the **general run** (the defaults, and the 5-minute schedule, off until a
   scope is indexed) follows the crawl for the sites already in the ledger and indexes
-  what changed, adding none. Reads only the crawl's tables; bodies come from the
+  what changed, adding none. Each site's markup (its elements with the text left out,
+  for substring searches) goes to `landing_markup:1` (no vectors, an NGRAM index on
+  `markup`, migration 107) when that dataset is configured; a markup change alone
+  rewrites only markup rows. Reads only the crawl's tables; bodies come from the
   crawl's bucket (`simpl-web-pages`) through the Doppler `WASABI_ACCESS_KEY` and
   `WASABI_SECRET_KEY` keys. The logic lives in simpl_core (`search.landing` on
   `search.index`, installed through `simpl-core[search]`). Alerts are the shared
