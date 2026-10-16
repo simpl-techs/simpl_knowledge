@@ -61,6 +61,7 @@ def call_ai(prompt: str, user_id: str | None = None):
 - **Every Cloud Run workload MUST record its compute.** Services and worker pools call `track_instance_lifetime(process_name=...)` once at startup and `close()` it on shutdown; jobs and Prefect flows use `@track_compute(process=...)` on the entry point. `infra_tracking.enabled` must be true in `tracker.yaml`. Per-request or per-task sessions on a service or worker pool undercount: Google bills the instance's whole lifetime, idle included.
 - On Cloud Run, `configure_from_yaml()` runs `require_compute_tracking()`: a report on the cost-tracking channel when infra tracking is off or no session opens within 10 minutes. It never stops the process, and the deploy-time check in simpl_knowledge only warns.
 - Compute sessions that never close are closed as `timeout` by the DB sweeper and still count in reports. Do not write `infra_compute_session` rows yourself.
+- Reports take Google Cloud from its bill, not from sessions, on every day the billing export is loaded (`scripts/gcp_billing_sync.py`, every six hours). Sessions still matter: they split each billed resource across repos, processes and customers, and a resource with none is reported as unattributed. A session's `service_name` must be the Cloud Run resource name (it is when auto-detected).
 - Notification failures must remain fail-safe; they should log but not block the workload.
 - Discord webhooks are raw URLs from env (`DISCORD_ERROR_WEBHOOK_URL`, `DISCORD_WARNING_WEBHOOK_URL`, `DISCORD_SUCCESS_WEBHOOK_URL`), interpolated in `tracker.yaml`. Do not load Prefect `DiscordWebhook` blocks. Cost-tracking gaps go to their own channel through `DISCORD_COST_TRACKING_WEBHOOK_URL`, read directly from the environment (not from `tracker.yaml`).
 - Notify API version 3 (`simpl_tracker.logging.NOTIFY_API_VERSION`). Every level method takes `notify: bool | "info" | "warning" | "error"` (default `NOTIFY_DEFAULT`), `error: BaseException | str | None`, `notify_fingerprint` and `notify_entities`. `True` maps the level to its channel; a string picks the channel; `False` always silences. An exception `error=` reaches every channel with its traceback. Every level method and `notify_*` helper returns a `bool`: `True` when the alert was accepted (queued, or delivered with `async_delivery` off) or skipped only because report-once found its exception already announced on that channel or a higher one; `False` when no channel applies, the silent marker applies, there is no notifier, notifications are suppressed, the service is disabled or closed, or `send` refused or raised. Accepted is not delivered.
@@ -249,6 +250,27 @@ doppler run --config dev -- python scripts/provider_spend.py [--apply]
 It needs `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `SUPABASE_URL`,
 `SUPABASE_SERVICE_ROLE_KEY` and migration `20261013170100_provider_spend_snapshots`;
 the logic is in `simpl_tracker.provider_spend`.
+
+### Google Cloud: loaded from the billing export every six hours
+
+`scripts/gcp_billing_sync.py` (every six hours in `.github/workflows/gcp-billing.yml`;
+dry run by default, `--apply` writes, always exits 0 and reports problems through
+`report_tracking_gap`) reads the last four complete UTC days of the BigQuery billing
+export and loads each with `cost_tracking.load_gcp_billing_day`: the day in
+`gcp_billing_cost` (EUR net of credits, tax excluded, USD at the ECB rate), split
+across the sessions that ran on each resource in `gcp_cost_allocation`, rollup
+rebuilt. `compute_cost_daily(from, to)` is the one source of compute cost per day,
+provider and repo; `run_daily_aggregation`, `infra_cost_daily` and
+`infra_cost_by_provider` read it.
+
+```bash
+doppler run --config dev -- python scripts/gcp_billing_sync.py [--since 2026-07-01] [--apply]
+```
+
+It needs `GCP_BILLING_SERVICE_ACCOUNT_JSON_INLINE` (else Application Default
+Credentials) and, with `--apply`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and
+migration `20261016163000_gcp_billing_cost`; the logic is in `simpl_tracker.gcp_billing`
+and `simpl_tracker.ecb`.
 
 ### OpenRouter streams cancelled before their answer
 
