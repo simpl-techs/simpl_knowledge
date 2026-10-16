@@ -2423,8 +2423,9 @@ webhooks; transport lives in simpl_ingestion) into leads owned by the right sell
   `last_error`, is retried by the next drain and ends `failed` after `max_attempts` (8). Rows
   end `completed` (outreach queued, `record_only` or `notify_only`) or `ignored`; `resolution` holds an
   `IngestionResolution` (`reason`: `ignored_by_rule`, `no_matching_rule`, `own_team`,
-  `opted_out`, `unresolved_identity`, `not_in_pipeline`, `account_worked_outside_the_lane`,
-  `notify_only`, `record_only`; `contacts_blocked`:
+  `opted_out`, `unresolved_identity`, `not_in_pipeline`, `not_from_an_inbound_source`,
+  `notify_only`, `record_only`; `account_worked_outside_the_lane` only on rows before
+  2026-10-16; `contacts_blocked`:
   the contact types the owner could not get because another user holds them privately).
 - **Rules:** the first enabled rule by priority decides. `create_lead` may add somebody new;
   `record_lead` places the person as `create_lead` does but wakes nobody: the signal is written
@@ -2510,21 +2511,16 @@ webhooks; transport lives in simpl_ingestion) into leads owned by the right sell
   seat holds the person through another lane
   (`UserLeadConnectionRepository.move_customer_connections(customer_id=…, lead_id=…,
   to_company_id=…, replace_origin=…)` replaces a company only on connections of
-  `replace_origin`). A meeting fact about a person any seat holds through another lane
-  books nothing (`meetings.books_meetings(signal, holder_origins=…)`). A meeting fact about
-  somebody no active seat holds, at a real company the customer's outreach works
-  (`meetings.outreach_works_account(session, customer_id=…, company_id=…, person_lead_id=…,
-  at=…) -> CompanyConnection | None`: a seat of the customer, active or not, messaged
-  somebody else there in the 60 days before the signal (`OUTREACH_LIVE_FOR`) on a connection
-  neither `inbound` nor `call_attendee` opened (`GUESSED_COMPANY_ORIGINS`), not to the
-  company's Dummy lead, and opened before any `inbound` connection there:
-  `UserLeadConnectionRepository.messaged_connection_at_company(customer_id=…, company_id=…,
-  other_than_lead_id=…, excluded_origins=…, came_in_origin=…, sent_since=…, sent_until=…)`),
-  places the lead and its contacts private to the owner it would have had and nothing more:
-  no connection, booking, trigger or `inbound.lead.received`, the row `ignored` with
-  `account_worked_outside_the_lane` (an inbound connection would make that account's call
-  inbound, free for pay-per-call). Outreach that wrote there longer ago leaves it inbound.
-  Acquisition sources (`request_access`, forms) still open inbound connections there. A parked lead
+  `replace_origin`). A meeting fact applies only to a person one of the customer's inbound
+  sources brought (2026-10-16): an `inbound.lead.received` whose `origin` is not a meeting
+  fact, on a connection a user of the customer holds to the lead
+  (`meetings.came_through_an_inbound_source(session, customer_id=…, lead_id=…) -> bool`).
+  Anybody else (an investor who booked on the seller's page, an outbound lead, a person a
+  calendar placed before) writes nothing: no lead, contact, connection, booking, trigger or
+  event, the row `ignored` with `not_from_an_inbound_source`. A meeting fact about a person
+  a source brought but any seat also holds through another lane books nothing
+  (`meetings.books_meetings(signal, holder_origins=…)`). simpl_api's recording linker
+  sends nobody to the lane: it creates a call's attendee nobody knew itself. Acquisition sources (`request_access`, forms) still open inbound connections anywhere. A parked lead
   moves once a later signal or the reconciler finds its company, and its connections and
   their journey runs follow it
   (`UserLeadConnectionRepository.reassign_company_for_lead(lead_id=…, from_company_id=…,
