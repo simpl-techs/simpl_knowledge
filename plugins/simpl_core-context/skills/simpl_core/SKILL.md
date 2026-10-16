@@ -1677,6 +1677,7 @@ rows = await posts.get(keys, ["text"])       # by key; tombstones included
 runner = ProjectionRunner(posts, "zilliz:sales_posts_v2", target, columns=[...])
 await runner.run(max_seconds=120)            # None when another runner holds the lease
 await posts.maintain()                       # indexes, bounded compaction and merges, cleanup
+await posts.build_index("vector")            # a declared vector or text index, on request
 ```
 
 - **A commit upserts by `key`, and a row replaces the stored one only if its
@@ -1711,6 +1712,30 @@ await posts.maintain()                       # indexes, bounded compaction and m
   `COMPACTION_BATCH_BYTES` (16 MiB) of rows at a time, and importing the row store
   caps Lance's read-ahead at `IO_BUFFER_BYTES` (128 MiB, `LANCE_DEFAULT_IO_BUFFER_SIZE`
   unless the process sets it). Each step logs `row_store.maintain_step` as it starts.
+- **Vector and full-text indexes are declared on the spec; on a filled table they are
+  built on request.** Like the scalar indexes they are outside the fingerprint, so
+  declaring one is no new dataset version.
+  - `DatasetSpec(vector_indexes=(VectorIndex("vector"),))`: `IVF_RQ` (1 bit a dimension,
+    cosine) on a fixed-size float list.
+  - `DatasetSpec(text_indexes=("text",))`: a BM25 (`INVERTED`) index under
+    `TEXT_INDEX_OPTIONS`, one neutral analyzer for every language (split, lower case,
+    accents folded; no stemming, no stop words), the Zilliz collections' analyzer.
+  - `Dataset.build_index(column)` builds either in pieces of whole fragments, so memory
+    follows a piece, not the column, and swaps them in with one `CreateIndex` commit,
+    replacing any index on the column (a rebuild is the same call). Vector: centroids
+    trained on a sample (`VECTOR_TRAIN_SAMPLE_BYTES`, 2 GiB of float32), one RaBitQ
+    rotation, runs of `VECTOR_PIECE_BYTES` grouped into segments of at most
+    `VECTOR_SEGMENT_MAX_BYTES` (128 MiB). Full-text: runs sized by
+    `TEXT_INDEX_ROW_BYTES` so each segment stays within `INDEX_MERGE_MAX_BYTES`. It holds
+    the writer lease throughout; writers wait and give up after `lease_wait`.
+  - `maintain` keeps them: commits index new rows as segments, segments merge within
+    their caps, compaction remaps them, heal splits a full-text segment over the caps.
+    It never builds a vector index, and builds a full-text index only on an empty table
+    (commits then grow it). An index on an undeclared column is dropped.
+  - `DatasetHealth.unbuilt_indexes` names a declared one not built yet, and
+    `problems()` reports it.
+  - Search a vector index with Lance's `nearest` (`nprobes`, `refine_factor`), a
+    full-text one with `full_text_query`; filter `NOT deleted` with `prefilter=True`.
 - **Which datasets a host runs, and how, is a table: `row_store.dataset_configs`**
   (migration `migrations/20261009_row_store_dataset_configs.sql`). One row per dataset
   version: `kind` (the host code that builds and writes it), `dims`, `status`, and
