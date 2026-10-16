@@ -1,7 +1,7 @@
 ---
 name: simpl_core
 description: |
-  Use this skill whenever the user asks about shared simpl platform domain logic, autopilot services, CRM/email/reports services, or code that imports `simpl_core`. ALWAYS consult this skill before adding duplicated business logic in app repos that could belong in `simpl_core`.
+  Use this skill whenever the user asks about shared simpl platform domain logic, autopilot services, CRM/email/reports services, Reply Confidence data (the settings table, the authorization resolver and its SQL functions, return to review, the recall, the send-time check, the queued-reply counts, the what-if of a settings change), or code that imports `simpl_core`. ALWAYS consult this skill before adding duplicated business logic in app repos that could belong in `simpl_core`.
 ---
 
 # simpl_core integration guide
@@ -877,6 +877,12 @@ A `sales_outreach.journey_log` row is its `(action_type, channel)` pair, and the
 `pending_actions.approval_lapsed` (`APPROVAL_LAPSED_EVENT`) on the row's connection in the same
 transaction, `action_id` the journey_log id, dated when the approval lapsed (due or approved
 time + 72 h). A person's approval must stamp `authority.approved_by` (`set_pending_with_version`, simpl_api's `approval_stamped_payload_sql`); a pipeline row queued `PENDING` without it is read as auto-approved. If the check fails, nothing is claimed for that seller in that run. A new kind of sendable row must be added to the table before any sender will pick it up. A send with no recipient is never claimed and a sender must never derive one: the row carries its own destination and identity, and from the moment it is `PENDING` or `RUNNING` every payload writer in the repository refuses to change any of `DELIVERY_FIELDS` -- `action_type`, `channel`, `recipient_email`, `cc_emails`, `bcc_emails`, `recipient_linkedin_url`, `recipient_linkedin_urn`, `expected_sender_account` (`assert_delivery_fields_unchanged`, raising `invalid_transition: ...`) -- whatever status the write moves the row to: a claim, a completion or a cancellation that also rewrites one is refused, and so is `admin_override_fields` switching the channel while un-approving. To change a destination, un-approve with the fields intact, edit the draft, approve again. Stamp results with `update_payload` as before; restating the approved values passes, rewriting them does not.
+
+`JourneyLogRepository.set_cancelled(journey_log_id=..., reason=None, commit=True)` rejects a `PENDING_APPROVAL` draft (writing `reason`, when given, as `payload.cancellation`), is idempotent on a `CANCELLED` row, and raises `invalid_transition: <STATUS> -> CANCELLED` for every other status: an approved `PENDING` row is not taken back. A reply Reply Confidence queued on its own is not cancelled either; it goes back to the seller's review (see "Reply Confidence settings and return to review" below).
+
+Every `JourneyLogRepository` writer that checks or rebuilds a row (`set_pending_with_version`, `set_cancelled`, `update_payload_field(s)`, `set_active_version`, `append_regenerated_version`, `update_schedule`, `admin_override_fields`, and `update_payload` when it names a delivery field) re-reads it under its `FOR UPDATE` lock, so a caller may load the row first in the same session (as simpl_api's endpoints do) and the writer still judges the row as it is now. Each of them, `update_payload` aside, raises `ValueError("journey_log_not_found: <id>")` for a row that does not exist.
+
+The send-time recheck (`sales_outreach.recheck_journey_log_authority`) also holds and returns a reply Reply Confidence queued, and every move of such a reply out of the queue, this hold's and the dispatch authority rule's included, is recorded as a return: see "Reply Confidence settings and return to review" below.
 
 The outreach queue (`BatchTriggerQueueRepository`: `get_pending_triggers`, `count_dispatchable_ulcs`, `claim_next_ulc_work`, `claim_ulc_work`) hands out nothing for a seller listed in `sales_view.outreach_held_user` (simpl_api migration `20261015150100`: their customer is in the shortlist stage of the onboarding, until SimpL moves them on), replies included, unlike a vacation; the rows stay queued and run once released. The view is read once per query (`NOT IN`), not per row. `tests/setup_test_db.sql` stands a table in for it.
 
@@ -2560,6 +2566,179 @@ webhooks; transport lives in simpl_ingestion) into leads owned by the right sell
   (the connection's), and `event_id` / `capture_job_id` when the signal's properties carry
   them. Holders told of a takeover and `notify_only` signals get none.
 
+## Reply Confidence settings and return to review
+
+The Reply Confidence gate decides, for every inbound lead reply, whether SimpL sends its draft or asks the seller. A reply that clears its threshold is written `PENDING` with `scheduled_at` ten minutes ahead, `journey_log.auto_send_at` = `scheduled_at` (the queued state, below) and `payload.reply_confidence` (block `schema_version` 3, written by simpl-outreach) carrying `auto_approve: true`, what the stage decided. SimpL staff control it; the seller's consent is their own `outreach_prefs.auto_approval` (and its ICP overrides). There is no Python wrapper: call the SQL directly (`text()` with bound parameters). The maintainer applies the one migration, agents never do: `migrations/20261012_reply_confidence.sql` (not applied anywhere yet); its header says what it creates and how to apply it. Apply it before any service runs a `simpl_core` whose `JourneyLog` model has `auto_send_at`: every `select(JourneyLog)` reads that column.
+
+**The queued state** is the column `sales_outreach.journey_log.auto_send_at timestamptz NULL` (`JourneyLog.auto_send_at`): the time a reply the pipeline queued to send on its own may leave, set by its writer and NULL on every other row. The BEFORE trigger `trg_journey_log_reply_confidence_auto_send_at` (on insert and on any update of `status`, `payload` or `auto_send_at`) keeps it only on a `PENDING` or `RUNNING` row (a sender's claim keeps it, a release back to `PENDING` too) whose `payload.authority.approved_by` is unset, and clears it on every other row, whoever moved it: return to review, the recall, the send-time checks, the email claim's hold, the dispatch authority rule, a send's completion, a seller's approval. When a queued reply leaves the queue for anything but the outcome of its own send (`COMPLETED`, `FAILED`, `ERROR`, the statuses `sales_outreach.mark_journey_log_completed` writes) and the write did not record the return itself, the trigger records it ("The audit trail" below). The trigger sorts after the other BEFORE triggers on `journey_log`, so it judges the status and the payload they settled on. What the block says (`auto_approve`) never makes a row queued.
+
+Beside it, `journey_log.auto_send_draft_hash text NULL` is the draft a reply was queued with: when `auto_send_at` is set (by the insert, or by an update from NULL) the same trigger stamps it with `_reply_confidence_draft_hash(payload)`, the SHA-256 in hex of the JSON array `[payload.subject, payload.message]` (each `""` when missing); it keeps that value while the row stays queued, whatever a write puts in the column, and clears it with `auto_send_at`. Nothing else writes it, and no reader outside the send-time checks needs it.
+
+**The block is written only by its owners**: the stage that scored the reply (simpl-outreach) and the moves above, which the database makes. The same holds for `payload.authority`, the dispatch authority rule's stamp and the approval it records. `JourneyLogRepository.update_payload_field` and `update_payload_fields`, the field-level editors, refuse a field naming `reply_confidence` or `authority`, or a dotted path under either (`reply_confidence.withdrawn`), before reading the row, and a batch naming one writes none of its fields: `ValueError("payload_field_not_writable: payload.authority, payload.reply_confidence")`, naming the keys the edit named (`assert_payload_fields_writable` and `OWNED_PAYLOAD_KEYS`, exported from `simpl_core.repositories.outreach`). `admin_override_fields` takes named fields only (channel, message type, status, scheduled time, content, subject), none of them either key. `update_payload` merges what it is given; a sender that spreads the payload back leaves both keys out.
+
+**The table** `sales_outreach.reply_confidence_settings`: one row per scope, written by simpl_dashboard as `service_role`; sellers cannot read or write it.
+
+| Column | Type | Meaning |
+|---|---|---|
+| `id` | uuid pk | |
+| `scope` | text, `global` \| `customer` \| `user` | CHECKs tie the id columns and the value columns to it |
+| `customer_id` | uuid, fk `sales.customer` on delete cascade | set on `customer` rows only |
+| `user_id` | uuid, fk `sales."user"` on delete cascade | set on `user` rows only |
+| `paused` | boolean | `global` row: pause everything |
+| `auto_reply_enabled` | boolean | `customer` row: the customer switch |
+| `email_enabled`, `linkedin_enabled` | boolean | `customer` and `user` rows |
+| `threshold` | numeric(5,2), 0..100 | `customer` and `user` rows |
+| `follows_customer` | boolean | `user` row |
+| `updated_by` | uuid | the staff member who wrote it: the audit row's `user_id`, and `admin:<uuid>` as the recall's actor |
+| `updated_at` | timestamptz | set on every update |
+
+A value column belongs to the scopes the table names for it; on any other scope it must be NULL (`reply_confidence_settings_global_columns`, `..._customer_columns`, `..._user_columns`), so a `customer` row refuses `paused` and `follows_customer`, a `user` row `paused` and `auto_reply_enabled`, and the `global` row everything but `paused`.
+
+At most one `global` row, one per `customer_id`, one per `user_id` (partial unique indexes `reply_confidence_settings_one_global` on `(scope) WHERE scope = 'global'`, `..._one_per_customer` on `(customer_id) WHERE scope = 'customer'`, `..._one_per_user` on `(user_id) WHERE scope = 'user'`; upsert with `ON CONFLICT (customer_id) WHERE scope = 'customer'` and so on). Missing rows are defaults: not paused; customer off, email off, LinkedIn off, threshold 90; the user follows the customer. A user's own flags and threshold stay stored while the user follows.
+
+**The staff lookup** `sales_outreach.reply_confidence_settings_for(p_user_id uuid) RETURNS jsonb` (STABLE), the staff layers only:
+
+```json
+{"all_paused": false, "customer_id": "uuid or null", "customer_enabled": false,
+ "email_enabled": false, "linkedin_enabled": false, "threshold": 90,
+ "threshold_source": "default", "follows_customer": true}
+```
+
+- `email_enabled` / `linkedin_enabled` are effective: the customer's flag AND (`follows_customer` OR the user's own flag); a null flag is off. They fold in neither `customer_enabled` nor `all_paused`.
+- `threshold` is the customer's when the user follows, else the user's own, falling back to the customer's when the user has none. `threshold_source` is `user`, `customer`, or `default` (90) when the customer has no threshold (no row, or null). Numbers come back without trailing zeros (`87.5`, `90`).
+- An unknown user gets every per-customer and per-user default and `customer_id: null`; `all_paused` is the global row's for everyone.
+
+**The resolver** `sales_outreach.reply_confidence_authorization(p_user_id uuid, p_icp_id uuid DEFAULT NULL) RETURNS jsonb` (STABLE) is the one answer to "may a reply to a lead of this user (and ICP) go out on its own?". The pipeline, the send-time check, the recall, simpl_api and the dashboard all ask it; do not re-derive seller consent elsewhere (and not with `parse_auto_approval_rules`, which uses `bool(...)`). It returns everything the staff lookup returns, plus:
+
+```json
+{"seller": {"enabled": true, "pause_on": false, "channels": ["linkedin_message", "email"],
+            "icp_id": "uuid or null", "icp_restricted": false},
+ "channels": {"email": {"allowed": true, "block": null, "block_kind": null},
+              "linkedin_message": {"allowed": false, "block": "channel_off", "block_kind": "seller"}}}
+```
+
+Every layer must allow; each can only restrict; the first that refuses names the block:
+
+1. the global pause → `all_paused`;
+2. the customer switch → `customer_off`;
+3. the channel's effective staff flag (`email_enabled` for `email`, `linkedin_enabled` for `linkedin_message`) → `channel_off`, `block_kind` `staff`;
+4. the seller's `outreach_prefs.auto_approval`: `enabled` is JSON `true` (else `seller_paused` / `master_off`), `stop_on_lead_response` is JSON `false` (else `seller_paused` / `pause_on`), `channels` is an array holding the key (else `channel_off` / `seller`);
+5. the lead's ICP (`sales.user_lead_connection.icp_id`; null applies nothing): when `outreach_prefs.icp_overrides[<icp_id>]` has an `auto_approval` key, its value must be an object (anything else, JSON `null` included, refuses both channels: `seller_paused` / `icp_restriction`), and every key present in it must pass the same test (`enabled`, `stop_on_lead_response` → `seller_paused` / `icp_restriction`; `channels` → `channel_off` / `seller`); an absent key inherits the base. An override entry that is not an object, or without `auto_approval`, restricts nothing. An override never widens what the base refuses.
+
+Only exact JSON booleans count: `"true"`, `1`, `null` or a missing key are no consent. The delivery channel keys are exactly `email` and `linkedin_message` (`journey_log.payload.channel` on reply rows); any other channel (`linkedin_connect`, `call`, `calendar`, a different spelling, null) is never allowed: `channel_off` / `staff`, after layers 1 and 2. `seller.channels` is the base list (`[]` when missing or not an array); `seller.pause_on` is true unless the base pause is stored `false`; `icp_restricted` says whether the ICP layer alone refuses at least one channel.
+
+**The one-channel wrapper** `sales_outreach.reply_confidence_send_block(p_user_id uuid, p_icp_id uuid, p_channel text) RETURNS text` (STABLE): NULL when allowed, else the block code (`all_paused`, `customer_off`, `channel_off`, `seller_paused`), the same layers in the same order.
+
+**Queued** has one definition, used by every reader here and the predicate of the partial index `ix_journey_log_reply_confidence_queued` on `journey_log (auto_send_at)`, so a reader that writes it so scans the index:
+
+```sql
+jl.status = 'PENDING' AND jl.auto_send_at IS NOT NULL
+```
+
+The send-time checks judge a row with `auto_send_at` set, `PENDING` or `RUNNING`.
+
+**The decisions index** `ix_journey_log_reply_confidence_created`, a partial index on `journey_log (created_at, id)` for `payload ? 'reply_confidence'`, holds only the rows that carry a block. It serves the monitoring reads of the decisions in a time window: a page newest first, keyset-paged on `(created_at, id)`, or an aggregate over the window. A reader, a view included, writes the predicate exactly so beside its bounds on `created_at`, and the planner then reads those rows alone instead of scanning `journey_log`:
+
+```sql
+jl.payload ? 'reply_confidence' AND jl.created_at >= $1 AND jl.created_at < $2
+```
+
+The owner of a queued reply is the user of the `user_lead_connection` the row names itself, `journey_log.ulc_id`, the same rule as `JourneyLogRepository.is_owned_by` and the email claim. Return to review, the counts and the recall all use it, so a reply any of them lists or counts is one its seller can return; a row with no `ulc_id` of its own (one only its `journey_run` ties to a seller) is nobody's to them. The send-time checks judge the row as the dispatch authority rule's owner (`journey_log.ulc_id`, else `journey_run.ulc_id`), the user it would be sent as.
+
+**Return to review** `sales_outreach.reply_confidence_return_to_review(p_user_id uuid, p_reason text, p_journey_log_id uuid DEFAULT NULL, p_channel text DEFAULT NULL, p_actor text DEFAULT NULL) RETURNS uuid[]`:
+
+- Moves a row only when it is queued, belongs to `p_user_id`, and matches `p_journey_log_id` / `p_channel` when given. `p_channel` is `email` or `linkedin` (every `linkedin*` channel); `p_reason` is `seller_returned` or `settings_changed`; `p_actor` is who returns it, `user:<uuid>` (the seller), `admin:<uuid>` (SimpL staff) or `system:<name>`, required despite its default; anything else raises `invalid_parameter_value`.
+- In one UPDATE: status `PENDING_APPROVAL`; `auto_send_at` NULL; `scheduled_at` = `least(scheduled_at, now())`, so an approval after the return goes out at once; in `payload.reply_confidence`: `withdrawn: {"reason", "at" (ISO), "by": p_actor}`, `{"code": p_reason, "class": "policy", "text_key": p_reason, "detail": ""}` appended to `reasons`, and `top_reason: {"code": p_reason, "text_key": p_reason, "params": {}}`; what the stage decided (`auto_approve`, `route_kind`, the score) stays as it was, and a payload without a block gets one holding the reason alone. Nothing else in the payload changes, except `payload.authority`, which the dispatch authority trigger refreshes on the way into `PENDING_APPROVAL`. The recall and the send-time check use the same rewrite (one helper, `_reply_confidence_withdraw`), with reason `settings_changed` and `detail` = the block code, or, for a block that does not hold, reason `auto_approval_invalid`, and for a draft that changed since it was queued, reason `draft_changed`, each with `detail` `""`; so does the clearing trigger for every other move ("The audit trail" below).
+- Writes one `reply_confidence.returned_to_review` event per row moved (see "The audit trail" below).
+- Returns the ids moved, `{}` when none: a row a sender already picked up is `RUNNING`, one the seller approved or one already returned does not match. The authority trigger may still settle a moved row on `CANCELLED` (objective closed, user gone). simpl_api turns an empty array into its 409 `not_returnable`; check the row is the caller's first (404), because the function trusts `p_user_id`.
+
+**The recall** re-evaluates each queued reply of the users a change reaches with its own ICP and channel through `reply_confidence_send_block`, and returns to review (`settings_changed`, `detail` = the block) only the ones no longer allowed. It moves `PENDING` rows only, never a claimed (`RUNNING`) one, and never queues anything again when a restriction is lifted.
+
+- A settings row insert, update or delete reaches every user with something queued (global row), the customer's users (customer row) or the user (user row). It reads the current values only, so it is idempotent and a threshold change alone recalls nothing. The actor (`withdrawn.by`) is `admin:<updated_by>`, or `system:reply_confidence_settings` on a delete or a row without `updated_by`.
+- An update of `sales."user".outreach_prefs` that changes `auto_approval` or `icp_overrides` reaches that seller; the actor is `user:<seller id>`. A restriction on ICP A leaves ICP B's replies queued; a channel taken out of the list recalls only that channel.
+- The recall never fails or stalls the write that fires it. Each trigger runs it inside `BEGIN ... EXCEPTION WHEN OTHERS`: an error rolls back the recall alone (every move of that recall) and raises a `WARNING` (`recall skipped (<SQLSTATE>: <message>)`), and the settings or prefs write commits. The recall runs with a short `lock_timeout`, so a queued row another transaction holds locked (a sender's claim) ends it with `55P03` instead of making the write wait. Replies a skipped recall left queued are judged against the new values by the send-time check before any send.
+- Each move writes one `reply_confidence.recalled` event; a recall rolled back takes its events with it.
+
+**The send-time checks.** `sales_outreach.recheck_journey_log_authority` (the executor's last call before the provider, wrapped by `JourneyLogRepository.recheck_send_authority`; simpl_flow's email sender and the LinkedIn guard call it) first judges a queued reply (`auto_send_at` set), after the cancel step. One whose block does not carry the stage's approval (an object with `auto_approve` JSON `true` and a numeric `schema_version` of 3 or more) can never go out on its own and goes, `PENDING` or `RUNNING`, back to `PENDING_APPROVAL` with the same rewrite (reason `auto_approval_invalid`, `detail` `""`): `{"outcome": "review", "reason": "reply_confidence_auto_approval_invalid", "status": "PENDING_APPROVAL"}`. So does one whose draft is not the one it was queued with (`_reply_confidence_draft_hash(payload)` differs from `auto_send_draft_hash`: the subject or the message was edited since, by the seller, staff or any writer), whatever its delay: reason `draft_changed` (also its `text_key`), `detail` `""`, `{"outcome": "review", "reason": "reply_confidence_draft_changed", "status": "PENDING_APPROVAL"}`; the edited draft stays for the seller to approve. While `auto_send_at` is ahead, a claimed row goes back to `PENDING` with `scheduled_at` no earlier than `auto_send_at`, so the claim takes it again once it may leave, `{"outcome": "release", "reason": "reply_confidence_undo_window_open", "status": "PENDING"}`, and a `PENDING` row is left as it is, `{"outcome": "skip", ...}`. The authority trigger judges either move on the way and may settle the row on `PENDING_APPROVAL` (`"review"`) or `CANCELLED` (`"cancel"`). It then judges a queued reply, `PENDING` or `RUNNING`, after the seat check: if `reply_confidence_send_block(owner, lead ICP, payload.channel)` refuses, the row goes back to `PENDING_APPROVAL` in the same statement with the same rewrite, and the call answers `{"outcome": "review", "reason": "reply_confidence_settings_changed", "detail": <block>, "status": "PENDING_APPROVAL"}` (`"cancel"` / `"CANCELLED"` when the authority trigger cancelled it on the way). Each of these moves to review carries the actor `system:send_time_check` and writes one `reply_confidence.withdrawn_at_send` event; the release and the skip write none. A cancel request and a switched-off seat still answer first. Every other row, a returned reply the seller approved again included, is judged as before; nothing reads `payload.response_automation` for it. The guarantee: a restrictive setting visible to the last recheck prevents the send; a provider call already allowed may finish. The LinkedIn pre-send guard calls the recheck after its own checks and reports these answers as `block_reason` `authority_reply_confidence_undo_window_open`, `authority_reply_confidence_auto_approval_invalid`, `authority_reply_confidence_draft_changed` and `authority_reply_confidence_settings_changed`.
+
+**The audit trail.** Every move of a queued reply out of the queue for anything but its send is recorded as a return, in the same transaction: the rewrite above (`withdrawn`, `reasons`, `top_reason`) and one `sales_outreach.outreach_events` row, `event_type` `reply_confidence.returned_to_review`, `reply_confidence.recalled` or `reply_confidence.withdrawn_at_send` for the moves above, `reply_confidence.left_queue` for any other; `event_status` `success`; `action_id` the journey_log id; `ulc_id`, `user_id` and `lead_id` of the connection the row is sent for (`journey_log.ulc_id`, else its run's; null when the connection is gone); `agent_type` the row's `action_type`; and
+
+```json
+{"journey_log_id": "uuid",
+ "reason": "seller_returned | settings_changed | auto_approval_invalid | draft_changed | send_hold | dispatch_authority | cancelled | completed_externally | approved | held_for_review",
+ "detail": "<see the reason, or empty>", "actor": "user:<uuid> | admin:<uuid> | system:<name>",
+ "previous_status": "PENDING | RUNNING", "new_status": "<the status the row settled on>"}
+```
+
+The same reason and actor are `payload.reply_confidence.withdrawn.reason` and `.by`, and the reason is the `code` and the `text_key` of the reason appended to `reasons` and of `top_reason`. Any move whose write left `withdrawn` unchanged is recorded by the clearing trigger (`reply_confidence.left_queue`), with the reason of the move:
+
+- `send_hold`: the email claim's hold handed it back (`payload.send_hold`); `detail` its reason (`auto_approval_off`, `approval_lapsed`, `mailbox_reconnected`); actor `system:email_send_hold`.
+- `dispatch_authority`: the dispatch authority rule held it for review or cancelled it (`payload.authority.outcome` `review` or `cancel`), at a sender's claim, at the send-time recheck or on a cancel request there; `detail` the rule's reason (`account_handed_off`, `cancel_requested`, ...); actor `system:dispatch_authority`.
+- `cancelled`: any other writer cancelled it; `detail` `payload.cancellation.reason`, `""` when none; actor `system:other_writer`.
+- `completed_externally`: it was marked `EXECUTED`, done outside the pipeline (`JourneyRepository.mark_action_completed_externally`, e.g. the seller sent it from their own inbox); `detail` `payload.external_completion.reason`; actor `system:other_writer`.
+- `approved`: an approver was stamped on it while `PENDING` or `RUNNING`; `detail` `""`; actor `system:other_writer`.
+- `held_for_review`: any other move; `detail` the new status; actor `system:other_writer`.
+
+So a reader decides from the row alone: `withdrawn` set → returned (its reason says by what); `auto_send_at` set on a `PENDING` or `RUNNING` row → queued; `auto_approve` true on an ended row without `withdrawn` → sent on its own.
+
+Every insert, update or delete of a `reply_confidence_settings` row writes one `sales.audit_log` row: `operation` `reply_confidence_settings_insert` / `_update` / `_delete`, `table_name` `sales_outreach.reply_confidence_settings`, `record_count` 1, `user_id` the row's `updated_by` (null on a delete), and `details` (text) `{"scope", "customer_id", "user_id", "changed": {<column>: {"from", "to"}}}` naming the value columns that changed (`paused`, `auto_reply_enabled`, `email_enabled`, `linkedin_enabled`, `threshold`, `follows_customer`); an update that changes none of them writes nothing.
+
+**The counts** `sales_outreach.reply_confidence_queued_counts(p_customer_id uuid DEFAULT NULL) RETURNS TABLE (user_id uuid, channel text, queued bigint)` (STABLE): queued replies per seller and `payload.channel` as stored, aggregated in the database, for one customer or (NULL) all.
+
+**What a change would do** `sales_outreach.reply_confidence_what_if(p_customer_id uuid, p_change jsonb DEFAULT '{}') RETURNS jsonb` (STABLE) answers, for one customer, what a settings change would do, without making it. The dashboard's switch-on and recall previews ask it instead of computing the layers themselves.
+
+- `p_change` is `{"customer": {<column>: <value>}, "users": {"<user id>": {<column>: <value>}}}`, both parts optional: what the upsert of the customer's row and of each user's row would write, every other column kept. The customer's columns are `auto_reply_enabled`, `email_enabled`, `linkedin_enabled` and `threshold`, a user's `follows_customer`, `email_enabled`, `linkedin_enabled` and `threshold`; each value is a JSON boolean (a number for `threshold`) or `null`, read through the table's column types (a threshold keeps two decimals). The table's CHECKs, such as the threshold's 0 to 100, stay the write's to enforce. An unknown customer raises `no_data_found`; a malformed change, or a user of another customer, `invalid_parameter_value`.
+- The users reached are the ones the recall would judge after those writes: every user of the customer when the change names the customer's row, else the users it names, ordered by id. Users with a banned login are listed like the others; leaving them out is the caller's choice.
+- The answer:
+
+```json
+{"customer_id": "uuid",
+ "customer": {"before": {"all_paused": false, "customer_enabled": false, "threshold": 90, "...": "..."},
+              "after": {"...": "..."}},
+ "users": [{"user_id": "uuid",
+            "before": {"settings": {"...": "..."},
+                       "channels": {"email": {"allowed": false, "block": "customer_off", "block_kind": null},
+                                    "linkedin_message": {"...": "..."}}},
+            "after": {"settings": {"...": "..."}, "channels": {"...": "..."}},
+            "seller_allows": {"email": true, "linkedin_message": false},
+            "returned": 1}],
+ "returned": 1}
+```
+
+- `customer` is the staff lookup of a user who follows the customer: the customer's switch, flags and threshold, the default threshold when none is stored. Each user's `settings` and `channels`, `before` and `after`, are what `reply_confidence_settings_for` and `reply_confidence_authorization` (no ICP) answer before the change and once it is made. `seller_allows` is the seller's own consent alone (layer 4) per channel, what a staff switch-on can start. `returned` is how many of the user's queued replies the recall would then return to review, each judged with its own ICP and channel: every queued reply the settings refuse after the change, one refused already included, as the recall moves it; the top-level `returned` is their sum.
+
+**The settings screen in one read** `sales_outreach.reply_confidence_settings_overview(p_customer_id uuid DEFAULT NULL) RETURNS jsonb` (STABLE) answers everything the dashboard's settings screen shows, so it makes one call instead of reading the rows, the logins and each user's answers one by one:
+
+```json
+{"default_threshold": 90,
+ "global": {"scope": "global", "paused": false, "...": "..."},
+ "customer": {"id": "uuid", "name": "text",
+              "row": {"scope": "customer", "auto_reply_enabled": true, "threshold": 85.00, "...": "..."},
+              "settings": {"all_paused": false, "customer_enabled": true, "threshold": 85,
+                           "threshold_source": "customer", "...": "..."}},
+ "users": [{"id": "uuid", "full_name": "text", "email": "text", "is_active": true, "disabled": false,
+            "row": null,
+            "settings": {"...": "the staff layers"},
+            "channels": {"email": {"allowed": true, "block": null, "block_kind": null},
+                         "linkedin_message": {"...": "..."}},
+            "seller": {"enabled": true, "pause_on": false, "channels": ["email"],
+                       "allows": {"email": true, "linkedin_message": false}},
+            "icp_overrides": [{"icp_id": "uuid", "restricted": true,
+                               "channels": {"email": {"...": "..."}, "linkedin_message": {"...": "..."}}}],
+            "ignored_icp_consent": [{"icp_id": "uuid", "icp_title": "text", "channels": ["email"]}]}],
+ "queued": [{"user_id": "uuid", "channel": "email", "queued": 2}]}
+```
+
+- `default_threshold` is the staff lookup's threshold for a user with no settings anywhere (the `default` source), so nobody asks `reply_confidence_settings_for` with an unknown user to learn it.
+- `global`, `customer.row` and each user's `row` are the stored `reply_confidence_settings` rows (every column, `to_jsonb`), `null` when there is none. `customer.settings` is the staff lookup of a user who follows the customer: its switch, flags and threshold, the default when none is stored (`reply_confidence_what_if`'s `customer.before`).
+- `users` are every user of the customer, ordered by `full_name` (nulls last), then `id`. `disabled` is true while their Supabase login is banned (`auth.users.banned_until` in the future); a user without a login is not disabled. Disabled users are listed like the others; leaving them out of lists and counts is the caller's choice.
+- Each user's `settings`, `channels` and `seller` (`enabled`, `pause_on`, `channels`) are what `reply_confidence_authorization(user)` answers, with no ICP; `seller.allows` is, per channel, whether the seller's own consent alone (layer 4) lets a reply go, `reply_confidence_what_if`'s `seller_allows`. `icp_overrides` has one entry per key of `outreach_prefs.icp_overrides` that is a uuid, ordered by it: `restricted` and `channels` are `reply_confidence_authorization(user, icp)`'s `seller.icp_restricted` and `channels`. A key that is no uuid matches no lead's ICP and is left out.
+- `ignored_icp_consent` lists, ordered by `icp_id`, each of those ICPs whose override's `auto_approval`, merged key by key over the base `outreach_prefs.auto_approval`, allows a channel that the base alone refuses, both judged by the seller-consent rule the resolver applies to the base (`enabled`, `stop_on_lead_response`, `channels`). `channels` are those channels, `email` before `linkedin_message`; `icp_title` is the ICP's `sales.icp.title`, `null` when there is none. The resolver judges the base first and an ICP override only restricts it, so no reply for such an ICP goes out on its own on those channels; the outreach routing and the email send hold (`JourneyLogRepository.hold_unconfirmed_email_sends_for_user`) read the merged preferences, so that ICP's auto-approved messages still go out without the seller. It does not depend on the staff layers: like `seller.allows`, it says what a staff switch-on would not start. A user without such an override has `[]`.
+- `queued` is `reply_confidence_queued_counts(p_customer_id)` as rows.
+- With `p_customer_id` NULL the answer is the global part alone: `customer` null, `users` `[]`, and `queued` over every customer. An unknown customer raises `no_data_found`.
+
+**Grants.** The table (`SELECT, INSERT, UPDATE, DELETE`) and `reply_confidence_settings_for`, `reply_confidence_authorization`, `reply_confidence_send_block`, `reply_confidence_return_to_review`, `reply_confidence_queued_counts`, `reply_confidence_what_if`, `reply_confidence_settings_overview` (`EXECUTE`) are granted to `service_role` only; `PUBLIC`, `anon` and `authenticated` have nothing, and the internal helpers (leading underscore) and trigger functions are granted to nobody. simpl_api and simpl-outreach connect as the owner. The functions are `SECURITY DEFINER` with `search_path = pg_catalog` and run as the role that applied the migration (`postgres`), which `reply_confidence_settings_overview` needs to read `auth.users` past its row-level security.
+
 ## Common pitfalls
 
 - Do not duplicate autopilot, CRM, email, or report logic in app repos before checking whether `simpl_core` already owns it.
@@ -2661,6 +2840,7 @@ failures into test failures.
 - Does not schedule or deploy Prefect workflows. That is `simpl_flow`.
 - Does not own generic ORM primitives. That is `simpl_orm`.
 - Does not own tracking/logging helpers. That is `simpl_tracker`.
+- Does not score or orchestrate the Reply Confidence gate (the confidence, the threshold, the decision). That is simpl-outreach; `simpl_core` owns only its settings table, the SQL functions and triggers around it, and the send-time check.
 
 ## Where to go next
 

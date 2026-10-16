@@ -1,6 +1,6 @@
 # simpl internal libraries catalog
 
-Auto-generated at `2026-10-16T12:53:17.682Z`. Do not edit by hand: every library sync regenerates it, or run `node scripts/ci/generate-catalog.js`.
+Auto-generated at `2026-10-16T14:13:58.411Z`. Do not edit by hand: every library sync regenerates it, or run `node scripts/ci/generate-catalog.js`.
 
 Each entry summarizes an integration plugin (`*-context`). Install the plugin in Claude Code for the full SKILL. Until then, use this file to decide whether a library fits the current task.
 
@@ -16,7 +16,7 @@ Each entry summarizes an integration plugin (`*-context`). Install the plugin in
 
 - **Skill**: `simpl_core`
 - **Summary**: simpl_core integration guide
-- **When to use**: Use this skill whenever the user asks about shared simpl platform domain logic, autopilot services, CRM/email/reports services, or code that imports `simpl_core`. ALWAYS consult this skill before adding duplicated business logic in app repos that could belong in `simpl_core`.
+- **When to use**: Use this skill whenever the user asks about shared simpl platform domain logic, autopilot services, CRM/email/reports services, Reply Confidence data (the settings table, the authorization resolver and its SQL functions, return to review, the recall, the send-time check, the queued-reply counts, the what-if of a settings change), or code that imports `simpl_core`. ALWAYS consult this skill before adding duplicated business logic in app repos that could belong in `simpl_core`.
 - **Install full context (Claude Code)**: `/plugin install simpl_core-context@simpl`
 - **Skill path in cache**: `~/.simpl_knowledge/cache/plugins/simpl_core-context/skills/`
 
