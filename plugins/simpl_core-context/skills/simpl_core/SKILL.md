@@ -2497,6 +2497,23 @@ webhooks; transport lives in simpl_ingestion) into leads owned by the right sell
   `books_meetings` refuses). A rule may name only `MOVE_TO_STAGE_TARGETS` (Pending, Connected,
   Messaged, Meeting Booked, Negotiation, Closed, Customer): `validate_move_to_stage(value)`,
   which simpl_api's rule writer calls.
+  `action_config.expects_reply: bool` (`reply_rule.EXPECTS_REPLY`) says whether somebody should
+  answer the people the rule takes (the sales Home's "Inbound waiting for an answer"):
+  `rule_expects_reply(action, action_config)` reads it, else the action's default (`create_lead`
+  yes, the others no; an `ignore` rule never); `validate_expects_reply(action, value)` is the
+  rule writer's check.
+- **Plan and preview:** `planning.plan_signal(session, *, customer_id, signal,
+  default_owner_user_id, hold, screen_tests=True, inbox_id=None) -> SignalPlan |
+  IngestionResolution` is the drain's whole decision before it writes (rules, the test screen,
+  own team and opt-outs, the person and their holders, a meeting fact's source check, the
+  owner); the drain passes `hold=True` (the person's, the company keys' and the lead's locks).
+  `preview_signal(session, *, customer_id, signal, default_owner_user_id=None) ->
+  SignalPreview(action, rule_id, reason, owner_user_id, owner_chosen_by, takes_over_user_ids,
+  lead_id, stage, wakes_agent, wake_after_working_hours, approval_required, expects_reply,
+  playbook_section)` reads the same plan with no lock and no test screen (an example address
+  reads as somebody new) and writes nothing: Settings > Inbound's "Try an event". `lead_id` is
+  set only for a person the customer works; `stage` is `StagePreview(target, current, outcome)`
+  with `outcome` `moves`, `kept`, `replayed`, `no_stage` or `another_lane`.
 - **Playbook** (`services/ingestion/playbook.py`, store `playbook_store.py`): one per customer,
   `InboundPlaybook(free_text, sections=[PlaybookSection(key, label, applies_to{sources, names,
   channels in linkedin|email}, fit, steps=[{when, action, link}], links)])`, bounded (12 sections,
