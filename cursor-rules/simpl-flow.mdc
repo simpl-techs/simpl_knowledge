@@ -284,4 +284,5 @@ poetry run ruff check .
 - Flow code: `src/simpl_flow/flows`
 - Pipeline code: `src/simpl_flow/pipelines`
 - ROI ingest: `src/simpl_flow/pipelines/roi` (Revolut → `roi.transactions` daily at 03:15 UTC with payer, MCC, type and FX fee like the CSV statement, EUR legs only; A-Cube → `roi.revenues`). Classification runs in simpl_api's nightly `roi_vendor_rules` job, not in `apply_rules_flow` (old text rules, never deployed)
+- Financials: `src/simpl_flow/pipelines/financials` (Revolut → `financials.ledger` daily at 03:00 UTC, then the balance Revolut reports → `financials.account_balance`, source `revolut_api`, one row a day; simpl_api's ROI Summary reads it as cash, the ledger's drift beside it)
 - Internal conventions: `.agent/INTERNAL.md`
