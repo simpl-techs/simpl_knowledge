@@ -127,7 +127,9 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   rebuilds.
 - `gcp_search_index_maintenance_flow` keeps the vector, full-text and substring (NGRAM)
   indexes a simpl_core dataset spec declares as sections (simpl_core 0.8.155; NGRAM,
-  sized by bytes, from 0.8.159): every run, after
+  sized by bytes, from 0.8.159): every run, after every dataset's routine maintenance
+  (2.5.117: a build killed for memory no longer leaves the datasets after it
+  unmaintained), and after
   compaction, calls `Dataset.build_index(column, create=False)` on each index the table
   has, which builds its next sections from at most 4M rows (a backlog takes a run per
   4M; the writer lease is held meanwhile, so an indexer commit waiting past its
