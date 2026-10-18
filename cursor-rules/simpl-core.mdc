@@ -1759,7 +1759,8 @@ await posts.build_index("vector")            # sections of a declared vector or 
     `CreateIndex` commit. A vector section is built in pieces of `VECTOR_PIECE_ROWS`
     (50k) merged into it, on the centroids of an existing section and a rotation of its
     own (each section searches with its own model). One call builds from at most
-    `SECTION_ROWS_PER_BUILD` (4M) rows under the writer lease; `IndexBuild.rows_left`
+    `SECTION_ROWS_PER_BUILD` (4M) rows, from a snapshot without the writer lease,
+    which it takes only for the `CreateIndex` commit (0.8.166); `IndexBuild.rows_left`
     is what the next call has. Call it on a schedule: rows no section holds are still
     found by searches, which read them without the index. `build_index(column,
     create=False)` returns None for an index the table does not have yet: a schedule
