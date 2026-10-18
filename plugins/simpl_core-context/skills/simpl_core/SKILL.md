@@ -1875,7 +1875,10 @@ runner = projection_runner(dataset, milvus, "my_kind_v1", collection, dims=512)
   version. An NGRAM index is a section index (0.8.159): `build_index(column)` builds it
   in sections of at most `NGRAM_SECTION_MAX_BYTES` (32 MiB on disk, about 1.5 GB to
   build), never a commit or `maintain()`; rows outside its sections are still found by
-  a scan. Such a table's fragments are written and compacted to that size.
+  a scan. Such a table's fragments are written and compacted to that size (compaction
+  re-encodes them, 0.8.165), and `maintain` rewrites an older fragment over 1.5 sections
+  into section-sized ones (`MaintenanceResult.rows_rewritten`), which `build_index`
+  leaves out until then.
 
 ### Landing search (`search.landing`)
 
