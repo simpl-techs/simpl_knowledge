@@ -2076,6 +2076,19 @@ an incident delivered. Context passes `redact_context` first, and the event's
 agent-framework config fallback to operators, and `unavailable_prefect_blocks` checks
 tracker JSON config blocks at startup without sending anything. Importing the module loads neither tracker, Prefect nor the agent framework.
 
+**The data lake's alerts go to #data-lake.** `data_lake_alert(level, message, *, event,
+dedup_key=None, error=None, **context)` (and `data_lake_alert_async` for async code,
+since delivery is a blocking HTTP call) is the one way the row store, the search
+indexers, their maintenance, the knowledge graph extractor and the opportunity matchers
+alert. Levels are `"error"` and `"warning"` only: success and progress never go there.
+It delivers synchronously to `DISCORD_DATA_LAKE_WEBHOOK_URL` (read on every call) and,
+when that is unset or Discord does not take the message, falls back to the process's
+#error or #warning through tracker, so an alert is not lost. It logs each alert once
+(`data_lake_event`, `data_lake_channel`, the traceback of an exception) and never
+raises. A delivered exception is marked announced, so tracker's default policy does not
+post it again to #warning. Pass a `dedup_key` per problem (a document, a job): repeats
+edit one message.
+
 ## Who takes the meetings: team hand-off
 
 `simpl_core.services.account_coordination.TeamHandoffService(session)` writes the team
