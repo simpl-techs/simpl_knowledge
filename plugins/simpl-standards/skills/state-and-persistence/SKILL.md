@@ -17,6 +17,7 @@ This skill is always-on. It governs the runtime behavior of code that owns state
 - Reclaim from the row's timestamp, not an in-process heartbeat, so a second worker takes over a stale claim without coordinating with the first worker's memory.
 - Terminal states (completed, failed, canceled) are terminal. A retry path creates a new attempt; it never resurrects the row.
 - Persist idempotency keys so they outlive the request and a retry from another process still deduplicates.
+- **A link we send (email, Slack, Teams) changes nothing when it is opened.** Opening it shows a page; the change happens only on a POST from a button the person presses. This covers one-time sign-in tokens (invite, reset, magic link), unsubscribe, and every approve / confirm / reject / accept link. Mail security scanners (Microsoft Defender Safe Links and the like) open every link in an email before the person does, and some run the page's script too. So a GET handler never spends a token or writes, and the page never fires its action from `useEffect` or an auto-submitting form. Why: on 2026-10-19 a CEO's onboarding invite showed "expired" twice because the scanner had spent the token (ENG-876, simpl_sales `/login/continue`). Test it: the handler's test asserts that a GET of the link leaves the token and the row unchanged.
 
 ## ULC events: `outreach_events`
 
