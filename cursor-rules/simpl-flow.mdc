@@ -240,6 +240,13 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   for another reason) is a company already known: it is neither proposed nor watched.
   The flow autopilot never claims a person its user holds in Non sales, found at another
   company: their connection keeps its stage and gets no journey (`autopilot_root` 10).
+- An ICP's **required company questions** (simpl_api, `sales_view.icp_required_question`) gate every
+  source: a company is proposed only if its current answer (`sales.company_feature`) to each
+  required question is the required yes or no; no answer is not a pass. Signals, monitoring
+  signals, recycled companies and ICP match fallbacks (included ones too) are all filtered
+  (`pipelines/opportunities/question_scope.py`); signals are still scored, saved and watched.
+  simpl_api answers the questions at 22:00 UTC; the flow only reads them. ICPs without one
+  are untouched.
 - Opportunity sources (`opportunity.icp_signal_opportunities.source_type`): `new_signal`,
   `recycled_fallback` (a company the customer already worked, proposed again; called
   `fallback_monitoring` before 2.5.69), `icp_match_fallback`, `manual`. With the
