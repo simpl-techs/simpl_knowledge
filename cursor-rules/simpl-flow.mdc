@@ -182,6 +182,26 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   does not answer; the rows it left go back with no attempt counted. The model's calls
   go through the policy's `lm_model` rows and write no cost receipt: the job's compute,
   recorded under `knowledge_graph_extraction`, is the whole cost.
+- `gcp_open_graph_flow` (no schedule, started by hand) labels LinkedIn posts with
+  llmgraph (LangChain's `LLMGraphTransformer`) once per teacher, as training data. A
+  teacher is an OpenRouter model in one llmgraph mode, listed in
+  `pipelines/open_graph/teachers.yaml`; every request goes to zero-retention routes
+  that do not train on the posts. Parameters: `source_keys` (required, post keys
+  `p:<post id>`: v1 reads posts only, and a key of a kind with no pipeline stops the
+  run before it marks anything), `teachers` (default: every teacher of the file),
+  `relabel` (default `false`), `batch_size`, `max_batches`. The ledger
+  `open_graph.label_index` (migration 115) has one row per teacher and source: a pair
+  already `stored` is skipped unless `relabel=true`. The agent framework walks policy
+  `open_graph_root` (seed migration 116) and writes one Parquet row per post and
+  teacher under `<ROW_STORE_URI>/training/open_graph/v1`, outside the row store's
+  catalog; readers drop repeated `label_id` values and the rows with `parse_failed`
+  (llmgraph could not read the teacher's answer; kept, not asked again). It needs `OPENROUTER_API_KEY` and
+  `ROW_STORE_URI`. Its LangChain packages are in the optional Poetry group
+  `open-graph`, so the deployment has its own image, `simpl-flow-open-graph`
+  (`Dockerfile` build arg `EXTRA_GROUPS`); no other image carries them. The run turns
+  LangSmith tracing off for its process before its first request, locally too, so no
+  environment value can turn it on; its job command also turns it off with `env`,
+  after Doppler's values. Locally: `poetry install --with open-graph`.
 - Flow-runner autopilot sessions end `completed` when at least one company succeeded,
   `error` when the run raised or companies failed and none succeeded, and `stopped` when
   the run was interrupted: lease lost, run cancelled, or every company re-queued because
@@ -290,6 +310,7 @@ poetry run ruff check .
 - Does not expose the platform HTTP API. That is `simpl_api`.
 - Does not own reusable business primitives. Put those in `simpl_core`.
 - Does not own frontend user experience. Use the frontend repos.
+- Does not train on the open graph corpus. `open_graph_flow` writes the Parquet labels; the loader and the training belong to the training side.
 
 ## Where to go next
 
