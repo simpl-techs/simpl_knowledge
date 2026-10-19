@@ -2119,6 +2119,18 @@ connections (`integration.user_connection`) and promotes a mailbox's owner to th
 stage (`simpl_core.services.email_stage_promotion`). Each part runs in a savepoint and
 never fails the finalize; what could not be applied is in `AppliedChoices.problems`.
 
+`simpl_core.services.onboarding_member` is how that person becomes a working member,
+shared by simpl_flow's finalize (every onboarding) and simpl_api (a member joining a team
+that already exists is activated when they press Finish, without the finalize container).
+Both run, in one transaction: `mark_customer_finalized` (the customer's `onboarding_state`,
+`onboarding_completed_at`, `metadata.finalized_*`), `upsert_member` (the `sales.user` row;
+a new row keeps the database defaults, the login email is passed in), `assign_icp` per ICP
+(`invited_icp_picks(metadata, team_icps(...))` for a member: the invite's
+`icp_assignments`, or every active ICP when the invite names none), then
+`apply_onboarding_choices`, then `start_autonomous` (autonomous outreach prefs; no mailbox
+connected puts a person on the default stage onto `Only LinkedIn`). A step every
+activation needs goes there, so both callers get it.
+
 ## SimpL identities lent to a customer: the work customer
 
 A SimpL sales identity can be lent to a pay-per-call customer (`sales.identity_loan`,
