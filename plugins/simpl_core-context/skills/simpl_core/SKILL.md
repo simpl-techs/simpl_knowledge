@@ -1187,7 +1187,11 @@ platform's customers, whatever its subscription (a reactivation or a move may be
 under way), or the platform's accounts hold their company domain with a running
 subscription or managed engagement. A thread of a colleague's mailbox the owner
 reads as a sales identity, with none of the aliases the owner sends from on it,
-is settled as `colleague_mailbox_thread`: it is the mailbox owner's. A colleague's thread the owner was only copied on is
+is settled as `colleague_mailbox_thread`: it is the mailbox owner's. A LinkedIn thread
+read from another SimpL user's account (its owner-flagged messages, or a teammate's
+profile row that wrote, show that user's profile and never the owner's) is settled as
+`another_users_linkedin`: a thread is the owner's only when the owner wrote on it from
+their own profile. A colleague's thread the owner was only copied on is
 settled as `colleague_thread`: the owner never wrote on it, a teammate did, and a
 colleague of the owner's customer still works the counterpart's lead (a connection
 not silenced by a lead hand-off). A second connection there would make the copied
