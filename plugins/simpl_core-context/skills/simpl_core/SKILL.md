@@ -2532,6 +2532,17 @@ webhooks; transport lives in simpl_ingestion) into leads owned by the right sell
   customer with no rules at all (decision 7, 2026-10-16: no inbound process, no inbound; until
   then such a customer got every reachable person as a lead). The signal stays in the inbox,
   `ignored`; disabling every rule stops the lane.
+- **Asking SimpL to answer** (the Home's "Ask SimpL to reply"):
+  `triggers.request_inbound_answer(session, *, ulc_id, inbox_id, requested_by) ->
+  InboundAnswerRequest(trigger_id, ulc_id, lead_id, inbox_id)` queues a copy of the signal's
+  `inbound_signal` trigger on the connection, due now, with `seller_approval_required` forced
+  (a signal a `record_lead` rule only recorded is answered too), and writes
+  `inbound.answer.requested` (`INBOUND_ANSWER_REQUESTED_EVENT`; `event_data`: `inbox_id`,
+  `trigger_id`, `requested_by_user_id`, `signal_name`, `origin`) in the same transaction, on the
+  lead's lock (the drain's). Refused with `InboundAnswerRefused(reason)`: `pending` (an
+  `inbound_signal` on the connection no walk took yet), `draft` (a lead-facing journey row
+  waiting), `recent` (a request for the person at the same customer in the last 10 minutes,
+  `ANSWER_REQUEST_COOLDOWN`), `no_signal`. The caller decides who may ask and commits.
 - **Stops before any lookup:** a test is `test_signal`: `test` set, or the person's address
   or the company's domain on `example.com` / `.net` / `.org` or under `.test` / `.invalid`
   (the setup prompt's `ada@example.com` became a real lead in August). The customer's own
