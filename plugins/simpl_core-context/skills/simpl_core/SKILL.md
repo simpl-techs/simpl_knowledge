@@ -34,7 +34,10 @@ Use extras only when needed:
 ```bash
 poetry add "simpl-core[novu,composio-sdk] @ git+https://github.com/simpl-techs/simpl_core.git@main"
 poetry add "simpl-core[agent-framework] @ git+https://github.com/simpl-techs/simpl_core.git@main"
+poetry add "simpl-core[mailbox] @ git+https://github.com/simpl-techs/simpl_core.git@main"
 ```
+
+The `mailbox` extra (aioimaplib, aiosmtplib, google-cloud-kms, dnspython) is what an `imap` email connection needs at runtime; see "Email on other providers (IMAP/SMTP)". Nothing imports it at `import simpl_core.services.email`.
 
 Base `simpl-core` installs `simpl-ia` (same pin as other platform repos) so `import simpl_ia` works in the venv. The `agent-framework` extra adds `simpl-ia[agents]` (pydantic-ai, Langfuse) for `simpl_core.agent_framework` and `simpl_ia.agents`; that submodule is not imported at `import simpl_core`.
 
@@ -899,6 +902,37 @@ A Gmail, Outlook or HubSpot service built with a `ComposioConnectionService` mar
 A reply on a thread the owner's connection already holds is stored under that connection whoever sends it: the sync no longer resolves such a thread from its newest sender, so a lead answering from another address (a shared mailbox, a longer form of the address, a new employer) is no longer dropped. When the names say the sender is the connection's lead, the address is added to the lead as a `sales.lead_contact` row with `scope='user'` (the owner), `is_primary=false` and `source='email_thread_reply'`: it never outranks the address outreach already writes to. Any other sender is stored as an unlinked participant, and the message still wakes the thread's connection.
 
 A thread is the user's whose conversation holds it (`sales_outreach.conversation.owner_user_id`). When two users sync one mailbox (a sales identity whose email connection is a colleague's mailbox, sending from an alias of it), the other user's sync leaves the thread's stored participants as they are and files a new address as the owner only when it is the conversation owner's (`ConversationService.upsert_participants`). `ConversationReadService.fetch_for_ulc` gives a connection every thread with its lead that its user is on: one they hold a participant row on, one their conversation holds, or one where any of their addresses is a participant's (profile, connection mailbox and send-as, active aliases; `addresses_of_users`), whoever that row points at. So a colleague copied on a thread reads it, and a row another user's sync once claimed no longer hides it. Pass `viewer_user_id` to get `viewer_thread_ids`: the returned threads that user is on, colleagues' included, which a caller withholding colleagues' messages keeps readable. A message from an internal sender (`participant_type` 3) is read per connection, keyed on the sender row's type rather than `is_sender_owner`: one of the connection's user's own addresses is that user (`is_from_owner`); anyone else is `is_from_internal`, a colleague or the company's mail server (a delivery failure), named by `sender_name` (the colleague's user name when the address is a user's) and never the lead. `compute_stats` leaves such messages out of the user's and the lead's figures. A digest marked `head_snippets_superseded` is left out.
+
+## Email on other providers (IMAP/SMTP)
+
+A mailbox on a provider other than Google or Microsoft (Aruba, Namecheap, OVH, any host) is the `imap` integration (`integration_configuration` row, category `email`, seeded active and beta by `migrations/20261019_mailbox_imap_smtp.sql`; beta keeps the card admin-only until `is_beta` is cleared). Its adapter is `ImapSmtpEmailService` (`services/email/imap_smtp.py`), an ordinary `EmailService`:
+
+```python
+service = await get_connected_email_service(
+    user_id, "imap",
+    db_manager=db_manager,          # required: settings rows and the failed-login count
+    composio_api_key=..., composio_toolkit_versions=...,   # unused for imap
+    mailbox_cipher=None,            # default: KmsMailboxCipher(MAILBOX_KMS_KEY_NAME)
+)
+```
+
+- **Install and environment.** The consumer installs `simpl-core[mailbox]` and sets `MAILBOX_KMS_KEY_NAME` (the Cloud KMS CryptoKey resource name, `projects/.../cryptoKeys/...`; not a secret) in Doppler. Its service account needs `roles/cloudkms.cryptoKeyEncrypterDecrypter` on that key.
+- **The password** is encrypted by KMS and stored as ciphertext in `user_connection.credentials` (`EncryptedMailboxPassword.to_credentials()`), bound to the seller and the mailbox address (`mailbox_associated_data(user_id, email)`). Never store, log or return it in clear.
+- **Connecting: address and password only.** simpl_api calls `connect_mailbox(db, user_id=, email=, password=, cipher=)` (`services/email/mailbox_connect.py`), which returns a `ConnectOutcome` whose `status` (`ConnectStatus`) is what the seller is told:
+  - `connected`: both logins worked against a preset's servers; the password is stored KMS-encrypted and the row is `active`.
+  - `use_integration`: the domain is Google or Microsoft (a `mailbox_redirect_rule` row); `integration_slug` is `gmail` or `outlook`.
+  - `provider_pending`: no preset or redirect rule matches the domain. A provider request is opened or joined (`request_opened` is true once per domain: the caller tells the team). **No password is sent anywhere or stored.**
+  - `wrong_password` (with the preset's `app_password_url`), `unavailable`, `rate_limited` (`connect_rate_limit` setting), `invalid_email`.
+  Matching (`mailbox_presets.match_mailbox_provider`) reads the domain's MX hosts, then their reverse DNS names, against the redirect rules first and the presets second. There is no guessing: a password only ever goes to the servers of a preset an admin saved. `update_mailbox_password` reconnects an existing (even revoked) mailbox; `disconnect_mailbox` erases the ciphertext and revokes. Every attempt is a row in `integration.mailbox_connect_attempt` (no password).
+- **Provider requests** (`services/email/mailbox_provider_requests.py`): one open `mailbox_provider_request` per domain, its waiting sellers in `mailbox_provider_request_waiter`, and `discovery` hints for the admin (SRV records and Thunderbird's provider database, `mailbox_discovery`; no password involved). `resolve_provider_request(session, request_id, NewPreset(row) | ExtendPreset(key, suffixes) | ExtendRedirect(key, suffixes), settings=, resolved_by=)` applies it, refuses one that would not match the request's MX hosts (`ProviderRequestError`), closes the request and returns the waiters to email; the caller then calls `mark_waiters_notified`. `dismiss_provider_request` closes one without a preset.
+- **The connection row** is written by `connect_mailbox` with `mailbox_connection_config(...)` and `external_account_id` = the mailbox address.
+- **Settings are rows.** `integration.mailbox_server_preset` (one per provider), `integration.mailbox_redirect_rule` (Google, Microsoft) and `integration.mailbox_setting` (one per global setting) are read fresh by `load_mailbox_config(session)` each time a connection is used; a missing setting row raises `MailboxSettingMissingError` (nothing connects), an invalid preset is skipped and logged. Every change is in `integration.mailbox_config_history`. Adding a provider is a preset row; see the ENG-864 plan for the checklist.
+- **Security rules are code** (`mailbox_endpoints`): IMAP on 993 with TLS only, SMTP on 465 (TLS) or 587 (STARTTLS required), certificates verified, no address literal as a host, and every address a host resolves to must be public (no private, loopback, link-local or metadata range). The session connects to the vetted address, so DNS cannot change between the check and the connection.
+- **Ids.** A message is its RFC 5322 `Message-ID` (`provider_message_id` = `internet_message_id`); a thread is the `Message-ID` of its root, from `References` or, without it, by following `In-Reply-To`. A reply passes `threadId` and `replyMessageId` as for Gmail; the adapter sets `In-Reply-To`/`References` and the subject `Re: <parent subject>`.
+- **It never changes the seller's mail.** Reads use EXAMINE and `BODY.PEEK`; the only write is the copy of a sent message `APPEND`ed to Sent (a failure there is logged, never retried by sending again). `search_emails`, `mark_as_read` and `mark_as_unread` raise.
+- **Failed logins.** A refused login is counted on `connection_metadata.mailbox_auth_failures`; at the `auth_failures_before_revoke` setting the row is marked `revoked` (reason `mailbox_auth_failed`) and `StaleMailboxConnectionError` is raised: a `StaleComposioConnectionError`, so `stale_connection_from_error` and simpl_flow's handling treat it as "marked, only the seller can fix it, no alert". A login that works resets the count.
+- **Connections.** One IMAP connection per service object, closed after `imap_idle_close_seconds` unused or by `await service.aclose()` (a no-op on the HTTP adapters); each send opens its own SMTP connection.
+- Which integrations count as email: `integration_configuration.category = 'email'` (`UserConnectionRepository.list_active_email_connections()` and `get_most_recent_active_email_provider()` without `allowed_slugs`), and in code `EMAIL_PROVIDER_SLUGS` (`services/email/schemas.py`) for "is this thread an email thread".
 
 ## Entity deduplication
 
