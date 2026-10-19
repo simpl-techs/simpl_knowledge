@@ -155,7 +155,7 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   extraction job. It marks the posts (`p:<post id>`) and sites (`h:<host>`) given as
   `source_keys` pending for `variant` in the ledger `knowledge_graph.extraction_index`
   (migration 095), then extracts the pending rows in batches: the agent framework walks
-  the pipelines of policy `graphia_extractor_root` (seed migration 097), which read the
+  the pipelines of policy `graphia_extractor_root` (newest seed: migration 114), which read the
   search datasets (`sales_posts`, `landing_pages`), call the model, check, link and
   resolve, and commit one row per document to the row store dataset
   `graphia_extractions:2`. A source that breaks a batch fails alone; the run claims no
