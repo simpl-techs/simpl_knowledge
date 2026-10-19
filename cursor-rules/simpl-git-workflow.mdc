@@ -13,6 +13,14 @@ alwaysApply: true
 - A branch would help? Propose name and base (`dev` when the repo has one, else `main`; the user may prefer `main`) and wait for an explicit yes in the current turn ("ok create it", "fai il branch"). Approving a plan, "implement the plan", or a plan that names a branch is not a yes. No or no answer: stay on the current branch and do the work there.
 - The user drives branch creation, PRs and merges. Why: the working tree often holds their concurrent in-progress work; agent branches pile up, confuse context and hide what the user is doing.
 
+## Agents: start from the latest code (every repo, before any change)
+
+- Before the first edit in a repo, and before reading one to answer how it works, run `git fetch origin` and check `git status -sb` (it shows `behind N`). Local checkouts go stale fast: on 2026-10-19 a `simpl_knowledge` checkout was 189 commits behind `main`.
+- Clean tree on the base or your own work branch: `git pull --ff-only` (base) or `git pull --rebase` (your branch) before editing.
+- Tree with changes you did not make, or a branch that is not yours (another session's work): do not pull, stash or switch over it. Work in a new worktree cut from the fresh base, `git worktree add --detach <path> origin/<base>`, and say so.
+- Repos you only read for context (a library, the API behind a page) need the same fetch, or you describe code that is no longer there.
+- Before a commit, push or PR: fetch again and rebase on the base if it moved.
+
 ## Agents: commit and push
 
 - Default: edit files, summarize what changed and which files, stop. No `git add`/`git commit`/`git push`, not even for one-line fixes; the user reviews and commits.
