@@ -2126,8 +2126,9 @@ that already exists is activated when they press Finish, without the finalize co
 Both run, in one transaction: `mark_customer_finalized` (the customer's `onboarding_state`,
 `onboarding_completed_at`, `metadata.finalized_*`), `upsert_member` (the `sales.user` row;
 a new row keeps the database defaults, the login email is passed in), `assign_icp` per ICP
-(`invited_icp_picks(metadata, team_icps(...))` for a member: the invite's
-`icp_assignments`, or every active ICP when the invite names none), then
+(`member_icp_picks(flow_type, metadata, team_icps(...))`: a salesperson or identity gets the
+invite's `icp_assignments`, or every active ICP when it names none; an admin or target
+manager only the ICPs its invite names), then
 `apply_onboarding_choices`, then `start_autonomous` (autonomous outreach prefs; no mailbox
 connected puts a person on the default stage onto `Only LinkedIn`). A step every
 activation needs goes there, so both callers get it.
