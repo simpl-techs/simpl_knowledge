@@ -1772,7 +1772,10 @@ await posts.build_index("vector")            # sections of a declared vector or 
     compacted, its remap is cheap). It never builds a vector index, and builds a
     full-text index only on an empty table. An index on an undeclared column is dropped.
   - `DatasetHealth`: `unbuilt_indexes` names a declared one not built yet;
-    `section_unindexed_rows` and `most_sections` say how far its builds are behind, and
+    `section_unindexed_rows` and `most_sections` say how far a vector or full-text
+    index's builds are behind, `ngram_unindexed_bytes` and `ngram_small_sections` a
+    substring one's (bytes on disk, as its sections are sized: a large table has many
+    full sections by design, so only those under `NGRAM_SECTION_SMALL_BYTES` count), and
     `problems()` reports each past its threshold.
   - Search a vector index with Lance's `nearest` (`refine_factor`), a full-text one with
     `full_text_query`; filter `NOT deleted` with `prefilter=True`.
