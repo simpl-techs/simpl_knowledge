@@ -102,18 +102,22 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   A sweep or dataset that fails does not stop the others; the run then fails naming
   each one (`MaintenanceFailed`). A row the code cannot read (a kind it does not know,
   dims that do not fit its kind, an unknown setting) is left out and the rest are
-  maintained; the first run of each hour posts the rows left out to #warning
+  maintained; the first run of each hour posts the rows left out to #data-lake
   (`announce_skipped_configs`, gated by `health_alert_due`), and every run returns them
   under `skipped`.
-- **Search index alerts** (posts, landing and companies index flows, and maintenance;
-  `services/run_health.py`, `services/search_index_health.py`):
-  - **#error, a run that failed:** a run started by hand posts its own failure at once;
+- **Data lake alerts go to #data-lake** (posts, landing and companies index flows,
+  maintenance, the graphia extractor and the opportunity matcher; `services/run_health.py`,
+  `services/search_index_health.py`), through simpl_core's `data_lake_alert`: errors and
+  warnings only, never success. Without `DISCORD_DATA_LAKE_WEBHOOK_URL`, or when Discord
+  does not take a message, they go to #error or #warning instead.
+  - **A run that failed (error):** a run started by hand posts its own failure at once;
     a run its schedule started leaves it to the next run, which posts when the
     deployment's runs keep failing (second failure in a row, then every fourth). A run
     killed for memory is caught the same way.
-  - **#warning, documents that failed for good** (their fifth failure; they stay
-    `failed` until they change again): once per index run, with the ledger to read.
-  - **#warning, hourly, from maintenance:** a row store table maintenance does not keep
+  - **Documents that failed for good (warning)** (their fifth failure, or a text too
+    long to embed; they stay `failed` until they change again): once per index run,
+    with the ledger to read.
+  - **Hourly, from maintenance (warning):** a row store table maintenance does not keep
     up with (`Dataset.health`, a segment heal that failed), and for each `active`
     dataset an index that does not keep up (`read_index_progress`): documents due and
     no commit for `params.maintenance.stalled_after_minutes` (60 by default; 0 turns it
