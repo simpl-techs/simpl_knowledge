@@ -2269,7 +2269,7 @@ for the loan's customer for the rest of its life, after the loan ends too.
   user_id, icp_id, reason, change_ref, dry_run=False) -> PipelineRelease` (asyncpg, the caller
   owns the transaction). Companies whose stage over all the user's connections there is open
   and that nothing binds: the person connections on the ICP are unclaimed and marked
-  (`user_lead_connection.released_at`, which nothing else writes; no stage change, no history
+  (`user_lead_connection.released_at`, written by `release_connections`; no stage change, no history
   row; the placeholder stays claimed), their `PENDING`/`PENDING_APPROVAL` rows cancelled,
   `RUNNING` rows get `cancel_requested_at`, unclaimed wake-ups cancelled; the user's live
   autopilot work units on the ICP expire. `dry_run` counts without locking or writing;
@@ -2279,6 +2279,15 @@ for the loan's customer for the rest of its life, after the loan ends too.
   unclaimed, never contacted and not on an ICP the identity is assigned to now). A
   connection made after the move (a referral on a thread that continues, an inbound
   person) carries no mark and is worked.
+- **Releasing given connections:** `services.icp_pipeline.release_connections(conn,
+  connection_ids, *, reason, change_ref, cancelled_by=RELEASE_CANCELLED_BY) -> ConnectionRelease`
+  (asyncpg, the caller owns the transaction) is the per-connection half of the move: unclaim,
+  set `released_at` where it is missing, cancel `PENDING`/`PENDING_APPROVAL` rows (open
+  reviews included), flag `RUNNING` ones, cancel unclaimed wake-ups. No stage change, no
+  history row; running it again cancels nothing. simpl_api's "not a lead" uses it with
+  `reason="not_a_lead"`. `UserLeadConnection.released_at` exposes the mark; read it with
+  `claimed` (claiming again clears it, `trg_ulc_reclaim_clears_release`). simpl-outreach's
+  admission gate ends a walk on a released connection without a review.
 - **Borrower switched off:** the dispatch authority cancels anything a connection stamped
   with a loan (open or ended) still has queued once the loan's customer is switched off
   (`metadata.is_active = false`) or has no active pay-per-call subscription
