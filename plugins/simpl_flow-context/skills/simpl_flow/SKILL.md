@@ -93,7 +93,9 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   `row_store.dataset_configs` (posts, landing pages, companies): compaction, index
   segment merges and a week of versions, every 15 minutes, with each row's
   `params.maintenance` (`MAINTENANCE_SETTINGS`: `sweep`, `target_rows_per_fragment`,
-  `max_rows`, `cleanup_older_than_days`). At 02:30 UTC (`sweep: true`) it first runs the
+  `max_rows`, `cleanup_older_than_days`, `stalled_after_minutes`, and `deferred_indexes`:
+  declared indexes left unbuilt on purpose, which health does not report, e.g. landing's
+  `text_idx` until a backfill ends, migration 117). At 02:30 UTC (`sweep: true`) it first runs the
   sweep of every active kind that has one (posts: the posts that changed or went away;
   companies: those merged away, a slice fingerprinted again), unless the row sets
   `sweep: false`. A run can still name `datasets` and `sweeps` itself. A new kind adds
