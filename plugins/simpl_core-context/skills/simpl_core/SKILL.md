@@ -2688,7 +2688,10 @@ webhooks; transport lives in simpl_ingestion) into leads owned by the right sell
   seat holds the person through another lane
   (`UserLeadConnectionRepository.move_customer_connections(customer_id=…, lead_id=…,
   to_company_id=…, replace_origin=…)` replaces a company only on connections of
-  `replace_origin`). A meeting fact applies only to a person one of the customer's inbound
+  `replace_origin`). Outbound, a reply naming another company the person answers for moves
+  that one connection there (`conversation_company.move_connection_to_named_company(session,
+  ulc_id=…, company=CompanyIdentity(…))`: their current roles first, then rule 2, never
+  their address). A meeting fact applies only to a person one of the customer's inbound
   sources brought (2026-10-16): an `inbound.lead.received` whose `origin` is not a meeting
   fact, on a connection a user of the customer holds to the lead
   (`meetings.came_through_an_inbound_source(session, customer_id=…, lead_id=…) -> bool`).
