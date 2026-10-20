@@ -265,6 +265,32 @@ A `self_hosted` target is a server the caller runs (llama.cpp, vLLM): it names i
 writes no cost receipt. Any non-decision target may add `extra_body`, request fields
 merged into every call it sends (a call's own fields win).
 
+An `openai` target may set `prompt_cache: explicit`: on gpt-5.6 and later the call caches
+its system prompt and nothing after it, so the rest of each request is billed as uncached
+input instead of being written to the cache (simpl_ia's `PromptCacheMode`); on an older
+OpenAI model it changes nothing. It is refused on any other provider, and on a policy it
+covers the primary only. Leave it off an agent that calls tools: explicit mode stops
+OpenAI caching the growing tool-call history.
+
+An `llm_agent` may set `request_layout`, the messages a call sends in order, so content
+that repeats across calls can sit early in the request and be cached on its own:
+
+```yaml
+request_layout:
+  - {prompt: full}                    # system message: the whole prompt
+  - {inputs: [context.customer_prompts_source, context.icp_prompts_source], cache: true}
+  - {rest: true}                      # final user message: every input not sent yet
+```
+
+A `prompt` block sends `full`, or `core` and `fragments` as two system messages. An
+`inputs` block sends one user message holding the values at its dotted paths, each at
+its path; `cache: true` ends it with a cache breakpoint (at most three). The layout
+opens with the core, places the prompt once, ends with `rest`, and no path repeats or
+contains another. A block with nothing to send sends no message. Without a layout the
+whole prompt is the system message and every input one user message, which is also what
+`[{prompt: full}, {rest: true}]` sends. Only `rest` is subject to the client's
+`AI_MAX_USER_PROMPT_CHARS` cap and its context-window truncation.
+
 **`lm_model`: a self-hosted model asked with its family's own request.** For a model
 that takes its task as request fields rather than a prompt (NuExtract reads its
 template from `chat_template_kwargs`), an `lm_model` row names the request format and
