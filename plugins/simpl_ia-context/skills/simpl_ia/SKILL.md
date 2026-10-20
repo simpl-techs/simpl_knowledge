@@ -128,6 +128,13 @@ agent = client.make_agent(
 result = await client.run(agent=agent, user_prompt=document, temperature=0.0, max_tokens=1024)
 ```
 
+An `openai` target's `prompt_cache="explicit"` caches the system prompt and nothing
+after it, through pydantic-ai's `cache={"messages": False}`. On gpt-5.6 and later the
+request runs in OpenAI's explicit cache mode with one breakpoint at the end of the system
+prompt, so the rest is billed as uncached input instead of being written to the cache; on
+an older OpenAI model it changes nothing. It is refused on any other provider, and on a
+policy covers the primary only. `None` (the default) leaves OpenAI's implicit caching.
+
 Structured output mode (native JSON schema, a forced output tool, or the
 schema in the prompt) is resolved per chain member from the route's
 capabilities, whether the agent passed `tools` to `make_agent`, and the
