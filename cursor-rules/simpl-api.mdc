@@ -52,6 +52,16 @@ to update the ledger; existing manual attributions remain protected.
 
 Expenses product scope: `GET /api/v1/admin/spend/lines` includes `product_scope` (`status`, nullable `kind`, `reason`) from simpl_core's domain rule. Only explicit product-use tags admit a line; missing, mixed or contradictory tags stay outside reconciliation. Migration `20261014160000_expense_themes_and_product_scope.sql` seeds an exclusive operational theme catalog and six fixed use values, archives legacy context tags while preserving their assignments, and does not alter ROI allocations. Release simpl_core with `roi.spend_scope` first and refresh this service's locked core dependency before deployment. Deploy the dashboard and SimpL OS skill changes, then update the two finance roles through the reviewed role-seed diff without overwriting human edits. Existing bank lines require evidence-based classification before comparison becomes populated.
 
+## Mailboxes on other providers (IMAP/SMTP, ENG-864)
+
+A seller connects any mailbox that is not Gmail or Outlook with its address and password only. simpl_core does the work (`services/email/mailbox_connect.py`); these routes add the KMS cipher (`MAILBOX_KMS_KEY_NAME`), the channel activation every new email connection gets, and the notices.
+
+- `GET /api/v1/integrations/mailbox` → `{connected, needsPassword, email, providerName}` (`needsPassword`: a login was refused, the password changed).
+- `POST /api/v1/integrations/mailbox/connect` `{email, password}` and `PUT /api/v1/integrations/mailbox/password` `{password}` → `{status, email, providerName, integrationSlug, appPasswordUrl, helpUrl}`, always 200. `status`: `connected`, `use_integration` (Google or Microsoft: connect `integrationSlug` instead), `provider_pending` (no preset yet: the team is told on Discord once per domain and the seller is emailed when it is added; no password is sent or kept), `wrong_password`, `unavailable`, `rate_limited`, `invalid_email`, `not_connected`. 503 when `MAILBOX_KMS_KEY_NAME` is unset.
+- `DELETE /api/v1/integrations/mailbox` erases the stored password and revokes the connection.
+- Admin: `GET /api/v1/admin/mailbox-providers/requests?status=open|resolved|dismissed`, `GET …/catalog` (presets and redirect rules), `POST …/requests/{id}/resolve` `{kind: new_preset|extend_preset|extend_redirect, preset?, key?, addMxSuffixes?}` (409 when it would not make the domain match; the waiting sellers are emailed), `POST …/requests/{id}/dismiss` `{reason}`.
+- The routes are gated like every integration (`_require_integration_access`): the `imap` row is beta until `is_beta` is cleared, so only admins can connect until then. Passwords are `SecretStr` and their length is checked in the handler, because a refused field would come back in the 422 body.
+
 ## Rules and conventions
 
 - Keep FastAPI route handlers thin. Move reusable domain behavior to `simpl_core` or a service module.
