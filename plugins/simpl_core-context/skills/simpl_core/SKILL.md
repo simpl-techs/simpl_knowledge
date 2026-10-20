@@ -167,6 +167,14 @@ fan-outs tolerate `partial` and `empty` aggregates; agent fan-outs pass only
 when every branch passes. Public consumer-envelope fields are exposed to
 `domain_inputs` resolvers and may not shadow a domain key.
 
+**A deterministic agent takes its settings from the policy.** A `deterministic`
+row with an `implementation_class` may carry `params`; `load_producer` passes them
+to the class as keyword arguments, so a policy can tune a threshold or a budget
+without a release. The class owns the names and their defaults and must accept a
+walk with none; a name it does not take fails the walk at load (`TypeError`), and
+`params` on any other row is refused at parse. Rows without `params` hash as
+before.
+
 **A `data_producer` reads a table without code.** Its `read` names a `table`, the
 `columns` to take and `where` clauses whose values are literals or resolved from the
 run (`domain_inputs`, `producer_output`, `verdicts`); `cardinality` is `one` or `many`.
