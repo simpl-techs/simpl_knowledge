@@ -191,20 +191,27 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   recorded under `knowledge_graph_extraction`, is the whole cost.
 - `gcp_open_graph_flow` (no schedule, started by hand) labels LinkedIn posts with
   llmgraph (LangChain's `LLMGraphTransformer`) once per teacher, as training data. A
-  teacher is an OpenRouter model in one llmgraph mode, listed in
-  `pipelines/open_graph/teachers.yaml`; every request goes to zero-retention routes
-  that do not train on the posts. Parameters: `source_keys` (required, post keys
-  `p:<post id>`: v1 reads posts only, and a key of a kind with no pipeline stops the
-  run before it marks anything), `teachers` (default: every teacher of the file),
+  teacher is a model in one llmgraph mode, listed in
+  `pipelines/open_graph/teachers.yaml`, asked through OpenRouter (every request on
+  zero-retention routes that do not train on the posts) or through Anthropic's own API
+  (`backend: anthropic`, under the account's own data terms). Parameters:
+  `source_keys` (required, post keys `p:<post id>`: v1 reads posts only, and a key of a
+  kind with no pipeline stops the run before it marks anything), `teachers` (default:
+  every teacher of the file with `in_default_run` true; `anthropic_api_claude_opus_5_5`
+  runs only when named),
   `relabel` (default `false`), `batch_size`, `max_batches`. The ledger
   `open_graph.label_index` (migration 115) has one row per teacher and source: a pair
   already `stored` is skipped unless `relabel=true`. The agent framework walks policy
   `open_graph_root` (seed migration 116) and writes one Parquet row per post and
   teacher under `<ROW_STORE_URI>/training/open_graph/v1`, outside the row store's
   catalog; readers drop repeated `label_id` values and the rows with `parse_failed`
-  (llmgraph could not read the teacher's answer; kept, not asked again). It needs `OPENROUTER_API_KEY` and
-  `ROW_STORE_URI`. Its LangChain packages are in the optional Poetry group
-  `open-graph`, so the deployment has its own image, `simpl-flow-open-graph`
+  (llmgraph could not read the teacher's answer; kept, not asked again). It needs
+  `ROW_STORE_URI`, `OPENROUTER_API_KEY` when an OpenRouter teacher runs and
+  `ANTHROPIC_API_KEY` when an Anthropic teacher runs; a missing key stops the run before
+  it marks anything. OpenRouter's costs are recorded by simpl_tracker's transport; an
+  Anthropic request's cost is not recorded (a one-off run on a key SimpL does not pay).
+  Its LangChain packages are in the optional Poetry group `open-graph`, so the
+  deployment has its own image, `simpl-flow-open-graph`
   (`Dockerfile` build arg `EXTRA_GROUPS`); no other image carries them. The run turns
   LangSmith tracing off for its process before its first request, locally too, so no
   environment value can turn it on; its job command also turns it off with `env`,
