@@ -2415,10 +2415,14 @@ is enabled by revision 2 (`migrations/20261016b_enable_profile_positions.sql`); 
 
 `simpl_core.services.lead_positions.positions_to_experience(session, lead_id=…,
 positions=…, source=…, today=None)` writes those positions; it never commits.
-- **Companies:** found by numeric LinkedIn id only, through
-  `CompanyByIdService.get_or_create`: the row holding the id, else the single id-less row
-  on its LinkedIn company page (which takes the id), else a new row with `origin=source`.
-  A position without an id is skipped, never matched by name.
+- **Companies:** found by numeric LinkedIn id: the row holding the id; else, for a
+  position held on `today`, the lead's own company when it carries the position's name
+  (case and spacing aside), holds no id and sits on no other page
+  (`CompanyByIdService.attach_to`, which gives it the id and the page); else
+  `CompanyByIdService.get_or_create`: the single id-less row on its LinkedIn company page
+  (a real row first; a lone placeholder is promoted: it takes the id and `origin=source`,
+  and its pending claims resolve to it), else a new row with `origin=source`. A position
+  without an id is skipped, never matched by name.
 - **Experience:** one `sales.lead_experience` row per position the lead does not have yet
   (`LeadRepository.add_experience_if_absent`).
 - **Current employer:** when the positions held on `today` name exactly one company, it
