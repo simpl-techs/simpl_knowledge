@@ -143,6 +143,11 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   manual run, `build_indexes` (with `datasets`), with memory for a first vector build's
   training (`--job-variable memory=8Gi`); the health check reports it as unbuilt until
   then. The deployment runs at 2 vCPUs and 4 GiB for the section builds.
+- `gcp_verify_shortlist_candidates_flow` (no schedule, started by simpl_api) verifies a
+  page of an ICP's shortlist candidates: parameters `icp_id`, `company_ids` (the ones
+  simpl_api marked `checking` in `opportunity.icp_company_verdict`, migration 119) and
+  `customer_id` (cost attribution). It runs the nightly verification on them, assigns
+  nothing, and writes each verdict (`pass`, `reject`, `skipped`) with its reason.
 - `gcp_opportunity_matcher_flow` (no schedule, started by hand) is the new ICP, signal
   and opportunity matcher, in shadow: Postgres and today's opportunity pipeline are
   untouched. It matches `icp_ids` (every ICP with an active definition when none) under
