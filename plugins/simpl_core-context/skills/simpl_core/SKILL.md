@@ -35,6 +35,7 @@ Use extras only when needed:
 poetry add "simpl-core[novu,composio-sdk] @ git+https://github.com/simpl-techs/simpl_core.git@main"
 poetry add "simpl-core[agent-framework] @ git+https://github.com/simpl-techs/simpl_core.git@main"
 poetry add "simpl-core[mailbox] @ git+https://github.com/simpl-techs/simpl_core.git@main"
+poetry add "simpl-core[parquet] @ git+https://github.com/simpl-techs/simpl_core.git@main"
 ```
 
 The `mailbox` extra (aioimaplib, aiosmtplib, google-cloud-kms, dnspython) is what an `imap` email connection needs at runtime; see "Email on other providers (IMAP/SMTP)". Nothing imports it at `import simpl_core.services.email`.
@@ -1770,6 +1771,30 @@ ref = await store.complete_multipart_upload(upload, parts, sha256_hex=whole_body
 
 Every part but the last must be at least 5 MiB. `list_multipart_uploads` pages through
 uploads never completed or aborted, which are billed until aborted.
+
+### Database rows as Parquet objects (`parquet_archive`)
+
+`simpl_core.parquet_archive` writes rows read from a Postgres table to object storage as
+one Parquet file per batch, for history moved out of the database. Install
+`simpl-core[parquet]` (pyarrow); nothing imports it at `import simpl_core`.
+
+```python
+rows = (await session.execute(select(FetchAttempt.__table__).where(...))).mappings().all()
+arrow = arrow_table(FetchAttempt.__table__, rows)
+ref = await put_parquet(store, "history/<table>/<yyyy>/<mm>/<batch>.parquet", arrow,
+                        metadata={"rows": str(arrow.num_rows)})
+```
+
+- `arrow_schema(table)` derives the Arrow schema from the SQLAlchemy table: every column,
+  in order, with its nullability; the schema metadata names the source table
+  (`source_table`).
+- Integers, floats, booleans, timestamps (UTC when the column has a time zone), dates,
+  times, intervals (durations), bytea and arrays map to their Arrow types. uuid, inet,
+  numeric and text are strings; JSON and JSONB are their serialized document as a string.
+  A column type with no mapping raises `TypeError` naming the column.
+- `put_parquet` builds the file in a worker thread (zstd) and uploads it with
+  `S3ObjectStore.put_bytes` (content type `application/vnd.apache.parquet`), replacing
+  any object at the key. The file is held in memory: keep each object to one batch.
 
 ### Processed rows and projections (`row_store`)
 
