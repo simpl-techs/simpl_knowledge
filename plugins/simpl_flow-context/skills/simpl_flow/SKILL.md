@@ -123,10 +123,11 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
     dataset an index that does not keep up (`read_index_progress`): documents due and
     no commit for `params.maintenance.stalled_after_minutes` (60 by default; 0 turns it
     off, as migration 085 does for landing while its runs are held), or a Zilliz
-    projection that far behind the store. The graphia extractor runs by hand
-    (`UNSCHEDULED_LEDGERS`): in its ledger only documents a run that stopped still holds
-    count, not documents waiting for the next run. `search_index_maintenance.health` and
-    `.progress` log them every run.
+    projection that far behind the store. The graphia extractor runs by hand while its
+    schedule is off (`UNSCHEDULED_LEDGERS`): in its ledger, documents a run that stopped
+    still holds count, dated by when the claim ran out; and documents due for over 6 h
+    (`BACKLOG_AFTER`) while no run holds any, so a run that stopped early is not left
+    unseen. `search_index_maintenance.health` and `.progress` log them every run.
 - `gcp_memory_projection_flow` runs every five minutes and incrementally applies
   pending `agent_memory` revisions to Zilliz. It requires `NEBIUS_API_KEY`,
   `MILVUS_URI`, and `MILVUS_TOKEN`; do not replace it with routine collection
@@ -161,21 +162,26 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   with `NEBIUS_API_KEY`; nothing goes to Zilliz. The lake reads through DuckDB's `lance`
   extension, which the image installs (`DUCKDB_EXTENSION_DIRECTORY`). Plan and status:
   `docs/knowledge-graph-matchers-plan.md`.
-- `gcp_graphia_extractor_flow` (no schedule, started by hand) is the knowledge graph
+- `gcp_graphia_extractor_flow` (started by hand; its hourly schedule, which continues
+  what is pending, ships inactive and is turned on in Prefect) is the knowledge graph
   extraction job. It marks the posts (`p:<post id>`) and sites (`h:<host>`) given as
   `source_keys` pending for `variant` in the ledger `knowledge_graph.extraction_index`
-  (migration 095), then extracts the pending rows in batches: the agent framework walks
+  (migration 095; a key it holds already keeps its status and attempts unless its search
+  text changed; `queue-mark --retry-failed` marks failed ones again, `--again` any given
+  one, stored ones too), then extracts the pending rows in batches: the agent framework walks
   the pipelines of policy `graphia_extractor_root` (newest seed: migration 114), which read the
   search datasets (`sales_posts`, `landing_pages`), call the model, check, link and
   resolve, and commit one row per document to the row store dataset
-  `graphia_extractions:2`. A source that breaks a batch fails alone; the run claims no
-  new batch after 20 h of work, under the job's 24 h timeout, and the rest stays
+  `graphia_extractions:2`. A source that breaks a batch fails alone; the run claims and
+  walks nothing after 20 h of work, under the job's 24 h timeout, and the rest stays
   pending for the next run. When the work ends it builds the variant's facts tables
   again from everything the variant has stored: `facts:1`, `er:1` (the entities),
   `facts_evidence:1`, `facts_edges:1`, and per edge type `facts_edge_<type>:1` and
   `facts_edge_<type>_by_dst:1`, one row per item, for joins (columns in
-  `docs/knowledge-graph-typed-tables.md`); `build_tables=false` leaves them as they
-  are. Which datasets it writes is `row_store.dataset_configs` (migration 096: kind
+  `docs/knowledge-graph-typed-tables.md`), when the run stored a row;
+  `build_tables=false` leaves them as they are, and `force_tables=true` builds them
+  also when the run stored nothing. Which datasets it writes is
+  `row_store.dataset_configs` (migration 096: kind
   `extractions`, and one kind per facts table, named as the table); a run stops at
   start when one has no active row. Maintenance keeps them all. `variant` is required and names a model setup of
   `pipelines/knowledge_graph/variants.yaml`; a run claims that variant's rows only and
