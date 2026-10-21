@@ -864,9 +864,22 @@ It refuses, writing nothing, when the document fails the authoring gates, when
 it is identical to its parent, or when the target files already exist (pass
 `replace=True` only for a version applied nowhere).
 
+`--delta` (`delta=True`) writes a seed that carries only the lines changed since
+`--parent`, whose seed must be in `--dest` (full or delta). Applied, it reads the
+parent row's `content`, checks its sha256, applies the hunks, checks the result's
+sha256 and inserts the full document -- the same row a full seed writes. It raises,
+inserting nothing, when the parent is not registered or holds another document,
+or when the version is registered with other content; re-running it is a no-op.
+
+`seed_document(migrations_dir, config_key, version)` returns the document a
+directory's seeds register for a version, following delta seeds back to a full
+one and checking every hash. `delta_seed_statements(...)` renders just the delta
+`DO` block, for a repository that writes its own seed header and rollback.
+
 `assert_newest_seed_matches_document(migrations_dir=..., document=..., config_key=...)`
 raises `AssertionError` when the authored document has drifted from the newest
-seed carrying it. Call it from a test; it imports no test framework.
+seed carrying it (embedded, or rebuilt by a delta seed). Call it from a test; it
+imports no test framework.
 
 Both need the `agent-framework` extra — they validate through the framework's
 schemas. `import simpl_core` itself stays free of that dependency; the cost is
