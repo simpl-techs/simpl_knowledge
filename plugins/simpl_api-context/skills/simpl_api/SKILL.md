@@ -270,3 +270,9 @@ bootstraps include `categories`; the survey includes only `allows_time` categori
 Apply `20261010112322_roi_live_categories.sql` after the Asset migration and before
 deploying core/API/dashboard: it replaces fixed category checks with foreign keys,
 preserves existing categories and allows service-role access only.
+
+## Checkout billing identifiers
+
+`POST /api/v1/onboarding/session/{id}/checkout-intent` requires `tax_details` with at least one of `vat_number` (EU VAT, country prefix; bare 11 digits mean Italy) and `fiscal_code` (Italian, 16 characters or 11 digits without IT). Empty or malformed details return 422. The server saves EU VAT in Stripe Customer `tax_ids` and fiscal code in Customer `metadata.fiscal_code` (the A-Cube field) before opening checkout. Validation checks format, not ownership or registry validity. A conflicting existing EU VAT returns 409; it is not deleted or replaced.
+
+Checkout payment-link responses expose the stable `/pay/{id}` URL in both `url` and `stable_url`. GET displays the billing form and does not write; POST accepts the same two form fields and saves them before redirecting. Old checkout sessions are replaced on submission if they lack the matching billing fingerprint. Previously shared direct Stripe URLs are not retroactively revoked by deployment. Hosted invoice links remain separate. No migration or new secret is required; deploy simpl_sales and simpl_api together because the payer request now needs billing details.
