@@ -227,7 +227,62 @@ is a table of the row store instead, named as the store names it
 
 A host that runs such a read needs the `row-store` extra and `ROW_STORE_URI`. The
 live validation checks the columns and their declared types against the table in the
-store, as it checks a database table. Writes (`data_consumer`) go to the database only.
+store, as it checks a database table.
+
+**A `data_consumer` writes to the database, or to a Parquet dataset.** With
+`source: parquet`, `table` names a Parquet dataset the host registered
+(`parquet_dataset`, below) and each write is one part file of the walk's rows, or, inside
+`defer_parquet_writes()`, rows staged for one part per dataset at the host's flush
+(below). Every merge lists every part, so a host whose walks hold a few rows each stages
+them. The operation is `insert_ignore`: the dataset's merge keeps a key's first row, so
+`conflict_on`, `update_where` and `fill_null_columns` are refused. Map every column
+explicitly; values must already have their column's type (a datetime with a time zone
+for a timestamp column, not ISO text):
+
+```yaml
+- kind: data_consumer
+  id: labels_sink
+  write:
+    source: parquet
+    table: opus_llmgraph_v1
+    operation: insert_ignore
+    for_each: {resolver: producer_output, path: rows}
+    values:
+      label_id: {item: label_id}
+      text: {item: text}
+      nodes: {item: nodes}
+```
+
+The host passes its datasets to the executor, and the executor to the coordinator:
+`NodeCoordinator(..., data_executor=GenericDataExecutor(db, parquet_sinks={name:
+dataset}))` (without `data_executor` a coordinator writes to its database only). Such a
+write never opens a session on `db`. It raises `LookupError` when the host has no sink of
+that name, `ValueError` inside `defer_data_writes` (unless `defer_parquet_writes` is open
+too), `ParquetRowError` for a row the schema refuses, and `OSError` (`TimeoutError`
+included) when storage refuses the part.
+The loader's boot validation checks writes against the database only and skips parquet
+writes: run `executor.parquet_write_problems(owner, spec)` on the policy's parquet writes
+before the first walk, so a value naming no column, or a non-null column with no value,
+stops the host before it pays for work whose rows it cannot write. The node passes its
+input through, as every sink does.
+
+One part per claim instead of one per walk: open `defer_parquet_writes()` around the
+claim's walks, then `await batch.flush()` before settling the claim's keys as stored.
+
+```python
+from simpl_core.agent_framework.data_io import defer_parquet_writes
+
+with defer_parquet_writes() as staged:   # one claim
+    ...                                  # its walks: each parquet write is staged
+parts = await staged.flush()             # one part per dataset; then settle stored
+```
+
+A staged write is checked against the schema at once (`ParquetRowError` in the walk that
+staged it) and copied. `flush` writes each dataset's rows as one part, a key staged twice
+kept once (its lowest `order` value, as a merge keeps it), and returns the `PartRef`s; on
+an `OSError` the rows not written stay staged. Rows never flushed are never written. The
+scope holds at most `max_rows` (10,000) rows (`ValueError` past it); nested scopes are
+refused; `post_write_class` is refused on a staged write.
 
 An `llm_agent`'s `model` is a nested policy — a primary target plus ordered
 fallbacks — resolved per agent through an `LLMClientResolver` built from
@@ -1833,6 +1888,78 @@ ref = await put_parquet(store, "history/<table>/<yyyy>/<mm>/<batch>.parquet", ar
 - `put_parquet` builds the file in a worker thread (zstd) and uploads it with
   `S3ObjectStore.put_bytes` (content type `application/vnd.apache.parquet`), replacing
   any object at the key. The file is held in memory: keep each object to one batch.
+
+### Parquet datasets for training readers (`parquet_dataset`)
+
+`simpl_core.parquet_dataset` keeps a dataset as plain Parquet in one folder on GCS (or a
+local disk), for readers that take Parquet as it is: Hugging Face datasets, pyarrow,
+BigQuery external tables, a GPU job. Writers on many machines add part files; merges
+fold them into capped shards with one row per key. Nothing writes to a database. Install
+`simpl-core[parquet]` (pyarrow, google-cloud-storage).
+
+```python
+spec = ParquetDatasetSpec(name="opus_llmgraph_v1", schema=LABEL_SCHEMA,
+                          key="label_id", order="labelled_at")
+labels = ParquetDataset.at(spec, "<bucket>/distillation/opus_llmgraph_v1", gcs_fs,
+                           writer="jackie-mbp", token=os.environ.get("GOOGLE_STORAGE_TOKEN"))
+part = await labels.write_part(rows)   # parts/<UTC time>_<writer>_<8 hex>.parquet
+merged = await labels.merge()          # shards/, keys/, manifest.json
+```
+
+- **Layout** (simpl_flow's `og-merge`, T13: the same files, names and rules, so its
+  folders are read and extended as they are): `parts/*.parquet` (kept, never rewritten);
+  `shards/<name>-<nnnnn>.parquet`, exactly the schema, zstd, row groups of 5,000 rows,
+  about 256 MB each (`shard_bytes`); `keys/<name>-<nnnnn>.parquet`, each closed shard's key
+  index (`key`: the first 16 bytes of each key); `manifest.json` (`format` 1, `group`,
+  `shard_bytes`, `shards` with name, rows, bytes, closed, and the `parts` merged);
+  `merge.lock`; `tmp/`, files being written, never read. The folder's last segment is
+  the dataset's name. **Readers read the shards `manifest.json` lists** (`shards[].name`)
+  as one table, not a glob of `shards/`: while a merge writes, or after one stopped half
+  way and until the next merge, `shards/` can hold a shard not listed yet.
+- **Spec.** `key` is a non-null string column of lower-case hex digests (a SHA-256 in
+  hex): its first 16 bytes index it. `order` is non-null; among a merge's new rows a key
+  keeps the row with the lowest value, and a key already in a shard keeps its stored row.
+- **Rows are checked before a write** (`spec.table(rows)`), because Arrow would let them
+  through: an unknown key at any depth, a missing value or a null in a non-null column at
+  any depth, a value of another type (a naive datetime for a column with a time zone
+  too), a key that is not a lower-case hex digest (checked whole: a trailing newline is
+  refused, as the merge refuses it), a key repeated in one write. Each raises
+  `ParquetRowError` naming the row's key, the column path and the problem. The dataset's
+  name and the `writer` are checked whole too.
+- **A part** is written whole or not at all, never over an existing path, in a worker
+  thread under `write_timeout_s` (180 s; a `TimeoutError` is an `OSError`).
+- **A merge** returns at once when no part is new. Otherwise it holds `merge.lock` (on GCS
+  an object created only if absent, holding its owner and an expiry, 30 min, after which
+  another merge takes it over; locally an `flock`), streams the open shard into its new
+  version followed by the new rows, closes a shard at the cap (and writes its key file),
+  and replaces the manifest conditional on the version it read (GCS generation, or
+  inode, time and size). Right after taking the lock it writes the manifest again as it
+  is (its claim), and its last write is conditional on that new version: a merge that
+  lost the lock cannot land its manifest over the merge that took it over. Before it
+  writes, it deletes the shard and key files numbered past the manifest's last shard
+  (`Manifest.remove`, conditional on their version; logged
+  `parquet_dataset.unlisted_file_deleted`). Once the manifest exists, its `shard_bytes`
+  wins over `ParquetDataset(shard_bytes=...)` (warning `parquet_dataset.shard_bytes_kept`),
+  so every merge closes shards at the dataset's first cap. Every shard and key file is written under `tmp/` and put on its
+  name only once complete and only if that name is still at the version it had when the
+  merge began (`Manifest.publish`: a server-side rewrite on GCS, a rename locally); the
+  lock is renewed before each of these and before the manifest, and while the merge reads
+  and writes between them, before each part, key file and row group, once
+  `LOCK_RENEW_AFTER` (a third of the expiry, 10 min) has passed since the last renewal
+  (`Lease.renew_if_due`): a merge whose reads outlast the expiry keeps the lock. A failure
+  mid-file leaves the old shard; a lock taken over (the merge slept past its expiry) or a name another
+  merge wrote raises `MergeConflict` and the merge writes nothing more (no retry: the next
+  merge starts from the manifest). `MergeBusy` when the lock stays held for `lock_wait_s`
+  (120 s): the parts wait for the next merge. A part that cannot be read (not Parquet,
+  another schema, keys that are not hex digests) is logged (`parquet_dataset.part_skipped`),
+  named in `MergeResult.skipped`, not listed as merged, and tried again by the next merge;
+  the other parts are merged. A closed shard's columns are never read again; the key index
+  grows with the dataset (16 bytes a key). A manifest of another format or dataset in the
+  folder is refused (`ValueError`).
+- **Manifest by filesystem**: `manifest_for(folder, fs, token=...)` gives `GcsManifest` on
+  `GcsFileSystem` (the token, an OAuth access token, else Application Default
+  Credentials; no project needed) and `LocalManifest` on `LocalFileSystem`; any other
+  filesystem is refused: no conditional write is known for it.
 
 ### Processed rows and projections (`row_store`)
 
