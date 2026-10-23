@@ -228,31 +228,34 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
 - The open graph Opus dataset is built from people's machines, not by the deployed flow:
   `python -m simpl_flow.pipelines.open_graph og-mark` adds random keys (posts `p:` and landing chunks `c:<host>#<part>`, mixed by `--mix`, the
   ICP's first with `--icp-first`) to the ledger, and `og-work` is one worker of one
-  teacher: it claims due keys (250 a batch), labels them, writes one Parquet file per
-  batch, posts and chunks together, to
+  teacher: it claims due keys (250 a batch), labels them, writes one Parquet part per
+  batch, posts and chunks together, to the dataset group's Parquet dataset (simpl_core's
+  `parquet_dataset`, through the policy's Parquet sink, a `data_consumer`):
   `gs://simpl-processed-rows/distillation/<dataset group>/parts/`
-  (`<UTC time>_<machine>_<claim>.parquet`), settles, and with `--refill N` marks more
-  when none is due. `og-merge --group <group>` (also run by `og-work` while it waits out
-  a plan pause and when it ends) keeps the group's dataset up to date from the batch
-  files: `distillation/<group>/shards/*.parquet`, one row per `label_id`, shards of
-  about 256 MB (closed shards never rewritten), listed in
-  `distillation/<group>/manifest.json`: the manifest's shard list is the dataset; read
-  those shards as one table (a merge writes its
-  files under `distillation/<group>/tmp/` first and puts each in place whole). A batch
-  file that does not read is skipped and left out of the manifest (`MergeResult.skipped`,
-  `parts_skipped` in `og-work`'s summary). Batch files are
-  kept. The two commands write to
+  (`<UTC time>_<machine>_<8 random hex>.parquet`), settles, and with `--refill N` marks
+  more when none is due. `og-work` merges the parts into the dataset while it waits out a
+  plan pause and when it ends, with simpl_core's merge; `og-merge --group <group>` runs
+  the same merge by hand, as a fallback. The dataset: `distillation/<group>/shards/*.parquet`,
+  one row per `label_id`, shards of about 256 MB (closed shards never rewritten), listed
+  in `distillation/<group>/manifest.json`: the manifest's shard list is the dataset;
+  read those shards as one table (a merge writes its files under
+  `distillation/<group>/tmp/` first and puts each in place whole). A part that does not
+  read is skipped and left out of the manifest (`MergeResult.skipped`, `parts_skipped`
+  in `og-work`'s summary). Parts are kept; the folders og-merge wrote before simpl_core
+  took over are read and extended as they are. The two commands write to
   production only in `open_graph.label_index`; `og-work` reads the policy from
-  production on a read-only connection: `open_graph_root` version 2
-  (`WORKER_POLICY_VERSION`), whose seed (121) inserts it inactive, so the deployed flow
-  keeps version 1, and which its publisher projects once by hand
+  production on a read-only connection: `open_graph_root` version 3
+  (`WORKER_POLICY_VERSION`), whose seed (122) inserts it inactive, so the deployed flow
+  keeps version 1; its `store` writes `label`'s rows to the Parquet dataset named as the
+  group (`opus_llmgraph_v1`), and a worker of another group stops before it claims. Its
+  publisher projects it once by hand
   (`scripts/project_open_graph_policy.py`); a worker never writes the policy.
   Teachers of one `dataset_group`
   (`opus_llmgraph_v1`: the API, OpenRouter and Claude plan Opus 5.5 teachers) share
   their keys: a key one of them labelled is not marked or labelled by another. On the
   Claude plan teacher, `--max-plan-usage[-5h|-7d]` caps the plan's windows and
   `--on-limit wait` waits out a refused call instead of stopping. Ctrl-C once stops a
-  worker after its batch (file written, keys settled, dataset merged); twice stops it at
+  worker after its batch (part written, keys settled, dataset merged); twice stops it at
   once with its unsettled keys given back. Any number of workers may run at once; the
   README's *Open graph dataset from your machine* has the setup.
 - Flow-runner autopilot sessions end `completed` when at least one company succeeded,
