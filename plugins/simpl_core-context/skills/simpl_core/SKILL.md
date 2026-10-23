@@ -280,7 +280,9 @@ parts = await staged.flush()             # one part per dataset; then settle sto
 A staged write is checked against the schema at once (`ParquetRowError` in the walk that
 staged it) and copied. `flush` writes each dataset's rows as one part, a key staged twice
 kept once (its lowest `order` value, as a merge keeps it), and returns the `PartRef`s; on
-an `OSError` the rows not written stay staged. Rows never flushed are never written. The
+an `OSError` or a cancellation the rows not written stay staged. Flush after the claim's
+walks finish: rows a walk stages during a flush are kept, but may wait for the next
+flush. Rows never flushed are never written. The
 scope holds at most `max_rows` (10,000) rows (`ValueError` past it); nested scopes are
 refused; `post_write_class` is refused on a staged write.
 
