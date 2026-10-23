@@ -2454,6 +2454,17 @@ for the loan's customer for the rest of its life, after the loan ends too.
   `handoff_required`, `invalid_handoff`, `not_an_identity`), `lent_identities(C)`,
   `customers_lent_to(identity)`, `sync_identity(identity, actor)` (home + every borrower).
   `snapshot`/`members` never list a lent identity.
+- **Notifications:** what an identity lent now would be told goes to whom she hands off to at
+  the borrower, in its workspace. `services.notifications.lent_identity.open_loan_takers(conn,
+  identity_ids) -> {identity: LentIdentityTaker}` (asyncpg; `customer_id`, `customer_name`,
+  `taker_user_id`, `taker_role`): `sales.meeting_booking_seller` on a connection stamped with
+  the open loan (the borrower's own rule, else the loan's hand-off), the loan's hand-off when
+  none is stamped yet. `GovernedUserNotificationCommand.dispatch` redirects a notification
+  addressed to her there before every gate (role, quota and audit are the taker's and the
+  borrower's; `caller_jsonb.lent_identity_user_id` names her) only when it is about the
+  loan's work (`is_loan_work`): the caller's workspace is the borrower's, `metadata.icp_id`
+  is the loan's ICP, or `metadata.ulc_id` is a connection stamped with the loan. A SimpL ICP,
+  a SimpL thread, nothing named or an ended loan: hers, as before.
 - **Refusals:** `LeadHandoffService.hand_over` raises `ValueError` across work customers;
   `process_forward` answers `forward_lead_lent` for a lead the forwarder works for another
   customer; `LeadMergeService` raises `MergeConflictError` when one user's two connections
@@ -3059,7 +3070,7 @@ The send-time checks judge a row with `auto_send_at` set, `PENDING` or `RUNNING`
 jl.payload ? 'reply_confidence' AND jl.created_at >= $1 AND jl.created_at < $2
 ```
 
-The owner of a queued reply is the user of the `user_lead_connection` the row names itself, `journey_log.ulc_id`, the same rule as `JourneyLogRepository.is_owned_by` and the email claim. Return to review, the counts and the recall all use it, so a reply any of them lists or counts is one its seller can return; a row with no `ulc_id` of its own (one only its `journey_run` ties to a seller) is nobody's to them. The send-time checks judge the row as the dispatch authority rule's owner (`journey_log.ulc_id`, else `journey_run.ulc_id`), the user it would be sent as.
+The owner of a queued reply is the user of the `user_lead_connection` the row names itself, `journey_log.ulc_id`, as for the email claim. `JourneyLogRepository.is_owned_by` / `get_owned_for_user` / `load_owned_for_user_locked` (and `PendingActionsRepository.get_details`) read that rule widened by one case (`owned_by`): a row on a connection a SimpL identity opened under a loan to the user's customer (`identity_loan_id`, open or ended loan) is each of that customer's people's to approve, edit or reject; the reply-confidence functions below keep the owner alone. Return to review, the counts and the recall all use it, so a reply any of them lists or counts is one its seller can return; a row with no `ulc_id` of its own (one only its `journey_run` ties to a seller) is nobody's to them. The send-time checks judge the row as the dispatch authority rule's owner (`journey_log.ulc_id`, else `journey_run.ulc_id`), the user it would be sent as.
 
 **Return to review** `sales_outreach.reply_confidence_return_to_review(p_user_id uuid, p_reason text, p_journey_log_id uuid DEFAULT NULL, p_channel text DEFAULT NULL, p_actor text DEFAULT NULL) RETURNS uuid[]`:
 
