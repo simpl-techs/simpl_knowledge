@@ -198,8 +198,11 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   llmgraph (LangChain's `LLMGraphTransformer`) once per teacher, as training data. A
   teacher is a model in one llmgraph mode, listed in
   `pipelines/open_graph/teachers.yaml`, asked through OpenRouter (every request on
-  zero-retention routes that do not train on the posts) or through Anthropic's own API
-  (`backend: anthropic`, under the account's own data terms). Parameters:
+  zero-retention routes that do not train on the posts), through Anthropic's own API
+  (`backend: anthropic`, under the account's own data terms), or, locally only, through
+  the `claude` CLI on the Claude plan of the person running it (`backend: claude_cli`,
+  `claude_plan_opus_5_5`: no API key, the plan's own quota; `plan_usage.decision` caps
+  its share of the plan's 5-hour and 7-day windows). Parameters:
   `source_keys` (required, post keys `p:<post id>`: v1 reads posts only, and a key of a
   kind with no pipeline stops the run before it marks anything), `teachers` (default:
   every teacher of the file with `in_default_run` true; `anthropic_api_claude_opus_5_5`
@@ -213,7 +216,8 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   (llmgraph could not read the teacher's answer; kept, not asked again). It needs
   `ROW_STORE_URI`, `OPENROUTER_API_KEY` when an OpenRouter teacher runs and
   `ANTHROPIC_API_KEY` when an Anthropic teacher runs; a missing key stops the run before
-  it marks anything. OpenRouter's costs are recorded by simpl_tracker's transport; an
+  it marks anything, and a key out of credit (OpenRouter's 402, Anthropic's "credit
+  balance is too low") stops it with the claimed keys released. OpenRouter's costs are recorded by simpl_tracker's transport; an
   Anthropic request's cost is not recorded (a one-off run on a key SimpL does not pay).
   Its LangChain packages are in the optional Poetry group `open-graph`, so the
   deployment has its own image, `simpl-flow-open-graph`
@@ -221,6 +225,36 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   LangSmith tracing off for its process before its first request, locally too, so no
   environment value can turn it on; its job command also turns it off with `env`,
   after Doppler's values. Locally: `poetry install --with open-graph`.
+- The open graph Opus dataset is built from people's machines, not by the deployed flow:
+  `python -m simpl_flow.pipelines.open_graph og-mark` adds random keys (posts `p:` and landing chunks `c:<host>#<part>`, mixed by `--mix`, the
+  ICP's first with `--icp-first`) to the ledger, and `og-work` is one worker of one
+  teacher: it claims due keys (250 a batch), labels them, writes one Parquet file per
+  batch, posts and chunks together, to
+  `gs://simpl-processed-rows/distillation/<dataset group>/parts/`
+  (`<UTC time>_<machine>_<claim>.parquet`), settles, and with `--refill N` marks more
+  when none is due. `og-merge --group <group>` (also run by `og-work` while it waits out
+  a plan pause and when it ends) keeps the group's dataset up to date from the batch
+  files: `distillation/<group>/shards/*.parquet`, one row per `label_id`, shards of
+  about 256 MB (closed shards never rewritten), listed in
+  `distillation/<group>/manifest.json`: the manifest's shard list is the dataset; read
+  those shards as one table (a merge writes its
+  files under `distillation/<group>/tmp/` first and puts each in place whole). A batch
+  file that does not read is skipped and left out of the manifest (`MergeResult.skipped`,
+  `parts_skipped` in `og-work`'s summary). Batch files are
+  kept. The two commands write to
+  production only in `open_graph.label_index`; `og-work` reads the policy from
+  production on a read-only connection: `open_graph_root` version 2
+  (`WORKER_POLICY_VERSION`), whose seed (121) inserts it inactive, so the deployed flow
+  keeps version 1, and which its publisher projects once by hand
+  (`scripts/project_open_graph_policy.py`); a worker never writes the policy.
+  Teachers of one `dataset_group`
+  (`opus_llmgraph_v1`: the API, OpenRouter and Claude plan Opus 5.5 teachers) share
+  their keys: a key one of them labelled is not marked or labelled by another. On the
+  Claude plan teacher, `--max-plan-usage[-5h|-7d]` caps the plan's windows and
+  `--on-limit wait` waits out a refused call instead of stopping. Ctrl-C once stops a
+  worker after its batch (file written, keys settled, dataset merged); twice stops it at
+  once with its unsettled keys given back. Any number of workers may run at once; the
+  README's *Open graph dataset from your machine* has the setup.
 - Flow-runner autopilot sessions end `completed` when at least one company succeeded,
   `error` when the run raised or companies failed and none succeeded, and `stopped` when
   the run was interrupted: lease lost, run cancelled, or every company re-queued because
