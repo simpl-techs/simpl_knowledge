@@ -35,3 +35,8 @@ DISCORD_COST_TRACKING_WEBHOOK_URL@prd  simpl_api simpl_ops simpl_google_extensio
 # sales_wbr.metric_cache in the production database, which dev also reads: prd only.
 ACTIVATION_RECONCILE_ENABLED@prd  simpl_api
 WBR_FILL_ENABLED@prd  simpl_api
+# Signs the staff personal agents' per-call tickets: simpl_ops mints, simpl_api verifies
+# (simpl_api staff_agent, simpl_ops services/dashboard_api). One value, both services.
+STAFF_AGENT_TICKET_KEY@prd  simpl_api simpl_ops
+# simpl_api's base address with /api/v1, for SimpL OS's dashboard tools.
+DASHBOARD_API_URL@prd  simpl_ops
