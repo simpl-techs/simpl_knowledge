@@ -1,6 +1,6 @@
 {
   "name": "simpl_agent_sandbox-context",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Integration context for simpl_agent_sandbox. Auto-synced from simpl-techs/simpl_agent_sandbox.",
   "author": {
     "name": "simpl_agent_sandbox maintainers"
