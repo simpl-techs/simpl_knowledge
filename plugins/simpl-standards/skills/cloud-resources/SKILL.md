@@ -17,6 +17,7 @@ Update this table the day a program is approved, a credit expires or an HPC wind
 |---|---|---|---|
 | Google for Startups Cloud Program (GFSCP) | Applied, not active: the bill shows no startup credit (only ~€4.6/month of other credits, Aug–Oct 2026) | GCP first-party pay-as-you-go, see below | n.d. |
 | HPC | Access for limited periods of months; provider, hardware and dates n.d. | n.d. | n.d. |
+| AWS Activate | Application in progress (Linear ADM-193) | n.d. | n.d. |
 | Other credit programs | Applications in progress; which ones n.d. | n.d. | n.d. |
 
 Scale of today's spend: GCP 1–25 Oct 2026 ≈ €1,700 ex VAT, ~85% Cloud Run, then Cloud Logging, Cloud Storage, Artifact Registry. No Vertex AI or Gemini on the GCP bill.
@@ -56,7 +57,8 @@ Billed to the card even while credits are active:
 
 ## Where to check
 
-- Bill: `cost_tracking.gcp_billing_cost` (`cost_eur` gross, `credits_eur`, `net_eur`, per day, service and resource), shown on `/dashboard/costs` Infra tab. Credits there are all credit types summed.
+- Bill: `cost_tracking.gcp_billing_cost` (`cost_eur` gross, `credits_eur` all types summed, `net_eur`, per day, service and resource).
+- What credits covered: `cost_tracking.gcp_credit_coverage(from, to)` per service (cost before credits, startup credits = type `PROMOTION`, other credits, billed), from `gcp_billing_credit` loaded every 6 h. Shown on `/dashboard/costs` → Infra → "Google Cloud, from the bill": "Without credits" is the cost once credits end.
 - Credit balance and expiry: Cloud Console → Billing → Credits (not in the billing export).
 - Quota increases: https://docs.cloud.google.com/docs/quotas/view-manage. Gemini API rate limits: https://ai.google.dev/gemini-api/docs/rate-limits.
 - Cost estimates: https://cloud.google.com/products/calculator.
