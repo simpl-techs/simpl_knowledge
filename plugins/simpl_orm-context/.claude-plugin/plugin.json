@@ -1,6 +1,6 @@
 {
   "name": "simpl_orm-context",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Integration context for simpl_orm. Auto-synced from simpl-techs/simpl_orm.",
   "author": {
     "name": "simpl_orm maintainers"

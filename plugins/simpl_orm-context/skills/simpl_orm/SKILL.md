@@ -89,6 +89,23 @@ contention it is queued behind. It raises `sqlalchemy.exc.TimeoutError`, which
 about concurrency, not a transient fault, so retrying it in place adds load to
 a pool that is already full.
 
+## Query timeouts
+
+| Setting | Default | Applies to |
+| --- | --- | --- |
+| `command_timeout` | 60.0 | asyncpg only — `acquire()`, `execute()`, `fetch*()` |
+| `sqlalchemy_command_timeout` | unset | SQLAlchemy only — every `session_scope()` and repository query |
+
+SQLAlchemy sessions have no client-side query timeout unless you set
+`sqlalchemy_command_timeout`. The server's `statement_timeout` ends a slow
+query, but not a reply lost on the way back, and asyncpg turns on no keepalive
+for its own socket, so such an await never ends. Set it in long-running workers
+that must not hang (queue loops, schedulers), above the role's
+`statement_timeout`, so a merely slow query still ends with the server's error
+and its SQLSTATE. It raises the builtin `TimeoutError`, which SQLAlchemy does
+not translate, so `session_scope()` re-raises it untouched after the rollback
+rather than as `TransactionError`.
+
 ## Rules and conventions
 
 - Use async sessions and repositories. Do not introduce sync SQLAlchemy patterns in async services.
