@@ -1542,6 +1542,14 @@ count in `MergeResult.wish_lists_repointed`). Company-list imports pin targets
 and exclusions with `company.id IN ('…')` / `NOT IN` there, which no foreign key
 reaches.
 
+A company merge folds an owner's conversations on both sides into one before
+repointing them, because `uq_conversation_owner_company` holds an owner to one
+`sales_outreach.conversation` per company (`ConversationFoldService`, in
+`simpl_core.services.dedup.conversation_fold`). The oldest keeps every thread,
+message, draft, attachment and trigger log of the others; the folded count is in
+`MergeResult.conflicts_resolved["sales_outreach.conversation"]`. Two that hold
+the same thread or message raise `MergeConflictError`.
+
 A merge runs in its own savepoint and is all-or-nothing: it blanks the source's
 uniquely-indexed identity columns and flushes *before* repointing references, so
 a failure partway through must not leave the source stripped. A company merge
