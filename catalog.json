@@ -1,7 +1,15 @@
 {
-  "generated_at": "2026-10-26T15:06:51.760Z",
+  "generated_at": "2026-10-26T15:28:15.380Z",
   "marketplace_alias": "simpl",
   "libraries": [
+    {
+      "plugin": "simpl_agent_sandbox-context",
+      "skill_name": "simpl_agent_sandbox",
+      "summary": "simpl_agent_sandbox integration guide",
+      "when_to_use": "Use this skill whenever the user asks about running agent-written code, or a\n  browser limited to one site, inside an isolated sandbox (Vercel Sandbox), about\n  sandbox providers, or about code that imports `simpl_agent_sandbox`. ALWAYS\n  consult it before adding sandbox or VM execution code to another repo. It is\n  NOT about `simpl_sandbox`, the local stack that runs simpl repos against a\n  local database.",
+      "required_when": null,
+      "plugin_install_command": "/plugin install simpl_agent_sandbox-context@simpl"
+    },
     {
       "plugin": "simpl_api-context",
       "skill_name": "simpl_api",
