@@ -3,6 +3,7 @@
   "coding_start": ["agent-disclosure", "coding-standards"],
   "coding_on_demand": [
     "architecture-discipline",
+    "cloud-resources",
     "data-flow-discipline",
     "doppler",
     "git-workflow",

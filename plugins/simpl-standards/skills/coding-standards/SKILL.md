@@ -45,6 +45,7 @@ They apply to every piece of code at simpl and sit above style and any single de
 | Anything that could already be an internal simpl library | `internal-libraries-awareness` |
 | Python env, dependencies, running tests | `python-environment` |
 | Secrets, `.env`, Doppler, Cloud Run / Vercel / Prefect env | `doppler` |
+| Where to run or deploy, GPUs/HPC, picking an LLM or a Google Cloud product, "is it covered by credits" | `cloud-resources` |
 | Branches, commits, PRs | `git-workflow` |
 
 ## Naming
