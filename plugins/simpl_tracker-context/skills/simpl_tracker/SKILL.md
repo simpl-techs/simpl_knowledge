@@ -269,13 +269,20 @@ rebuilt. `compute_cost_daily(from, to)` is the one source of compute cost per da
 provider and repo; `run_daily_aggregation`, `infra_cost_daily` and
 `infra_cost_by_provider` read it.
 
+Each day's credits per service and credit go to `cost_tracking.load_gcp_billing_credits`
+(`gcp_billing_credit`); a day whose credits do not add up to its bill lines' credits is
+reported. `gcp_credit_coverage(from, to)` gives per service the cost before credits,
+what startup-program credits (`PROMOTION`) and other credits covered, and what was
+billed: the cost page reads it. Credit balance and expiry are not in the export.
+
 ```bash
 doppler run --config dev -- python scripts/gcp_billing_sync.py [--since 2026-07-01] [--apply]
 ```
 
 It needs `GCP_BILLING_SERVICE_ACCOUNT_JSON_INLINE` (else Application Default
 Credentials) and, with `--apply`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and
-migration `20261016163000_gcp_billing_cost`; the logic is in `simpl_tracker.gcp_billing`
+migrations `20261016163000_gcp_billing_cost` and `20261026120000_gcp_billing_credit`;
+the logic is in `simpl_tracker.gcp_billing`
 and `simpl_tracker.ecb`.
 
 ### OpenRouter streams cancelled before their answer
