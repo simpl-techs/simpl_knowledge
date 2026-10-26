@@ -40,3 +40,7 @@ WBR_FILL_ENABLED@prd  simpl_api
 STAFF_AGENT_TICKET_KEY@prd  simpl_api simpl_ops
 # simpl_api's base address with /api/v1, for SimpL OS's dashboard tools.
 DASHBOARD_API_URL@prd  simpl_ops
+# Donna's daily customer check posts in this Discord channel (simpl_ops services/customer_check).
+OPS_CUSTOMER_CHECK_CHANNEL_ID@prd  simpl_ops
+# SimpL OS wake scheduler: above 0 arms every enabled ops.schedule row; 0 arms none.
+OPS_SCHEDULER_RECONCILE_SECONDS@prd  simpl_ops
