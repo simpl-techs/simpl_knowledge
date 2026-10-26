@@ -488,7 +488,11 @@ that disagree, an empty trail, anything unknown). It is code, not a model: each
 attempt is read by its recorded outcome, its exact error class and, for an HTTP
 error, the `status_code: NNN,` prefix of its message, and the call is a kind
 only when every attempt is. A caller that retries work decides what to charge
-from it, so an outage does not use up retries meant for bad input.
+from it, so an outage does not use up retries meant for bad input. It is raised
+from `AgentExecution.error`, the exception the call already reported: for a call no
+model in the chain answered, a `ModelChainFailed` whose message lists every model
+with its HTTP timeout, its model budget and what it did. An exception a caller
+raises from it therefore belongs to that alert, and `already_reported()` says so.
 
 Tests use `FixedClientResolver` or `OfflineModelResolver` from
 `simpl_core.agent_framework.testing`. `OfflineModelResolver(model_for=...)` builds
