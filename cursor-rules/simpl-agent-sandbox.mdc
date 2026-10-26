@@ -12,29 +12,114 @@ alwaysApply: false
 > **Maintained by**: the simpl_agent_sandbox repo, auto-synced to simpl_knowledge.
 > **Source of truth**: `simpl-techs/simpl_agent_sandbox/.agent/SKILL.md`
 
-## Status
-
-Empty scaffold. The provider contract, the Vercel adapter, the two sandbox images
-and the isolation probe move here from simpl_core (`simpl-techs/simpl_core#335`) in
-the next pull request. Until that merges there is nothing to import.
+**Status: experimental.** It runs on a personal Vercel Hobby account with test data
+only. Not for production data until SimpL's own Vercel Pro team and a DPA covering
+Sandbox exist. Plan: `simpL/plans/agent-sandbox-plan.md`.
 
 ## What this library is
 
-Short-lived, isolated sandboxes for agent tasks, behind one provider contract:
+Short-lived VMs for one task each, behind a `SandboxProvider` protocol. The code box
+runs with no network at all; the browser box reaches one site and its subdomains.
+Providers: `vercel` (Vercel Sandbox over httpx, no SDK) and `fake` (in memory, for
+tests). The package takes bytes in and gives bytes out; storage stays with the caller.
+It moved here from `simpl_core.sandbox` (`simpl-techs/simpl_core#335`).
 
-- the **code box** runs model-written code with no network at all;
-- the **browser box** drives Chromium that can reach one site and its subdomains.
+## Installation
 
-Vercel Sandbox (region `fra1`) is the first provider; a fake provider serves tests.
+```toml
+# pyproject.toml of the consuming repo; internal git deps follow main
+"simpl-agent-sandbox @ git+https://github.com/simpl-techs/simpl_agent_sandbox.git@main"
+```
+
+Its only runtime dependency is httpx.
+
+## Basic usage (the 90% case)
+
+```python
+from simpl_agent_sandbox import NetworkPolicy, SandboxConfig, SandboxFile, SandboxSpec
+from simpl_agent_sandbox.vercel import VercelSandboxProvider
+
+config = SandboxConfig.from_env()  # SANDBOX_VERCEL_TOKEN, _TEAM_ID, _PROJECT_ID required
+async with VercelSandboxProvider(config.vercel) as provider:
+    spec = SandboxSpec(
+        image=config.workbench_image,
+        network=NetworkPolicy.deny_all(),  # or NetworkPolicy.only_sites(["example.com"])
+        region=config.region,
+        timeout_s=600,  # Vercel stops the sandbox then, even if this process dies
+        tags={"task": "press-kit"},
+    )
+    session = await provider.create(spec)
+    try:
+        await provider.write_files(session, [SandboxFile("/workspace/in/a.csv", data)])
+        result = await provider.run(session, ["python3", "job.py"], timeout_s=120, cwd="/workspace")
+        outputs = await provider.read_files(session, ["/workspace/out/report.pdf"])
+    finally:
+        usage = await provider.destroy(session)  # record it with simpl_tracker
+```
+
+## Rules and conventions
+
+- There is no default network policy, region or timeout. A provider declares what it
+  enforces in `capabilities()` and raises `SandboxUnsupportedError` for anything else,
+  before creating a sandbox; it never falls back to a weaker policy.
+- `NetworkPolicy.only_sites` takes bare domains (subdomains included) and refuses IPs,
+  wildcards and shared front ends such as `googleapis.com` or `cloudfront.net`, which
+  would let the sandbox reach other tenants by domain fronting.
+- `run` takes an argv (no shell unless you run one), streams output to `on_output`, and
+  returns a `CommandResult` with each stream cut to `output_limit_chars` (head and tail).
+  A non-zero exit is a result; `timed_out` marks a command killed at `timeout_s`.
+  `on_output` gets every byte uncut: never forward it to a model or store it as is.
+- `read_files` maps a missing file to None. Errors are the `simpl_agent_sandbox.errors`
+  classes only; no Vercel type, id or error leaves the adapter (`SandboxSession.provider_ref`
+  is opaque: never log or store it).
+- `destroy` returns a `SandboxUsage` (run time, active CPU when known, vCPUs, memory,
+  region, our sandbox name), or None when the sandbox was already gone. Its fields match
+  `simpl_tracker.sandbox.SandboxUsage`: the caller records it; this package never does.
+- `sweep(tag_key=..., tag_value=..., older_than=...)` destroys only non-persistent
+  sandboxes carrying that tag.
+- Hosts build each provider from config and register it once at startup in
+  `SandboxProviderRegistry`; a policy names the provider to use.
+- The browser image carries the T0 path-A pieces in `/opt/sbx`: start `browserd.py <site>`
+  detached (Chromium plus an in-browser site filter), then run `act.py '<json action>'`
+  once per action (navigate, snapshot, click, click_ref, type). The filter lets through
+  only GET, HEAD and OPTIONS to the task's sites, in every tab, popup, frame and worker.
+  It does not see WebSockets: in this image a page script can still open one to the
+  allowed site, so the browse runner must lock them in the page before D9 ("nothing is
+  sent") holds. `act.py` refuses to act when the daemon is not running, and its JSON line
+  stays under 12,000 characters.
+- Images: `images/{workbench,browser}/`, tags pinned in `config.py` as the content hash
+  of each folder. Build and push with
+  `python -m simpl_agent_sandbox.images.build <image> --project <vercel project>`, then
+  run the probe `tests/test_conformance_probe.py` (`SANDBOX_LIVE=1`) before pinning or
+  using a new tag.
+
+## Testing
+
+Use the fake provider; it refuses exactly what Vercel refuses.
+
+```python
+from simpl_agent_sandbox import NetworkPolicy, SandboxSpec
+from simpl_agent_sandbox.fake import FakeOutcome, FakeSandboxProvider
+
+
+async def handler(sandbox, argv):
+    return FakeOutcome(stdout="done\n")
+
+
+provider = FakeSandboxProvider(handler=handler)
+session = await provider.create(
+    SandboxSpec(image="any", network=NetworkPolicy.deny_all(), region="fra1", timeout_s=60)
+)
+result = await provider.run(session, ["python3", "job.py"], timeout_s=10)
+```
 
 ## What this library does NOT do
 
 - It is not `simpl_sandbox`, the local cross-repo dev stack with a local Supabase.
 - It holds no storage: bytes go in and bytes come out; the caller stores files.
-- It records no costs: it returns each sandbox's usage for the caller to record
-  with simpl_tracker.
-- It registers no agent tools: `code_task` and `browse_task` for agents live in
-  simpl_core's agent framework, which depends on this library.
+- It records no costs: `destroy` returns usage for the caller to record with simpl_tracker.
+- It registers no agent tools: `code_task` and `browse_task` live in simpl_core's agent
+  framework, which depends on this library.
 
 ## Where to go next
 
