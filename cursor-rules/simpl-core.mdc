@@ -2796,7 +2796,10 @@ webhooks; transport lives in simpl_ingestion) into leads owned by the right sell
   `properties` over 16 KB of JSON (`MAX_PROPERTIES_BYTES`) and unknown fields, at the top level
   and inside `person`, `company`, `context`, `consent` and `owner_hint` (a misspelled
   `person.linkedin` is refused, not dropped): a sender passes a stable `external_id` per event
-  and `person.linkedin_url` when it knows it. `IngestedSignal.test: true` (on the envelope,
+  and `person.linkedin_url` when it knows it. `properties.spoken_languages` is stored as a list
+  of language names (a list sent as JSON text or comma-separated is read as that list) and
+  refused when an item is a single character, which is what `list()` makes of the JSON text.
+  `IngestedSignal.test: true` (on the envelope,
   never in `properties`) marks a test: it is accepted and shown like any other and the drain
   writes nothing (`test_signal`).
 - **Drain:** `drain_ingestion_inbox(db, *, batch_size=10, max_batches=5, default_owner_by_customer=None, only=None, max_seconds=None, lock_timeout_ms=None) -> int`
