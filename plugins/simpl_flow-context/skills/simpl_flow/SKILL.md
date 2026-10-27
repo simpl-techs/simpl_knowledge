@@ -178,7 +178,7 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   extractor variant (`baseline_variant`, e.g. `nuextract3-cpu`): both scored on the
   teacher's labels with paired differences (on the span types both ontologies share when
   the variant's ontology is not the baseline's), stored as the markdown artifact
-  `graphia-v2-acceptance` and returned. It needs migrations 122 to 131 and its variant's
+  `graphia-v2-acceptance` and returned. It needs migrations 126 to 135 and its variant's
   ontology registered (`python -m simpl_flow.pipelines.knowledge_graph.ontology register`:
   `o1`; `o2` with `--previous o1 --key-map .../ontology/v2.keymap.yaml`). It
   replaced the graphia extractor (`gcp_graphia_extractor_flow`, removed): that extractor's
