@@ -538,6 +538,14 @@ Rules that bite consumers:
   content in place and re-running a seed migration are both silent no-ops.
 - Routing must be total: every routing position needs an unconditional catch-all,
   or startup fails.
+- A pipeline is acyclic except through a bounded back-edge:
+  `{from: b, to: a, when: ..., iterate: true, max_iterations: N}`.
+  - One walk takes it at most N times, then the source node's catch-all.
+  - It needs a `when` (it cannot be the catch-all) and a node to go back to (not
+    `__end__`).
+  - A back-edge into the entry node needs the pipeline's explicit `entry`.
+  - A revisited node records one node run per visit, and its output replaces the
+    previous one on the surface.
 - A producer routes on its verdict's `final_output`: the answer its fix loop kept, or
   the best candidate an exhausted cap surfaces, never a first answer a validator
   rejected. The engine keeps the caller's `ResolverContext.producer_output` on that
@@ -993,6 +1001,14 @@ paid on first access to either name.
 - **Global**: `EmailBounceRepository.is_dead(email)` is true when any customer's mailbox got such a notice for it; simpl_flow's journey email flow then blocks the send (`email.message.blocked`, reason `recipient_address_dead`), as it does for an opt-out.
 - **Exchange's system sender** is a machine address (`migrations/20261019d_exchange_system_sender_automated.sql`, one row in `mappings.email_automated_pattern`): sync leaves its notices out like `mailer-daemon`'s instead of storing them as the lead's reply.
 - Notices are not stored, so none wakes an outreach walk. A notice on a thread no connection holds is not read.
+
+## Voice profiles and prompt layers
+
+- **Prompt layers** (`services/prompt_layer_scope`): the customer, ICP and seller template tiers after the ICP's `prompt_layer_scope` and the lent-identity rule (a lent SimpL identity keeps only her `voice_guide`). Outreach's writer and the voice profile both scope through it, so they read the same layers.
+- **Source hash** (`services/voice_profiles/layers`): `scope_prompt_layers(...)` keeps the five voice fields (`company_brief`, `value_props_matrix`, `voice_guide`, `outreach_strategy`, `mission`); `voice_profile_source_hash` is the sha256 of their text. `calendar_link`, `research_topics` and the scope key are not voice, so changing them never rebuilds a profile.
+- **Extraction** (`services/voice_profiles/extractor`): `VoiceProfileExtractor(client)` makes one call with a `StructuredLLMClient` the caller builds and accounts for, then `ground_voice_profile` keeps only items whose quote the layers contain (`services/quote_grounding`) and signatures and fixed texts found word for word. Offers and cases get ids `template_offer_<n>` / `template_case_<n>`. Text that steers the pipeline instead of the message goes to `ignored_instructions`. Bump `EXTRACTOR_VERSION` on any prompt or grounding change: the refresh rebuilds older profiles, which keep serving until then.
+- **Storage** (`repositories/voice_profile_cache`, migration `20261027_voice_profile_cache.sql`): one row per `source_hash`. `get_profile` returns the last profile built from that text; `record_failure` counts consecutive failures and never removes a built profile; `record_built` clears the failure state. simpl_flow's `refresh_voice_profiles` writes it; outreach reads it.
+- **Quote grounding** (`services/quote_grounding`): `fold_for_quote_matching`, `locate_quote`, `ground_quoted_items`. Folds Markdown, typography and invisible characters, never letters; also used by outreach's company-research extractor.
 
 ## Email send-as aliases
 
