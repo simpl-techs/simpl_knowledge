@@ -107,7 +107,7 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   (`announce_skipped_configs`, gated by `health_alert_due`), and every run returns them
   under `skipped`.
 - **Data lake alerts go to #data-lake** (posts, landing and companies index flows,
-  maintenance, the graphia extractor and the opportunity matcher; `services/run_health.py`,
+  maintenance, graphia v2 and the opportunity matcher; `services/run_health.py`,
   `services/search_index_health.py`), through simpl_core's `data_lake_alert`: errors and
   warnings only, never success. Without `DISCORD_DATA_LAKE_WEBHOOK_URL`, or when Discord
   does not take a message, they go to #error or #warning instead.
@@ -123,8 +123,8 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
     dataset an index that does not keep up (`read_index_progress`): documents due and
     no commit for `params.maintenance.stalled_after_minutes` (60 by default; 0 turns it
     off, as migration 085 does for landing while its runs are held), or a Zilliz
-    projection that far behind the store. The graphia extractor runs by hand while its
-    schedule is off (`UNSCHEDULED_LEDGERS`): in its ledger, documents a run that stopped
+    projection that far behind the store. Graphia v2 runs by hand, with no schedule
+    (`UNSCHEDULED_LEDGERS`): in its ledger, documents a run that stopped
     still holds count, dated by when the claim ran out; and documents due for over 6 h
     (`BACKLOG_AFTER`) while no run holds any, so a run that stopped early is not left
     unseen. `search_index_maintenance.health` and `.progress` log them every run.
@@ -162,38 +162,32 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   with `NEBIUS_API_KEY`; nothing goes to Zilliz. The lake reads through DuckDB's `lance`
   extension, which the image installs (`DUCKDB_EXTENSION_DIRECTORY`). Plan and status:
   `docs/knowledge-graph-matchers-plan.md`.
-- `gcp_graphia_extractor_flow` (started by hand; its hourly schedule, which continues
-  what is pending, ships inactive and is turned on in Prefect) is the knowledge graph
-  extraction job. It marks the posts (`p:<post id>`) and sites (`h:<host>`) given as
-  `source_keys` pending for `variant` in the ledger `knowledge_graph.extraction_index`
-  (migration 095; a key it holds already keeps its status and attempts unless its search
-  text changed; `queue-mark --retry-failed` marks failed ones again, `--again` any given
-  one, stored ones too), then extracts the pending rows in batches: the agent framework walks
-  the pipelines of policy `graphia_extractor_root` (newest seed: migration 114), which read the
-  search datasets (`sales_posts`, `landing_pages`), call the model, check, link and
-  resolve, and commit one row per document to the row store dataset
-  `graphia_extractions:2`. A source that breaks a batch fails alone; the run claims and
-  walks nothing after 20 h of work, under the job's 24 h timeout, and the rest stays
-  pending for the next run. When the work ends it builds the variant's facts tables
-  again from everything the variant has stored: `facts:1`, `er:1` (the entities),
-  `facts_evidence:1`, `facts_edges:1`, and per edge type `facts_edge_<type>:1` and
-  `facts_edge_<type>_by_dst:1`, one row per item, for joins (columns in
-  `docs/knowledge-graph-typed-tables.md`), when the run stored a row;
-  `build_tables=false` leaves them as they are, and `force_tables=true` builds them
-  also when the run stored nothing. Which datasets it writes is
-  `row_store.dataset_configs` (migration 096: kind
-  `extractions`, and one kind per facts table, named as the table); a run stops at
-  start when one has no active row. Maintenance keeps them all. `variant` is required and names a model setup of
-  `pipelines/knowledge_graph/variants.yaml`; a run claims that variant's rows only and
-  leaves other variants' rows as they are. It needs an active schema version in
-  `knowledge_graph.schema_version` (migration 095, `schema-register --activate`: without
-  one a run stops at start) and `ROW_STORE_URI`. It reads no model key: variant
-  `nuextract3-cpu` runs NuExtract (the 4-bit base model) inside the job, on its CPUs,
-  from the server and the weights in the image, which is why the deployment has 8 vCPU
-  and 16 GiB. A run fails when the variant's model server
-  does not answer; the rows it left go back with no attempt counted. The model's calls
-  go through the policy's `lm_model` rows and write no cost receipt: the job's compute,
-  recorded under `knowledge_graph_extraction`, is the whole cost.
+- `gcp_graphia_v2_flow` (no schedule, started by hand on keys marked by hand) runs the
+  scaled knowledge graph pipeline (`pipelines/knowledge_graph/v2`). It marks `source_keys`
+  (`p:<post id>`, `h:<host>`) with `priority` for a v2 variant (`v2/variants.yaml`, default
+  `graphia-v2-nuextract`: the extractor's NuExtract behind the model contract, on the job's
+  CPUs; `graphia-v2-gliner`: entities only, a fine-tuned GLiNER2 loaded in the job's own
+  process, on ontology `o2` (o1 plus the model's 8 extra types), its runs with mentions
+  and no facts), works its due rows of `knowledge_graph.extraction_index` into the append-only
+  extraction log (`kg_*` datasets under `ROW_STORE_URI`, run rows last as the commit
+  marker), then as asked: the identity service's micro-batches (`identity`, default on;
+  the registry is read through a read-only connection, nothing writes `sales.*`), a graph
+  generation (`generation`, `publish`), the teacher's blind labels of a random slice of
+  posts and whole sites (`slice_quota`; policy `graphia_teacher_root`, Claude Opus on
+  OpenRouter with zero retention), and the acceptance comparison with a current
+  extractor variant (`baseline_variant`, e.g. `nuextract3-cpu`): both scored on the
+  teacher's labels with paired differences (on the span types both ontologies share when
+  the variant's ontology is not the baseline's), stored as the markdown artifact
+  `graphia-v2-acceptance` and returned. It needs migrations 122 to 131 and its variant's
+  ontology registered (`python -m simpl_flow.pipelines.knowledge_graph.ontology register`:
+  `o1`; `o2` with `--previous o1 --key-map .../ontology/v2.keymap.yaml`). It
+  replaced the graphia extractor (`gcp_graphia_extractor_flow`, removed): that extractor's
+  `graphia_extractions:2` and facts tables stay as its last run left them, nothing writes
+  them, and the opportunity matcher keeps reading them. NuExtract runs inside the job, on
+  its CPUs, from the server and the weights in its own image (`simpl-flow-graphia`): 8 vCPU
+  and 16 GiB, no model key. One run at a time. The same image also holds GLiNER2 in
+  `/opt/gliner` (`base/` + `heads.pt`), with torch and gliner2 installed only there, from
+  the optional Poetry group `gliner`.
 - `gcp_open_graph_flow` (no schedule, started by hand) labels LinkedIn posts with
   llmgraph (LangChain's `LLMGraphTransformer`) once per teacher, as training data. A
   teacher is a model in one llmgraph mode, listed in
