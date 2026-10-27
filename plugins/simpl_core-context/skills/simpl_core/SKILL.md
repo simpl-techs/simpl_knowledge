@@ -318,6 +318,21 @@ model:
       provider: openrouter
 ```
 
+An `llm_agent` call sends `temperature: 0` unless its policy says otherwise:
+`model.temperature` (on the primary; it applies to every target of the chain) is a
+number from 0 to 2, or `omit` to send none, for a model that refuses one. No Claude
+Opus 5.5 endpoint on OpenRouter takes a temperature, so with `require_parameters`
+OpenRouter finds no endpoint unless the policy says `omit`. It is a word and not
+`null` because a stored spec drops null fields.
+
+```yaml
+model:
+  name: anthropic/claude-opus-5.5
+  provider: openrouter
+  provider_routing: {zdr: true, data_collection: deny, require_parameters: true}
+  temperature: omit
+```
+
 Credentials are never authored in a policy document — the document names a
 provider, the host binds it. `Loader.validate_boot()` checks every typed policy
 against the resolver it will run on — the host's, or `default_llm_client_resolver()`
@@ -408,8 +423,8 @@ An `lm_model` row refuses `prompt_id`, `output_schema`, `output_constraints`, to
 `memory`, `timeout_seconds` (each request's bound is the target's
 `http_timeout_seconds`), `stream_timeout_seconds` and the node-only fields
 (`implementation_class`, `default_context_projection_id`, `default_fix_strategy`,
-`cache_policy`, `global_validators_exclude`, `on_failure`); its targets refuse
-`reasoning` and `max_invalid_responses`.
+`cache_policy`, `global_validators_exclude`, `on_failure`) and `model.temperature`
+(its request format sets it); its targets refuse `reasoning` and `max_invalid_responses`.
 
 ```python
 from simpl_core.agent_framework import execute_agent
