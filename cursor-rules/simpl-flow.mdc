@@ -174,12 +174,17 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   marker), then as asked: the identity service's micro-batches (`identity`, default on;
   the registry is read through a read-only connection, nothing writes `sales.*`), a graph
   generation (`generation`, `publish`), the teacher's blind labels of a random slice of
-  posts and whole sites (`slice_quota`; policy `graphia_teacher_root`, Claude Opus on
-  OpenRouter with zero retention), and the acceptance comparison with a current
+  posts and whole sites (`slice_quota`; policy `graphia_teacher_root`: its active version's
+  model, Claude Opus 5.5 or DeepSeek V4.1 Flash, on OpenRouter with zero retention), and the acceptance comparison with a current
   extractor variant (`baseline_variant`, e.g. `nuextract3-cpu`): both scored on the
   teacher's labels with paired differences (on the span types both ontologies share when
   the variant's ontology is not the baseline's), stored as the markdown artifact
-  `graphia-v2-acceptance` and returned. It needs migrations 126 to 135 and its variant's
+  `graphia-v2-acceptance` and returned. With `gate` (a `knowledge_graph.gate_config` id,
+  e.g. `gliner-o2-trial-1` from migration 138) each batch is gated: the teacher answers
+  the documents whose units the gate does not accept enough of, at most `gate_budget` a
+  run, and every other document is served its accepted units; whenever the gate drops a
+  unit, the model's whole answer is kept beside it as the `shadow` run. Readers of a
+  document's answer (the export, the slice, identity, the generation) read `served` runs. It needs migrations 126 to 135 and its variant's
   ontology registered (`python -m simpl_flow.pipelines.knowledge_graph.ontology register`:
   `o1`; `o2` with `--previous o1 --key-map .../ontology/v2.keymap.yaml`). It
   replaced the graphia extractor (`gcp_graphia_extractor_flow`, removed): that extractor's
