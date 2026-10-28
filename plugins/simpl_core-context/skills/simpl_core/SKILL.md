@@ -1400,11 +1400,18 @@ the counterpart wrote first and last, nobody on the owner's side wrote, their ne
 message is at most 14 days old, the address is a person's, a LinkedIn counterpart is
 1st-degree, and nobody on the team ever wrote to that address, profile or company
 (`ConversationRepository.team_wrote_to`; a freemail or PEC domain names no company).
+A pitch the owner already answered by hand (the counterpart wrote first, the owner
+after) passes as `answered` on the gate: only the identity checks apply, and only
+what the team wrote before the pitch counts.
 `process_vendor_pitch(bundle, reading, reason=...)` opens its connection as `process`
 does (Connected, no ICP, origin `conversation_processor`) with the counterpart's
 message queued flagged `vendor_pitch` and `seller_approval_required`, under an
 advisory lock per customer and person: the first teammate processed answers, the
 others get `vendor_pitch_duplicate`; a closed gate is `vendor_pitch_skipped:<why>`.
+On an answered pitch it is `vendor_pitch_answered`: the pitch is recorded as a
+handled `message_received` flagged `vendor_pitch` (so outreach keeps the lane), no
+follow-up is queued (a vendor gets one answer), and a reply of theirs since is
+queued unflagged.
 `process` opens the
 connection for the counterpart: the lead ingestion linked (never a dummy), or the
 lead its email or LinkedIn identity matches; one it creates when none exists (from
