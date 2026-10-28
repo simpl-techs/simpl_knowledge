@@ -97,11 +97,12 @@ A seller connects any mailbox that is not Gmail or Outlook: address first, then 
 - Onboarding cards on hold (admin):
   - `POST /api/v1/admin/onboarding/pauses` `{session_id | customer_setup_id, reason: missing_feature|not_in_target|not_now|other, note, recontact_on?}` returns 201 with the pause. It answers:
     - 400 for a missing feature without a note, or a past date;
-    - 409 when the card is already on hold, is finalized, or the session belongs to a setup (pause the setup).
+    - 409 when the card is already on hold, its account is switched off, or the session belongs to a setup (pause the setup).
+    - A card whose account exists keeps it in `customer_id`. In the shortlist stage the shortlist reminders stop and `shortlist.send` / start / skip answer 409 until resumed; the customer's own answer on the shortlist resumes it. A live card's account is switched off with it (`account_switched_off: true`) and switched back on by `.../resume` or by Customers' account switch.
   - `PATCH .../pauses/{id}` `{reason?, note?, recontact_on?}` changes an open pause; `recontact_on: null` clears the date, and a new date gets its own email.
   - `POST .../pauses/{id}/resume` brings the card back (409 once resumed). `GET .../pauses?session_id=|customer_setup_id=` lists a card's pauses, newest first.
-  - A pause reads `{id, session_id, customer_setup_id, reason, note, recontact_on, recontact_due, paused_at, paused_by_email, resumed_at, resumed_by_email, resume_cause: staff|customer_returned|call_booked|colleague_request}`.
-  - `GET /admin/onboarding/pipeline` items carry `pause` (null when not on hold). A card on hold keeps its `stage`, has `our_move: false` and no `next_reminder`.
+  - A pause reads `{id, session_id, customer_setup_id, reason, note, recontact_on, recontact_due, paused_at, paused_by_email, resumed_at, resumed_by_email, resume_cause: staff|customer_returned|call_booked|colleague_request, customer_id, account_switched_off}`.
+  - `GET /admin/onboarding/pipeline` items carry `pause` (null when not on hold). A card on hold keeps its `stage`, has `our_move: false` and no `next_reminder`, and shows however long ago it went live.
   - Approve-for-activation, approve-agent-access, finalize-async, `customer-setups/from-session` and setup finalize answer 409 on a card on hold.
 - Staff edits `PATCH /api/v1/admin/onboarding/sessions/{id}/profile|company|questionnaire|icp` change only the fields sent:
   - a blank LinkedIn clears it;
