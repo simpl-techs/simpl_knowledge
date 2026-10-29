@@ -314,10 +314,13 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   `min_company_score`; claimed connections, a missing LinkedIn id and exclusive-mode
   assignment still exclude them. Only the uuids are read out of the clause. simpl_api's
   company import writes it when a user adds a list to an existing target.
-- A Customer company (lead status 10) and a company imported with a `Dummy Imported`
-  connection are watched, never proposed: their signals land in
-  `opportunity.icp_signal_monitor` (the watchlist), but they are never a new or
-  `recycled_fallback` opportunity, so autopilot never gets them either.
+- A Customer company (lead status 10) is parked like Monitoring (Raff, 2026-10-28): its
+  signals are monitoring signals and can bring it back as a fallback opportunity, never
+  recycled. Next to a connection that vetoes the company (Non sales, Meeting Booked or
+  beyond, lost) it is only watched. A company imported with a `Dummy Imported`
+  connection (an imported client list too) is watched, never proposed: its signals land
+  in `opportunity.icp_signal_monitor` (the watchlist), but it is never a new or
+  `recycled_fallback` opportunity, so autopilot never gets it either.
 - A company where the team holds a Non sales connection (lead status 11: a person met
   for another reason) is a company already known: it is neither proposed nor watched.
   The flow autopilot never claims a person its user holds in Non sales, found at another
