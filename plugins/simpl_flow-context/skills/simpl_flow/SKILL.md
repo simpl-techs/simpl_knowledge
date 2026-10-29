@@ -170,9 +170,8 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   process, on ontology `o2` (o1 plus the model's 8 extra types), its runs with mentions
   and no facts), works its due rows of `knowledge_graph.extraction_index` into the append-only
   extraction log (`kg_*` datasets under `ROW_STORE_URI`, run rows last as the commit
-  marker), then as asked: the identity service's micro-batches (`identity`, default on;
-  the registry is read through a read-only connection, nothing writes `sales.*`), a graph
-  generation (`generation`, `publish`), the teacher's blind labels of a random slice of
+  marker; the queue keeps pending rows only, a settled source's state goes to
+  `ops_source_states` and model answers to `ops_model_calls`), then as asked: the teacher's blind labels of a random slice of
   posts and whole sites (`slice_quota`; policy `graphia_teacher_root`: its active version's
   model, Claude Opus 5.5 or DeepSeek V4.1 Flash, on OpenRouter with zero retention), and the acceptance comparison with a current
   extractor variant (`baseline_variant`, e.g. `nuextract3-cpu`): both scored on the
@@ -183,7 +182,7 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   the documents whose units the gate does not accept enough of, at most `gate_budget` a
   run, and every other document is served its accepted units; whenever the gate drops a
   unit, the model's whole answer is kept beside it as the `shadow` run. Readers of a
-  document's answer (the export, the slice, identity, the generation) read `served` runs. It needs migrations 126 to 135 and its variant's
+  document's answer (the export, the slice, identity, the generation) read `served` runs. It is the extraction only: identity and the graph generation are `gcp_graphia_identity_flow`'s. It needs migrations 126 to 135 and 147 to 149, and its variant's
   ontology registered (`python -m simpl_flow.pipelines.knowledge_graph.ontology register`:
   `o1`; `o2` with `--previous o1 --key-map .../ontology/v2.keymap.yaml`). It
   replaced the graphia extractor (`gcp_graphia_extractor_flow`, removed): that extractor's
@@ -192,7 +191,14 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   its CPUs, from the server and the weights in its own image (`simpl-flow-graphia`): 8 vCPU
   and 16 GiB, no model key. One run at a time. The same image also holds GLiNER2 in
   `/opt/gliner` (`base/` + `heads.pt`), with torch and gliner2 installed only there, from
-  the optional Poetry group `gliner`.
+  the optional Poetry group `gliner`. Where each dataset lives and which flow writes it:
+  `docs/knowledge-graph-storage.md`.
+- `gcp_graphia_identity_flow` (no schedule, started by hand, plain image) runs the identity
+  service's micro-batches over the runs the extraction log gained, every variant's (the
+  registry read through a read-only connection, nothing writes `sales.*`; the uncertain
+  band to the review queue), then as asked the next graph generation of a variant's runs
+  (`generation`, `variant`, `publish`). Identity's state is still in Postgres (`er_*`)
+  until this pipeline is reworked. One run at a time.
 - `gcp_open_graph_flow` (no schedule, started by hand) labels LinkedIn posts with
   llmgraph (LangChain's `LLMGraphTransformer`) once per teacher, as training data. A
   teacher is a model in one llmgraph mode, listed in
