@@ -339,8 +339,10 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
 - Discord alerts: agent framework failures, autopilot per-user failures and
   opportunities per-ICP failures post to #warning once per failure, and a failure that
   keeps recurring edits one message and escalates to #error after an hour. Dropped
-  extension channels never alert; a cancelled run or a lost autopilot lease posts
-  `agent_framework.run.cancelled`.
+  extension channels never alert. A run cancelled from outside posts
+  `agent_framework.run.cancelled`; a lost autopilot lease posts
+  `autopilot_flow.lease_lost` instead, with when the lease expired and when it was
+  found gone, and the walk it stops stays silent.
 - Document required environment variables when adding a new provider, deployment, or integration.
 - Configuration and secrets are supplied by Doppler (project `simpl_flow`) as plain environment variables; the service reads them through `simpl_flow.config.Config` / `SecretManager`. Prefect blocks are not part of the configuration contract.
 - Treat `prefect.yaml` as production deployment configuration: image tags, schedules, resource limits, and concurrency limits affect live workflows.
