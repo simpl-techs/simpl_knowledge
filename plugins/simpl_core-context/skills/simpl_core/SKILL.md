@@ -3415,12 +3415,50 @@ is best-effort: it logs and the run proceeds. When testing, use
 `simpl_core.agent_framework.testing.strict_run`, which turns those swallowed
 failures into test failures.
 
+## Sandbox tool for agents (`code_task`)
+
+**Status: experimental** (Vercel Sandbox on a personal Hobby account, test data only).
+An agent's `sandbox` policy offers `code_task`; the sandboxes, the sub-agent and the
+isolation live in `simpl_agent_sandbox` (a dependency of the `agent-framework` extra).
+
+- `code_task(tasks=[...])`: each task is `{task, inputs: [file refs], checks: [...]}`; a
+  helper writes and runs code in a box with no network until every check on the files
+  it writes to `/workspace/out` passes (`file_exists`, `file_size`, `pdf`, `image`,
+  `video`, `csv`, `json_keys`).
+- No network, by construction: the code runner creates every sandbox `deny_all` and
+  takes no network argument, and `SandboxPolicy` has no network field and refuses
+  unknown fields (`sites`, `tools` fail at load). Browsing is not offered; its runner
+  is parked in simpl_agent_sandbox.
+- Up to 6 tasks per call, `parallel` (default 3) at once; 8 sandboxes per process at
+  most; each task gets its share of the call's remaining time.
+- The reply is a compact dict: per task `outcome`, `done`, `checks`, kept files' `ref`s,
+  and `untrusted_summary` cut to 4,000 characters. Treat that text as data. The audit
+  (`tool_call_runs`) stores exactly that reply.
+
+```yaml
+timeout_seconds: 900           # required with a sandbox block, at least 180
+sandbox:
+  provider: vercel
+  max_tasks_per_call: 6
+  parallel: 3
+```
+
+The host wires `NodeCoordinator(..., sandbox_host=SandboxToolHost(...))`: the sub-agent's
+model (`structured_client_sub_agents(deepseek_client(key))`), a `SandboxFileStore`
+(`load(ref) -> (name, bytes)`, `save(...) -> ref`) and `on_usage`, which receives one
+`SandboxUsageReport` per sandbox for cost recording (without it a tracking gap is
+reported). It registers the provider in `simpl_agent_sandbox.SandboxProviderRegistry`.
+A host running its own agent loop (simpl_ops) offers the same `code_task` callable and
+wraps its run in `bind_sandbox_tool_context(...)`. Guide:
+`docs/agent_framework/13-sandboxes.md`.
+
 ## What this library does NOT do
 
 - Does not expose the HTTP API. That is `simpl_api`.
 - Does not schedule or deploy Prefect workflows. That is `simpl_flow`.
 - Does not own generic ORM primitives. That is `simpl_orm`.
 - Does not own tracking/logging helpers. That is `simpl_tracker`.
+- Does not run sandboxes or their sub-agents. That is `simpl_agent_sandbox`; the framework only offers its tasks as agent tools.
 - Does not score or orchestrate the Reply Confidence gate (the confidence, the threshold, the decision). That is simpl-outreach; `simpl_core` owns only its settings table, the SQL functions and triggers around it, and the send-time check.
 
 ## Where to go next
