@@ -2477,7 +2477,9 @@ hits = await search.best_per_company(
 - **Keywords** are words or phrases matched on the post text the way the collection's
   analyzer reads it (`analyzer_words`: letter/digit runs, lowercased, accents folded):
   whole words, a phrase's words together and in order, no stemming (list "SDR" and
-  "SDRs"). Hits from these searches carry `content`.
+  "SDRs"). Hits from these searches carry `content`. Keywords that are all single words,
+  matched `any`, are one grouped BM25 search per list of groups (no candidate check);
+  phrases or `all` take the checked path, which reads every candidate's text.
 
 ### Operator notifications
 
