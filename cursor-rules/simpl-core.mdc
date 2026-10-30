@@ -1807,7 +1807,8 @@ the stage-mapping push (`crm_pipeline_config.stage_mappings`) unchanged.
 
 **Blocklist.** `"blocklist": [...]` lists CRM records Simpl must not contact,
 read on every run and never written to. A flow may hold a blocklist and no
-process object at all, which reads the CRM and exports nothing.
+process object at all, which reads the CRM and exports nothing: its scope is a
+`pull` scope.
 
 ```json
 {"version": 1, "blocklist": [
@@ -1855,7 +1856,8 @@ scope, and a flow with `stages_from` honours it. To give a customer a custom set
    then counts every outcome and lists the proposed writes with names and
    stages. It never calls the CRM and stores nothing.
 3. Store it with the statement `--print-sql` prints (a `jsonb_set` on
-   `crm_export_config.config`), after review.
+   `crm_export_config.config` that also sets the flow's `sync_direction`),
+   after review.
 4. Run the scope's dry run from the admin screens, apply it, verify in the
    CRM, and promote, exactly as for a standard scope.
 
@@ -1864,12 +1866,16 @@ Check a flow before saving it: `parse_flow(raw)` checks structure, and
 sync_direction=..., status_mapping=...)` checks it against the provider, the
 scope's workflow and, for `stages_from`, the scope's status mapping.
 Both raise `FlowConfigError`, whose `path` names the offending part. A flow
-scope must use `sync_direction = 'push'`; flows do not pull yet.
+scope's `sync_direction` must be the flow's, `FlowConfig.sync_direction()`:
+`push` when it has process objects (it writes to the CRM), `pull` when it only
+reads a blocklist, `bidirectional` when it does both.
 
-`ReconciliationService.run_scope_sequence` pushes a flow scope through
-`CrmFlowEngine`, and `CrmDryRunService.run` plans it with the same planner. The
-report lists `would_create_object`, `would_set_object_stage`,
-`would_associate_object` and `would_skip_object` entries (each with
+`ReconciliationService.run_scope_sequence` runs a flow scope through
+`CrmFlowEngine` alone: the stage-mapping pull and push never run beside a flow,
+and a `pull` flow scope syncs no emails or messages. `CrmDryRunService.run`
+plans it with the same planner. The report lists `would_create_object`,
+`would_set_object_stage`, `would_associate_object` and `would_skip_object`
+entries (each with
 `object_type`, `reason`, and for writes the stage before and after and the
 rendered name), counts not-due outcomes as `would_skip_object_not_due`, and
 stores the flow and its `flow_hash` in `configuration_snapshot`. A blocklist
