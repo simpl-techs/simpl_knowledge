@@ -1758,6 +1758,19 @@ the stage-mapping push (`crm_pipeline_config.stage_mappings`) unchanged.
   `ensure_external_entity_link_without_overwrite`, never overwritten. `process`
   objects are Simpl-owned; HubSpot supports `deals` today. HubSpot `leads` needs
   OAuth scopes the Composio-managed app cannot grant, so it has no spec yet.
+- **Identity options**: `"create_missing": false` only links records the CRM
+  already holds (found by the scope's `identifier_fields`; add `"domain"` there
+  to match companies by domain). A process object whose company is missing is
+  skipped with reason `<object>_not_in_crm`, recorded as no error and retried
+  only when its facts change; a missing contact is left out of the
+  associations. `"write_properties": [...]` limits a record Simpl creates to
+  those CRM properties, the owner (`hubspot_owner_id`) included.
+- **`skip_when_open_exists`** (company grain): `same_pipeline` or
+  `any_pipeline`. When creation comes due and the company already has an open
+  record of that type (HubSpot: a deal with `hs_is_closed` false), Simpl
+  creates nothing and touches nothing, reason `open_record_exists`. Nothing is
+  recorded, so once their record closes Simpl creates its own. The dry run
+  cannot see the CRM, so its create entry carries `unless_open_exists`.
 - **`grain`**: one record per Simpl contact (`contact`) or per company (`company`).
 - **`stages_from: "status_mapping"`** takes the pipeline and stages from the
   scope's own status mapping (`crm_pipeline_config`), read on every plan and
@@ -1789,6 +1802,46 @@ the stage-mapping push (`crm_pipeline_config.stage_mappings`) unchanged.
   creation with reason `name_unresolved`. Names and `create_properties` are sent
   only at creation; `on_enter` properties go with a stage change.
 
+**Blocklist.** `"blocklist": [...]` lists CRM records Simpl must not contact,
+read on every run and never written to. A flow may hold a blocklist and no
+process object at all, which reads the CRM and exports nothing.
+
+```json
+{"version": 1, "blocklist": [
+  {"object_type": "contacts", "list_id": "4021", "blocks": "person"},
+  {"object_type": "companies", "property_name": "do_not_contact", "equals": true,
+   "blocks": "company"}
+]}
+```
+
+- A source is a list's members (`list_id`, a HubSpot list or segment; needs the
+  `crm.lists.read` scope) or the records whose `property_name` equals `equals`
+  (has any value when `equals` is left out). `blocks` is `person` or
+  `company`; a blocked company always blocks the company, and a contact
+  blocked with `company` blocks the person too.
+- Each run reads every member id, fetches identifiers only for ids it has not
+  seen (`integration.crm_blocklist_entry`, migration
+  `20261029_crm_blocklist_entries.sql`), and marks members that left. A person
+  matches a Simpl lead by the scope's CRM link, LinkedIn URL, then email; a
+  company by its CRM link, the matched lead's company, then LinkedIn page or
+  domain; one Simpl has none of goes through dedup placement
+  (`CompanyPlacementService.resolve_or_placeholder`, source `crm_blocklist`): a
+  placeholder company in the claim ledger, merged into the real company by the
+  reconciler once Simpl meets it. An ambiguous match places nothing and is
+  retried on the next run.
+- Every connection of the customer's sellers to a blocked person, or at a
+  blocked company, that is still before a meeting (Monitoring to Messaged)
+  moves to its workflow's Not In Target status (history `crm:<provider>`,
+  reason `crm_blocklist`), and its queued actions and wake-ups are cancelled
+  in the same transaction. Later stages are left alone. A blocked company also
+  gets a claimed placeholder connection at Not In Target, so opportunity
+  generation skips it. A person Simpl has not met is matched again each run.
+- Leaving the list does not move anyone back: nothing records the earlier stage.
+- The scope's workflow must have a Not In Target status. The dry run reads the
+  CRM and lists `would_mark_not_in_target` entries with the connections each
+  would stop; `scripts/check_crm_flow.py` validates the blocklist but does not
+  read it.
+
 Flows are configured internally; the status mapping stays editable on the
 scope, and a flow with `stages_from` honours it. To give a customer a custom setup:
 
@@ -1816,7 +1869,11 @@ report lists `would_create_object`, `would_set_object_stage`,
 `would_associate_object` and `would_skip_object` entries (each with
 `object_type`, `reason`, and for writes the stage before and after and the
 rendered name), counts not-due outcomes as `would_skip_object_not_due`, and
-stores the flow and its `flow_hash` in `configuration_snapshot`.
+stores the flow and its `flow_hash` in `configuration_snapshot`. A blocklist
+adds `would_mark_not_in_target` entries and counts members that would stop
+nobody as `would_skip_blocklist_entry`. A live run returns one
+`ReconciliationResult` with `entity_type="blocklist"` whose metadata counts
+what it read, matched, created and stopped.
 
 Owned records live in `integration.crm_object_link` (migration
 `20260916_crm_flow_object_links.sql`), keyed by a Simpl key also written to a
