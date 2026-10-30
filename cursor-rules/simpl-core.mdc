@@ -1317,6 +1317,28 @@ to the lead since it (its walk answered). Idempotent on `idempotency_key`; the
 lead is locked for the transaction. Logs `account.handoff.initiated` and
 `.completed` on both connections. Company-wide hand-offs are unchanged.
 
+### Opted out and Not In Target stop every send
+
+`sales_outreach.evaluate_dispatch_authority` rule 1s
+(`migrations/20261030_dispatch_refuses_excluded_stages.sql`, Python reference
+`account_coordination.authority`, facts `connection_category` and
+`connection_came_inbound`) cancels any LinkedIn invitation, LinkedIn message,
+email, call or calendar invite on a connection whose stage is in category -1
+(`opted_out`) or 8 (`not_in_target`). Two exceptions (fact
+`row_is_closing_reply`): the farewell or thank-you a walk queued beside a close or
+a redirect (a row whose `payload.batch_id` is that of a `close_conversation` or
+`change_target` row on the same connection; simpl-outreach's close handler
+inserts it before it applies the close's status), and, at Not In Target, a
+person who came in on one of the seller's channels (an `inbound_signal` row in
+`sales_outreach.batch_trigger_queue` for the connection, simpl-outreach's
+`came_inbound`), whom outreach keeps answering. Not Interested and Non sales are
+left to outreach's own rules. The rule runs wherever the authority does: when a
+row is queued, approved or claimed (the extension task claim delivers only a row
+still `RUNNING` after it) and in `recheck_journey_log_authority` right before a
+LinkedIn message or an email goes out, so moving someone to one of these stages
+stops what was already queued for them. A LinkedIn invitation the extension
+already claimed is not rechecked before it is sent.
+
 ### Judging a conversation thread
 
 `simpl_core.services.conversation_processing` judges one stored thread and, for a
