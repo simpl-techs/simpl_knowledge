@@ -1550,7 +1550,8 @@ nothing) and leaves anyone else `participant_type=2`, unlinked. Standing a
 placeholder in at sync made a lead of every notification, receipt and newsletter
 sender before anything had read them. Automated mailboxes
 (`is_automated_address` — `noreply@`, `bounce@`, `mailer-daemon@`) are never
-resolved at all. Dummy leads are still
+resolved at all, and a message a service delivered to the owner again
+(`services/email/redelivery`) is left out before anything is stored. Dummy leads are still
 used for *company* pipeline placement
 (`get_or_create_company_dummy_ulc`), which represents a company rather than a
 person — that is a different job and is unchanged.
