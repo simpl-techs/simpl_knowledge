@@ -1185,7 +1185,11 @@ name+location (proposed, never applied). Lead: LinkedIn URL,
 `mini_profile_urn`, email, then name **within an already-resolved company**.
 Generic and shared email domains (gmail.com, linktr.ee, …) never resolve a
 company — and the blocklist is applied *after* the registrable-domain reduction
-too, so `acme.medium.com` cannot reach every company under `medium.com`.
+too, so `acme.medium.com` cannot reach every company under `medium.com`. The
+registrable-domain fallback reads the hosts under the claim's domain through
+`ix_company_normalized_host_reversed` (migration
+`20261030d_company_reversed_host_index.sql`); without that index each lookup
+scans `sales.company`, so a database must have it before running core 0.8.250+.
 
 `LeadIdentityClaim.require_company_scope` bounds the answer by `company_id`
 rather than merely giving it context. Leave it off for conversation ingestion:
