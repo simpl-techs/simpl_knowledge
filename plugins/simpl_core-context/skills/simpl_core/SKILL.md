@@ -1846,9 +1846,8 @@ process object at all, which reads the CRM and exports nothing: its scope is a
   generation skips it. A person Simpl has not met is matched again each run.
 - Leaving the list does not move anyone back: nothing records the earlier stage.
 - The scope's workflow must have a Not In Target status. The dry run reads the
-  CRM and lists `would_mark_not_in_target` entries with the connections each
-  would stop; `scripts/check_crm_flow.py` validates the blocklist but does not
-  read it.
+  CRM and gives each member the first thing applying does for it (see below);
+  `scripts/check_crm_flow.py` validates the blocklist but does not read it.
 
 Flows are configured internally; the status mapping stays editable on the
 scope, and a flow with `stages_from` honours it. To give a customer a custom setup:
@@ -1883,8 +1882,14 @@ entries (each with
 `object_type`, `reason`, and for writes the stage before and after and the
 rendered name), counts not-due outcomes as `would_skip_object_not_due`, and
 stores the flow and its `flow_hash` in `configuration_snapshot`. A blocklist
-adds `would_mark_not_in_target` entries and counts members that would stop
-nobody as `would_skip_blocklist_entry`. A live run returns one
+gives every member one entry, each with a `reason`:
+`would_mark_not_in_target` (its connections still in outreach stop),
+`would_hold_blocked_company` (its company gets the claimed Not In Target
+placeholder), `would_place_blocked_company` (Simpl does not know the company: a
+placeholder company is placed and held, at most `COMPANY_MATCHES_PER_RUN` per
+run), and the counted skips `would_skip_blocklist_entry` (matched, nothing left
+to do) and `would_skip_unmatched_blocklist_entry` (nothing in Simpl, and nothing
+identifying to place). Every member's connections are read in one query. A live run returns one
 `ReconciliationResult` with `entity_type="blocklist"` whose metadata counts
 what it read, matched, created and stopped.
 
