@@ -1,6 +1,6 @@
 # simpl internal libraries catalog
 
-Auto-generated at `2026-10-30T16:58:40.689Z`. Do not edit by hand: every library sync regenerates it, or run `node scripts/ci/generate-catalog.js`.
+Auto-generated at `2026-10-30T17:42:47.455Z`. Do not edit by hand: every library sync regenerates it, or run `node scripts/ci/generate-catalog.js`.
 
 Each entry summarizes an integration plugin (`*-context`). Install the plugin in Claude Code for the full SKILL. Until then, use this file to decide whether a library fits the current task.
 
@@ -8,9 +8,9 @@ Each entry summarizes an integration plugin (`*-context`). Install the plugin in
 
 - **Skill**: `simpl_agent_sandbox`
 - **Summary**: simpl_agent_sandbox integration guide
-- **When to use**: Use this skill whenever the user asks about running agent-written code, or a
-  browser limited to one site, inside an isolated sandbox (Vercel Sandbox), about
-  sandbox providers, or about code that imports `simpl_agent_sandbox`. ALWAYS
+- **When to use**: Use this skill whenever the user asks about running agent-written code inside an
+  isolated sandbox with no network (Vercel Sandbox), about sandbox providers, or
+  about code that imports `simpl_agent_sandbox`. ALWAYS
   consult it before adding sandbox or VM execution code to another repo. It is
   NOT about `simpl_sandbox`, the local stack that runs simpl repos against a
   local database.
