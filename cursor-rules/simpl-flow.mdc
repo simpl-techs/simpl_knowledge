@@ -277,6 +277,13 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   active pay per call. Each run deletes the non-manual
   opportunities nobody receives, and autopilot's candidate view applies the same rule, so
   deactivating a user, an ICP or a customer stops both without any other change.
+- A **SQL signal** (`{"conditions": [{"table": "<schema.table>", "filters": ["<SQL>",
+  …]}]}`) ANDs its raw filters, each in parentheses, with the ICP's companies
+  (`restrict_to_icp`, default true): a filter's own `OR` stays inside it. After a
+  signal's first full run, runs read only the rows changed since the last one
+  (`updated_at`). On `sales_view.job_offer_with_location`, where `updated_at` is
+  `COALESCE(job_offer.updated_at, created_at)`, that test runs on the base columns
+  (`job_offer_updated_at`, `created_at`) so the `job_offer` indexes serve it.
 - A **post signal** (`sales.icp_signal.filter_json`) searches the LinkedIn posts in Zilliz
   (alias `sales_posts`) by topic, by keywords, or both: `{"mode": "all_match",
   "conditions": [{"collection": "sales_posts", "search_mode": "semantic" | "keyword" |
