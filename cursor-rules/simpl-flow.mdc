@@ -169,7 +169,8 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   `graphia-v2-nuextract`: the extractor's NuExtract behind the model contract, on the job's
   CPUs; `graphia-v2-gliner`: entities only, a fine-tuned GLiNER2 loaded in the job's own
   process, on ontology `o2` (o1 plus the model's 8 extra types), its runs with mentions
-  and no facts), works its due rows of `knowledge_graph.extraction_index` into the append-only
+  and no facts; `graphia-v3-gliner`: the same with the fine-tune trained on o1's 16 span
+  labels, on ontology `o1`), works its due rows of `knowledge_graph.extraction_index` into the append-only
   extraction log (`kg_*` datasets under `ROW_STORE_URI`, run rows last as the commit
   marker; the queue keeps pending rows only, a settled source's state goes to
   `ops_source_states` and model answers to `ops_model_calls`), then as asked: the teacher's blind labels of a random slice of
@@ -191,7 +192,7 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   them, and the opportunity matcher keeps reading them. NuExtract runs inside the job, on
   its CPUs, from the server and the weights in its own image (`simpl-flow-graphia`): 8 vCPU
   and 16 GiB, no model key. One run at a time. The same image also holds GLiNER2 in
-  `/opt/gliner` (`base/` + `heads.pt`), with torch and gliner2 installed only there, from
+  `/opt/gliner` (`base/`, `heads.pt`, `graphia16/heads.pt`), with torch and gliner2 installed only there, from
   the optional Poetry group `gliner`. Where each dataset lives and which flow writes it:
   `docs/knowledge-graph-storage.md`.
 - `gcp_graphia_identity_flow` (no schedule, started by hand, plain image) runs the identity
