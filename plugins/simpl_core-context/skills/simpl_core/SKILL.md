@@ -1731,6 +1731,19 @@ neither a pipeline nor a flow, or a scope whose lock is held — the same precon
 query imposes, so applying never performs writes promotion would not. A report
 is applied at most once; a fresh plan needs a fresh dry run.
 
+**Each live scope syncs on its own schedule.** `gcp_crm_sync` ticks every 15
+minutes (`SYNC_TICK`); a scheduled tick calls `acquire_next_config(...,
+due_only=True)` and claims only scopes whose `next_sync_at` is null or past. The
+claim books the next slot: every `sync_interval_minutes` (default 15, at least a
+tick), inside the active hours of the scope's seller (`scope_seller_id`: whoever
+connected the CRM, else the customer's first user; unset hours fall back to
+07:00-19:00 UTC, the window sends use), starting one tick before the window opens
+so a run lands before the first send. Seller hours apply every day, like sends.
+A targeted or backfill run (`due_only=False`) still takes every eligible scope.
+`request_sync(config_id)` makes a scope due on the next tick. The columns come
+from migration `20261102_crm_scope_sync_schedule.sql`; apply it before running
+this core.
+
 ## CRM flows
 
 A scope may declare a *flow* in `crm_export_config.config["flow"]`: which CRM
