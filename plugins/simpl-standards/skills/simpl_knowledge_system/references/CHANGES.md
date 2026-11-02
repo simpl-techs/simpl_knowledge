@@ -1,3 +1,4 @@
+- `2026-11-02` sync `simpl-techs/simpl_core` @ `37a01ef` → `simpl_core-context` **v1.0.196**
 - `2026-11-02` sync `simpl-techs/simpl_agent_sandbox` @ `b1eccad` → `simpl_agent_sandbox-context` **v0.1.3**
 - `2026-11-02` sync `simpl-techs/simpl_flow` @ `b52d765` → `simpl_flow-context` **v0.1.56**
 - `2026-11-02` sync `simpl-techs/simpl_api` @ `e980925` → `simpl_api-context` **v1.0.237**
