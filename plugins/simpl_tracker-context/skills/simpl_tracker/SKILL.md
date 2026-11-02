@@ -5,9 +5,9 @@ description: |
 summary: |
   Mandatory cost ledger for every simpl service. Records LLM spend per request, paid data-provider calls and Cloud Run compute in Supabase, reports any untracked cost on its own Discord channel, and ships structured logging, Discord notifications and Langfuse helpers.
 when_to_use: |
-  Any code that spends money: a model call (pydantic-ai, OpenAI, OpenRouter, DeepSeek, Cheaper Inference or any other provider), an LLM batch job, a paid enrichment or scraping API, or compute on Google Cloud (Cloud Run service, worker pool, job, Prefect flow). Also when adding logging with Discord alerts or Langfuse tracing, or when checking recorded costs against a provider's billing export.
+  Any code that spends money: a model call (pydantic-ai, OpenAI, OpenRouter, DeepSeek, Cheaper Inference or any other provider), an LLM batch job, a paid enrichment or scraping API, compute on Google Cloud (Cloud Run service, worker pool, job, Prefect flow), or a Vercel sandbox. Also when adding logging with Discord alerts or Langfuse tracing, or when checking recorded costs against a provider's billing export.
 required_when: |
-  Always. Every cost a simpl service incurs is recorded through simpl_tracker before merging: LLM spend through CostRecordingModel request receipts (attributed by @track_cost or an LLMAccountingScope; batch results through @track_batch_cost), paid data providers through @track_cost, and Google Cloud compute through track_instance_lifetime (services, worker pools) or @track_compute (jobs, Prefect flows). No custom cost tables and no untracked paid calls.
+  Always. Every cost a simpl service incurs is recorded through simpl_tracker before merging: LLM spend through CostRecordingModel request receipts (attributed by @track_cost or an LLMAccountingScope; batch results through @track_batch_cost), paid data providers through @track_cost, Google Cloud compute through track_instance_lifetime (services, worker pools) or @track_compute (jobs, Prefect flows), and each Vercel sandbox through record_sandbox_usage. No custom cost tables and no untracked paid calls.
 ---
 
 # simpl_tracker integration guide
@@ -25,6 +25,7 @@ required_when: |
 | LLM batch APIs | `@track_batch_cost(process=...)` on the code that retrieves the results |
 | Paid data providers | `@track_cost(service="data_enrichment", ...)` or `@track_cost(service="web_scraping", ...)` with `provider` and `sku` |
 | Cloud Run compute | `track_instance_lifetime(process_name=...)` for services and worker pools, `@track_compute(process=...)` for jobs and Prefect flows |
+| Sandbox compute (Vercel Sandbox) | `simpl_tracker.sandbox.record_sandbox_usage(SandboxUsage(...), process_name=...)` once per sandbox, after it stopped |
 
 A cost that fits none of these rows is added to simpl_tracker first, not recorded somewhere else.
 
@@ -403,3 +404,36 @@ $239.90 of the 24 x $10 top-ups bought between 2026-04-23 and 2026-10-09. The
 account is self-serve pay-as-you-go (prepaid credit, automatic $10 top-ups), not a
 monthly plan. Top-ups up to September 2026 are `infra_subscription` rows; October
 onwards must not get one.
+
+## Sandbox compute (Vercel Sandbox)
+
+`simpl_tracker.sandbox.record_sandbox_usage(usage, *, process_name=None, repo_name=None,
+user_id=None, customer_id=None, tracker=None)` records one ledger row per sandbox
+(service `sandbox_compute`, provider `vercel`). Call it once per sandbox, after it
+stopped, with a `SandboxUsage`. simpl_agent_sandbox returns one with the same fields when
+a sandbox stops: pass its values through unchanged. `sandbox_id` is our own sandbox name
+(`sbx-…`), never Vercel's session id: the row id comes from it, so another id for the same
+sandbox counts it twice. The rest comes from Vercel's `GET /v2/sandboxes/sessions/{id}`:
+`region`, `vcpus`, `memory` (MB), `duration` (ms), `activeCpuDurationMs` (vCPU time;
+missing when the sandbox did not stop cleanly: pass None), `stoppedAt` and
+`networkTransfer`.
+
+- It returns at once and never raises: the write runs on the receipt writer thread
+  (`flush_sync_receipts()` / `drain_llm_receipts()` wait for it at shutdown). No tracker, a
+  failed write, an unpriced region and a missing active CPU are reported as
+  `sandbox_compute.no_tracker`, `.receipt_failed`, `.unpriced`, `.active_cpu_missing`.
+- The tracker defaults to the global one. Attribution not passed comes from the active
+  `LLMAccountingScope` and lands where it does on LLM rows: `sub_process`, `channel`,
+  `company_id`, `batch_id` and `ulc_id` are columns, and `agent_run_id`, `node_run_id` and
+  `pipeline_run_id` sit at the top of `metadata`. No process: `unattributed_sandbox`.
+- Components: `active_cpu:<region>` (vCPU-seconds), `provisioned_memory:<region>`
+  (GB-seconds, at least 60 s per sandbox on Vercel) and `creation`. Migration
+  `20261102120000_sandbox_compute_usage.sql` seeds fra1 ($0.184/CPU-h, $0.0304/GB-h) and iad1
+  ($0.128, $0.0212), $0.60 per million creations, from vercel.com/docs/sandbox/pricing
+  (updated 2026-09-10). Another region is saved unpriced and reported. Data transfer stays in
+  metadata: Pro includes it in the flat-rate CDN.
+- List prices, not invoice amounts: Hobby bills nothing within its allowance (5 CPU-hours,
+  420 GB-hours a month), Pro takes sandbox usage from its $20 monthly credit first. On a paid
+  team, book the Vercel invoice (`vercel_hosting` subscription) without its Sandbox lines.
+- A Google sandbox later is a `google` provider under `sandbox_compute` with its own rates,
+  through the same `SandboxUsage`.
