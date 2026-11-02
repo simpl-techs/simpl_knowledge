@@ -1,9 +1,9 @@
 ---
 name: simpl_agent_sandbox
 description: |
-  Use this skill whenever the user asks about running agent-written code inside an
-  isolated sandbox with no network (Vercel Sandbox), about sandbox providers, or
-  about code that imports `simpl_agent_sandbox`. ALWAYS
+  Use this skill whenever the user asks about running agent-written code, or a
+  browser on the public web, inside an isolated sandbox (Vercel Sandbox), about
+  sandbox providers, or about code that imports `simpl_agent_sandbox`. ALWAYS
   consult it before adding sandbox or VM execution code to another repo. It is
   NOT about `simpl_sandbox`, the local stack that runs simpl repos against a
   local database.
@@ -20,10 +20,9 @@ Sandbox exist. Plan: `simpL/plans/agent-sandbox-plan.md`.
 
 ## What this library is
 
-Short-lived VMs for one task each, behind a `SandboxProvider` protocol. The first
-version ships the code box: model-written code runs with no network at all. The
-provider and the images also hold a browser box limited to one site, but no runner
-uses it yet: the browse runner is parked on the `feature/eng-865-browse-runner` branch.
+Short-lived VMs for one task each, behind a `SandboxProvider` protocol. The code box
+runs with no network at all; the browser box reaches public sites only, never a
+private, loopback, link-local or other non-public address.
 Providers: `vercel` (Vercel Sandbox over httpx, no SDK) and `fake` (in memory, for
 tests). The package takes bytes in and gives bytes out; storage stays with the caller.
 It moved here from `simpl_core.sandbox` (`simpl-techs/simpl_core#335`).
@@ -35,7 +34,7 @@ It moved here from `simpl_core.sandbox` (`simpl-techs/simpl_core#335`).
 "simpl-agent-sandbox @ git+https://github.com/simpl-techs/simpl_agent_sandbox.git@main"
 ```
 
-Its only runtime dependency is httpx. The code task runner needs the `tasks` extra
+Its only runtime dependency is httpx. The task runners need the `tasks` extra
 (simpl_ia with its agents, simpl_tracker): `simpl-agent-sandbox[tasks] @ ...`.
 
 ## Basic usage (the 90% case)
@@ -48,7 +47,7 @@ config = SandboxConfig.from_env()  # SANDBOX_VERCEL_TOKEN, _TEAM_ID, _PROJECT_ID
 async with VercelSandboxProvider(config.vercel) as provider:
     spec = SandboxSpec(
         image=config.workbench_image,
-        network=NetworkPolicy.deny_all(),  # only_sites([...]) needs allow_sites, below
+        network=NetworkPolicy.deny_all(),  # any other policy needs its switch, below
         region=config.region,
         timeout_s=600,  # Vercel stops the sandbox then, even if this process dies
         tags={"task": "press-kit"},
@@ -67,9 +66,15 @@ async with VercelSandboxProvider(config.vercel) as provider:
 - There is no default network policy, region or timeout. A provider declares what it
   enforces in `capabilities()` and raises `SandboxUnsupportedError` for anything else,
   before creating a sandbox; it never falls back to a weaker policy.
-- The Vercel provider offers a `sites` policy only when `VercelSandboxConfig.allow_sites`
-  is true (`SANDBOX_VERCEL_ALLOW_SITES=true`). It is off by default, so a caller cannot
-  open the network by code alone: the host has to turn it on as well.
+- The Vercel provider offers a policy other than `deny_all` only when the host turned
+  on its switch: `public_internet` with `VercelSandboxConfig.allow_public_internet`
+  (`SANDBOX_VERCEL_ALLOW_PUBLIC_INTERNET=true`), `sites` with `allow_sites`
+  (`SANDBOX_VERCEL_ALLOW_SITES=true`). Both are off by default, so a caller cannot
+  open the network by code alone. Only the browser box asks for `public_internet`.
+- `NetworkPolicy.public_internet()` reaches every public IPv4 address and nothing in
+  `NON_PUBLIC_IPV4_NETWORKS` (private, loopback, link-local with the cloud metadata
+  address `169.254.169.254`, carrier-grade NAT, multicast, reserved), and no IPv6.
+  Vercel's firewall checks the address a connection actually goes to, after DNS.
 - `NetworkPolicy.only_sites` takes bare domains (subdomains included) and refuses IPs,
   wildcards and shared front ends such as `googleapis.com` or `cloudfront.net`, which
   would let the sandbox reach other tenants by domain fronting.
@@ -87,33 +92,41 @@ async with VercelSandboxProvider(config.vercel) as provider:
   sandboxes carrying that tag.
 - Hosts build each provider from config and register it once at startup in
   `SandboxProviderRegistry`; a policy names the provider to use.
-- The browser image carries the T0 path-A pieces in `/opt/sbx`: start `browserd.py <site>`
-  detached (Chromium plus an in-browser site filter), then run `act.py '<json action>'`
-  once per action (navigate, snapshot, click, click_ref, type). The filter lets through
-  only GET, HEAD and OPTIONS to the task's sites, in every tab, popup, frame and worker.
-  It does not see WebSockets: in this image a page script can still open one to the
-  allowed site. No runner uses this image in the first version.
+- The browser image carries the T0 path-A pieces in `/opt/sbx`: start `browserd.py
+  [--no-downloads]` detached (Chromium plus an in-browser request filter), then run
+  `act.py '<json action>'` once per step (`step`: unfreeze the page, one action, settle,
+  snapshot, freeze; plus `navigate`, `snapshot`, `downloads`). The filter lets through
+  only GET, HEAD and OPTIONS to public addresses, checked after DNS (loopback and the
+  CDP port included, which the firewall cannot see), in every tab, popup, frame and
+  worker,
+  and browserd removes `WebSocket`, `WebSocketStream`, `WebTransport` and
+  `RTCPeerConnection` from every page, frame and worker, because WebSockets never reach
+  the filter. `act.py` refuses to act when the daemon is not running, refuses any click,
+  typing or download on an element that sends a form, and its JSON line stays under
+  12,000 characters. The browse runner below drives them.
 - Images: `images/{workbench,browser}/`, tags pinned in `config.py` as the content hash
   of each folder. Build and push with
   `python -m simpl_agent_sandbox.images.build <image> --project <vercel project>`, then
   run the probe `tests/test_conformance_probe.py` (`SANDBOX_LIVE=1`) before pinning or
   using a new tag.
 
-## Code task runner (`simpl_agent_sandbox.tasks`)
+## Task runners (`simpl_agent_sandbox.tasks`)
 
-`run_code_task` (D4) starts one workbench with no network, runs a DeepSeek sub-agent
-inside it with its own low-level tools, and destroys the sandbox. This package imports
+Two task-level runners (D4): each starts one sandbox, runs a DeepSeek sub-agent inside
+it with its own low-level tools, and destroys the sandbox. This package imports
 simpl_ia's agents and pydantic-ai: install the library with the `tasks` extra
 (`simpl-agent-sandbox[tasks] @ git+https://github.com/simpl-techs/simpl_agent_sandbox.git@main`).
 
 ```python
 from simpl_agent_sandbox.tasks import (
     CsvCheck,
+    DownloadCompleted,
     PdfCheck,
     StructuredClientModel,
     TaskBudget,
     TaskInput,
     deepseek_client,
+    run_browse_task,
     run_code_task,
 )
 
@@ -133,15 +146,37 @@ result = await run_code_task(
     on_usage=record_usage,  # (sandbox_id, SandboxUsage | None, destroy error | None), T7
 )
 result.outcome, result.files, result.steps, result.usage
+
+# The provider must allow the public internet: VercelSandboxProvider built with
+# allow_public_internet=True (SANDBOX_VERCEL_ALLOW_PUBLIC_INTERNET=true); otherwise
+# create() refuses before any request.
+result = await run_browse_task(
+    "Open the Press page and download the press kit.",
+    "https://www.simplsales.ai/",  # start URL: public http(s) only
+    TaskBudget(max_steps=20, wall_clock_s=300),
+    provider,
+    [DownloadCompleted("simpl-press-kit.zip")],
+    allow_downloads=True,
+    model=StructuredClientModel(
+        deepseek_client(deepseek_key), process_name="ops.finance.browse_task"
+    ),
+)
+result.answer.text  # UntrustedText: the sub-agent read pages nobody checked
 ```
 
-- **No network, always**: the runner creates the workbench with `NetworkPolicy.deny_all()`;
-  no argument changes it, the provider deletes a sandbox Vercel did not create that
-  way, and the Vercel provider refuses any `sites` policy unless `allow_sites` is on.
+- **No network for code, the public web for browse**: `run_code_task` creates the
+  workbench with `NetworkPolicy.deny_all()`; no argument changes it, and the provider
+  deletes a sandbox Vercel did not create that way. `run_browse_task` takes a public
+  start URL and creates the browser box with `NetworkPolicy.public_internet()`: the
+  sub-agent may open any public site (D28). The Vercel provider refuses that policy,
+  before any request, unless the host turned on `allow_public_internet`, so a host that
+  never sets it can run code tasks only.
 - **One action per model turn**, through native tool calling: each tool is a
   pydantic-ai output tool, so the model answers with exactly one tool call, our code
-  performs it and the next turn starts from a fresh prompt. Tools: `write_file`, `run`
-  (one bash command line), `read_file`, `done`.
+  performs it and the next turn starts from a fresh prompt. Code tools: `write_file`,
+  `run`, `read_file`, `done`. Browse tools: `click`, `type`, `select`, `scroll`,
+  `navigate` (public http(s) URLs only), `download` (only with `allow_downloads`), `wait`,
+  `done`; never page script or raw CDP.
 - **Model calls** go through simpl_ia's `StructuredLLMClient`, built from a typed
   `ModelPolicy` plus a credential binding (`deepseek_client`, default `deepseek-flash`),
   and run inside an `LLMAccountingScope(process_name=..., agent_run_id=...)`, so every
@@ -157,33 +192,72 @@ result.outcome, result.files, result.steps, result.usage
 - **Loop guard**: the same action with the same effect twice in the last 6 steps puts a
   warning in the next prompt; a third time ends the task with `LOOP_STOPPED`.
 - **Done gate**: `done` is accepted only when the caller's checks pass, otherwise
-  refused with the failing checks named. A task that runs out of steps or time still
-  ends `DONE` when the final checks pass and every checked file comes back. Checks
-  run inside the workbench from a script passed on the command line, each on a file
-  directly in `/workspace/out/` (the only files that come back): `FileExists`,
+  refused with the failing checks named. A code task that runs out of steps or time
+  still ends `DONE` when the final checks pass and every checked file comes back. Code
+  checks run inside the workbench from a script passed on the command line, each on a
+  file directly in `/workspace/out/` (the only files that come back): `FileExists`,
   `FileSize`, `PdfCheck` (pages, page size), `ImageCheck` (pixels), `VideoCheck`
   (duration, frame size), `CsvCheck` (rows, columns), `JsonKeysCheck` (exact or
-  contained keys).
-- **Untrusted content**: everything the sandbox printed is fenced in the prompt with a
-  fresh mark per prompt. `CodeTaskResult.summary` is `UntrustedText`; output files are
+  contained keys). Browse goal checks: `DownloadCompleted` (a finished download) and
+  `PageAt(host, path_prefix)` (the open page's parsed URL: that host exactly, under
+  that path by whole segments, query and fragment ignored, loaded with HTTP status 200
+  to 399) are evidence, and a browse task needs at least one of them.
+  `PageUrlContains` (text anywhere in the URL, so the sub-agent can write it into a
+  query or fragment) and `AnswerContains` (the sub-agent's own answer) are format
+  checks only. `PageAt` proves a page loaded there, not what it says: a site that
+  answers 200 for any path passes for one that does not exist.
+- **Untrusted content**: everything a sandbox printed, every page and the browse step
+  results (they quote the page) are fenced in the prompt with a fresh mark per prompt,
+  and every page field is on one line. `CodeTaskResult.summary` and
+  `BrowseTaskResult.answer` are `UntrustedText`; output files and downloads are
   untrusted bytes to store, never to run or render on a server.
 - **Results**: `outcome` (`TaskOutcome`: done, output_missing, step_cap, time_cap,
-  loop_stopped, model_failed, sandbox_failed) with `detail`, the files, the check
-  verdicts, the step log (`StepRecord`: action, short detail and result, model and
-  sandbox time), `model_usage` (requests and tokens) and `usage` (`SandboxUsage` from
-  `destroy()`). The step log is returned, never stored here (D7).
-- **Errors**: a failed `create` raises `SandboxError` (nothing ran). After that, sandbox
-  and model failures are outcomes; an unexpected error raises `TaskRunError` with the
-  step log and token count so far; a cancellation is re-raised. In every case the
-  sandbox is destroyed in a shielded task that then calls `on_usage` (a `UsageSink`),
+  loop_stopped, model_failed, sandbox_failed, browser_failed) with `detail`, the files,
+  the check verdicts, the step log (`StepRecord`: action, short detail and result, model
+  and sandbox time), `model_usage` (requests and tokens) and `usage` (`SandboxUsage` from
+  `destroy()`). `DONE` means the checks passed and every checked file or
+  `DownloadCompleted` download came back; `output_missing` names the ones that did not.
+  The step log is returned, never stored here (D7).
+- **Errors**: a failed `create` raises `SandboxError` (nothing ran). After that, sandbox,
+  browser and model failures are outcomes; an unexpected error raises `TaskRunError`
+  with the step log and token count so far; a cancellation is re-raised. In every case
+  the sandbox is destroyed in a shielded task that then calls `on_usage` (a `UsageSink`),
   so the cost reaches the caller even after a cancellation. `cleanup_error` says when
   the destroy failed (logged with the sandbox id); the provider timeout still ends it.
   A sink that raises is logged and never replaces the result. Before the host shuts
   down, it awaits `drain_destroys()`, so destroys whose callers were cancelled finish;
   a destroy cancelled anyway reports `(sandbox_id, None, "CancelledError")`.
-- **Observing**: pass a `TaskObserver` subclass to `run_code_task` to see each step and
-  each command's output as it arrives; what it receives is raw and must never reach a
-  model or `tool_call_runs`.
+- **Browse safety** (v1 reads and downloads public pages; typing is for site search):
+  the sandbox reaches public IPv4 addresses only, checked by the firewall after DNS;
+  browserd's filter passes only GET, HEAD and OPTIONS to public addresses (a name is
+  refused unless every address it resolves to is public; loopback and the CDP port
+  included), and browserd removes the WebSocket, WebTransport and
+  WebRTC constructors from every page, frame and worker. Our code refuses any click,
+  typing or download on an element that sends a form (a submit or image input, a submit
+  button, or anything inside one) before it reaches the browser, and act.py refuses it
+  again at click time. Typed text loses its line breaks, so Enter is never pressed. URLs
+  with a backslash, whitespace, control characters or credentials are refused. Not
+  covered: page script that sends typed text in a GET request to a site (a search box
+  does exactly that).
+- **Open-web risks** (D28, accepted by Jackie): a page can trick the sub-agent into
+  opening a URL that carries text from its context, the task included, to any site;
+  link-click actions (unsubscribe, confirm or sign-in links) can fire on any site; the
+  requests come from Vercel under Jackie's personal Hobby account, meant for personal
+  non-commercial use, so heavy scraping can get it flagged and stop code tasks too;
+  heavy pages spend Hobby's 5 CPU-hours a month faster; and text a page planted can ride
+  in `answer`, which is why it is `UntrustedText`. Offer `browse_task` only where its
+  context holds nothing private (D26: through helper profiles).
+- **Browser driver** (D16): the runner talks to a `BrowserDriver`. `CommandBrowserDriver`
+  (the `command` driver) runs browserd detached and one act.py command per step; the
+  page stays frozen while the model thinks. A navigation without a load event within
+  `nav_timeout_s` (15 s) is retried once in a new tab that browserd opens; on browserd's
+  exit line Chromium is restarted once in the same sandbox and the last page reopened,
+  and a second exit ends the task with `BROWSER_FAILED`. A `cdp_websocket` driver is
+  planned behind the same interface.
+- **Live view (developers only)**: `scripts/live_view.py` runs one task and serves its
+  step log and the browser's frames on `http://127.0.0.1:8791/`. Pass a `TaskObserver`
+  subclass to `run_*_task` to see events yourself; what it receives is raw and must
+  never reach a model or `tool_call_runs`.
 
 ## Testing
 
@@ -210,8 +284,8 @@ result = await provider.run(session, ["python3", "job.py"], timeout_s=10)
 - It is not `simpl_sandbox`, the local cross-repo dev stack with a local Supabase.
 - It holds no storage: bytes go in and bytes come out; the caller stores files.
 - It records no costs: `destroy` returns usage for the caller to record with simpl_tracker.
-- It registers no agent tools: `code_task` lives in simpl_core's agent framework, which
-  depends on this library.
+- It registers no agent tools: `code_task` and `browse_task` live in simpl_core's agent
+  framework, which depends on this library.
 
 ## Where to go next
 
