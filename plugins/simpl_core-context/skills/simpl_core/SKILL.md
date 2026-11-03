@@ -3442,6 +3442,12 @@ failures into test failures.
 **Status: experimental** (Vercel Sandbox on a personal Hobby account, test data only).
 An agent's `sandbox` policy offers two tools; the sandboxes, the sub-agent and the
 isolation live in `simpl_agent_sandbox` (a dependency of the `agent-framework` extra).
+Importing the framework never loads it: which tools a policy offers is
+`agent_framework.sandbox_policy`, and the tools come from their own modules
+(`sandbox_tools`, `sandbox_runs`, `sandbox_specs`; not re-exported by
+`simpl_core.agent_framework`), loaded only by a coordinator given a `sandbox_host` and
+by the loader's boot check when an agent declares a `sandbox` policy. A host with no
+sandboxes is unaffected by the sandbox release in its lock.
 
 - `code_task(tasks=[...])`: each task is `{task, inputs: [file refs], checks: [...]}`; a
   helper writes and runs code in a box with no network until every check on the files
@@ -3469,7 +3475,8 @@ sandbox:
   allow_downloads: true        # browse_task downloads into the file store; left out: off
 ```
 
-The host wires `NodeCoordinator(..., sandbox_host=SandboxToolHost(...))`: the sub-agent's
+The host wires `NodeCoordinator(..., sandbox_host=SandboxToolHost(...))` (from
+`agent_framework.sandbox_runs`; without a host no sandbox tool is offered): the sub-agent's
 model (`structured_client_sub_agents(deepseek_client(key))`), a `SandboxFileStore`
 (`load(ref) -> (name, bytes)`, `save(...) -> ref`) and `on_usage`, which receives one
 `SandboxUsageReport` per sandbox for cost recording (without it a tracking gap is
