@@ -181,6 +181,84 @@ A seller connects any mailbox that is not Gmail or Outlook: address first, then 
 - Performance desk and "What converts" (simpl_sales Home v2, `api/v1/app/performance.py`, `services/performance/`): `GET /api/v1/app/performance/summary?from=&to=&tz=&user_id=&icp_id=` returns the window's cohort funnel (people first reached in the window and what they did since; meetings, calls held and sales are companies, each counted once, for the seller and ICP of the row it is credited to: among the rows reached by then, SimpL's first, then the booking seller's or the held call's, then the person whose reply wanting an answer came last before it), cohort rates with the window before (its steps counted only up to the age the current cohort has today) and a tested `change` (`better`/`worse`/`same`/`too_few`/`none`), activity counts (first messages and first replies, not the metrics page's contacted/replied), a day/week/month series, per-seller and per-ICP rows (each counts a company in the window it first reached it, as its own drill-down does; within a window they add up to the team), channels, speed (first message after an accept; the seller's answer, a SimpL send after SimpL logged the reply or a mailbox message, to the first reply that wants one, i.e. not a no, an out-of-office or a bounce; echoes of our own messages filed as replies are not replies, and a reply the judge read counts even with no reply event), a weekday x hour reply heatmap and `options` for the selectors. `available` is false until the customer's facts are first built (the numbers are zeros then, not "no outreach"); `filters.own_only` is true when a non-manager's ICP view was narrowed to their own contacts. Everyone in the company sees the team; one teammate needs a manager or platform admin (403 otherwise); only the caller's company, SimpL's contacts only (`from_simpl`). `GET /api/v1/app/performance/insights` returns the stored nightly analysis (`{available, computed_at, insights}`; an analysis stored by an earlier method version reads as not available until the night rebuilds it). `POST /api/v1/admin/performance/refresh` (platform admins; body `{customer_ids?, roles?, insights?}`) rebuilds now. Data: `sales_view.lead_funnel_fact` (one row per contacted person, the metrics' definitions; rebuilt every hour at :17 UTC with the new people's roles read by deepseek-v4-flash from title and headline) and `sales_view.customer_performance` (facts' `as of`, and the insights rebuilt nightly at 01:47 UTC), migrations `20261015200500` and `20261015210000`, which must be applied before the API that reads them; then run `scripts/performance_refresh.py --insights` before simpl_sales ships the desk. Insights (`method_version` 2) compare each trait and timing with the customer's other contacts within seller x ICP x quarter (Mantel-Haenszel; companies also by people contacted there), corrected across all segments (Benjamini-Hochberg: proven at q <= 0.10, leaning at q <= 0.25 and 25% apart), at least 5 expected successes on both sides (else `too_few`), and holding without the segments proven the other way (taken surest first, each rechecked without the stronger ones on the other side; two that only differ from each other are both demoted); `no_difference` only when the interval rules out a 20% difference, else `unclear`. Replies, positive replies and answer speed count only people first messaged once the customer's reply judge started (a customer with no judged reply gets none of those); a person's meeting is the company's meeting credited to their row. A leaning segment says how many more contacts it needs (`more_needed_total`) to clear the bar for proven at its rank, with 80% power.
 - Metrics contract (one definition per number, 2026-10-02; definitions and hover texts in simpl_core `services/reports/definitions.py`, full API in `audits/2026-10-02-metrics-check/API_CONTRACT_PHASE3.md`): every metrics endpoint takes `from` / `to` as calendar days in `timezone` (default Europe/Rome), `includeExternal` (default false: only leads and companies SimpL brought) and `view` (`all` default / `cohort`: the headline of split numbers), and returns `definitions`. The numbers per customer come from `sales_view.customers_metrics_overview_v2` (migration `20261002f`): companies and people taken apart (`companies_claimed`, `leads_claimed`), distinct companies proposed, `leads_contacted` / `leads_replied` / `companies_engaged` / `meetings` / `calls_held` / `won` each as `{value, total, cohort, earlier}` (a follow-on send, `event_data.message_type = 'follow_on'`, a message after a call held, contacts nobody and is no first message a reply must follow; migration `20261014200100`, also in `sales_view.ulc_first_touch` and the WBR records), `meetings_other` / `calls_held_other` (not SimpL's), rates on the cohort (`response_rate`, `booking_rate`, `show_rate`, `win_rate`: `{value, numerator, denominator}`, value null without a denominator), `active_users` (at least one SimpL action, never the extension heartbeat), `pipeline` / `customers` / `won_all_time` (stock). A SimpL identity lent to a customer (identity lending) counts its companies and people for the customer each connection works for (migration `20261016120000`), but stays an active user of SimpL only. `POST /api/v1/admin/reports/customers-metrics-overview` returns them per customer plus `totals` and `totalsWithoutSimpl` (keeps the old `outreach` / `opportunities` / `trends` columns, deprecated); `POST /admin/reports/customer-metrics` and `POST /api/v1/app/reports/customer-metrics` one customer's (app: `scope: user` for the user's own). `POST /api/v1/app/sales-metrics/metrics` takes `includeExternal` / `view` and returns the contract in `comparison.current.contract` and `definitions`; its old fields now carry the contract (`meetingsBookedInPeriod` = SimpL's meetings, `responseRate` = cohort, `won` = won with SimpL all time, `wonInPeriod`, `customers`, `companiesClaimed` / `leadsClaimed`). `meetingBooked` / `closed` there are where companies stand today, whatever the period. The customer page summaries and Sankeys take the same flags: outreach counts people only, the opportunities Sankey adds `companyFunnel` (proposed -> taken -> contacted -> engaged -> meeting -> call -> won, companies only) and counts proposals as distinct companies; Report Wrapped months are Europe/Rome months with `won` = companies won in the month and an average without SimpL and never-billed accounts.
 
+## Website signals
+
+Technical signals of company websites as typed columns, for outreach and ICP filters in plain SQL (ENG-958; migrations `20261030210000_website_tables.sql` and `20261102190000_company_website_view.sql`). They are not the ICP website signals above, which search page text in the landing index. simpl_scraping writes both tables; simpl_api only defines them. They stay empty until simpl_scraping's `website_signals` and `website_crawl_facts` configs are active. Read them as `service_role` or simpl_api's database login; `anon` and `authenticated` hold nothing. The column comments are the contract; this is the short form.
+
+- **From companies:** rows are keyed by site (`host`, as `sales.normalize_url_to_host` returns it, without `www.`). `sales.company_website (company_id, host)` links each `sales.company` whose `landing_url` gives `host` or `'www.' || host` (a landing URL without a scheme keeps its `www.`). Several companies can share one site. A lookup by host and a lookup by `company_id` both use an index. A landing URL with an upper-case scheme (`HTTPS://…`) does not link yet: `normalize_url_to_host` returns `https:` for it.
+- **`sales.website`, one row per site. Each column has one writer:**
+  - Page writer (the `website_signals` profile, the home page's HTML; guard `content_observed_at`): `has_viewport`, `mobile_clues`, `ux_clues` (clues such as `frames`, `table_layout`, `no_favicon`; no score), `seo_clues`, `has_structured_data`, `has_open_graph`, `languages`, `mixed_content`, `copyright_year` (latest past year; null when only the current year shows), `needs_js` (an app shell: its other page columns are less reliable), and `latest_news_date` (newest dated article on any page; only moves forward).
+  - Crawl writer (the `website_crawl_facts` side task, each finished crawl run's home page; guard `last_crawled_at`): `uses_https`, `http_redirects_to_https` (known only for sites seeded with `http://`), `final_home_url`, `server_software`, `server_version`, `php_version`, `security_headers`, `insecure_cookies`, `home_last_modified`, `page_count`, `broken_link_count`, `avg_response_ms`, `home_response_ms`.
+  - Generated: `estimated_last_update`, the latest of `latest_news_date`, 31 December of `copyright_year` and `home_last_modified`; `estimated_last_update_source` says which won (`news`, `last_modified`, `copyright`).
+- **Latest processed run vs latest answered run:** `last_crawled_at`, `last_crawl_status`, `home_outcome`, `home_http_status`, `tls_error_kind` and `tls_error_seen_at` follow the latest processed run. A broken certificate is `tls_error_kind` `expired`, `not_yet_valid`, `self_signed`, `hostname_mismatch` or `untrusted_chain`; `handshake_failed` (the server refused or reset the handshake) and `other_tls` (a TLS failure no rule names) are not. The other crawl columns follow the latest answered run (home page 2xx with its headers kept). A site blocked or down today keeps its older header values: add `home_outcome = 'succeeded'` when the answer must be today's, and filter a status on `home_http_status`, not `home_outcome`.
+- **`sales.website_technology`, one row per site and technology**, from both writers (HTML and home page headers): `technology`, `categories`, `source` (`own` or `open_list`), `evidence`, `seen_on_url`, `first_seen_at`, `last_seen_at`, and the last version seen (`version`, `version_seen_at`) with its risk: `eol_date` (end of support of that release line), `vulnerability_ids`, `max_severity` (`low`, `medium`, `high`, `critical`).
+  - A sighting without a version never clears `version`.
+  - `eol_date` null means unknown or still supported, never "current". No known vulnerabilities is `vulnerability_ids` null.
+  - `version` is text, and text order is not version order (`'1.12.4' < '1.9'`). Compare `eol_date` or the risk columns, never `version < '8.2'`.
+  - A row stays when its technology goes away, and an unchanged page does not move `last_seen_at`: its age alone does not mean the technology is gone.
+  - PHP: `sales.website.php_version` is what the latest answered run's headers show (null when they hide it). The PHP row keeps the last version ever seen, with its end of life. Use the row for risk and `php_version` for what the site shows now.
+
+Example queries. `migrations/tests/website_tables/run.sh` runs each block below as written, on fixture rows; keep each block's first comment line, which names it in the suite.
+
+```sql
+-- php_past_eol: sites with PHP past end of life
+select c.id as company_id, c.name, cw.host, t.version as php_version, t.eol_date
+from sales.company c
+join sales.company_website cw on cw.company_id = c.id
+join sales.website_technology t on t.host = cw.host
+where t.technology = 'PHP'
+  and t.eol_date < current_date;
+```
+
+```sql
+-- no_https_or_tls_error: no https, or a broken certificate on the latest run (not a refused handshake)
+select c.id as company_id, c.name, cw.host, w.uses_https, w.tls_error_kind
+from sales.company c
+join sales.company_website cw on cw.company_id = c.id
+join sales.website w on w.host = cw.host
+where w.uses_https is false
+   or w.tls_error_kind in ('expired', 'not_yet_valid', 'self_signed', 'hostname_mismatch', 'untrusted_chain');
+```
+
+```sql
+-- last_update_before: estimated last update before 2022
+select c.id as company_id, c.name, cw.host, w.estimated_last_update, w.estimated_last_update_source
+from sales.company c
+join sales.company_website cw on cw.company_id = c.id
+join sales.website w on w.host = cw.host
+where w.estimated_last_update < date '2022-01-01';
+```
+
+```sql
+-- no_viewport: no viewport tag on the home page; an app shell's HTML is too thin to judge
+select c.id as company_id, c.name, cw.host
+from sales.company c
+join sales.company_website cw on cw.company_id = c.id
+join sales.website w on w.host = cw.host
+where w.has_viewport is false
+  and w.needs_js is not true;
+```
+
+```sql
+-- ux_three_clues: three or more UX clues
+select c.id as company_id, c.name, cw.host, w.ux_clues
+from sales.company c
+join sales.company_website cw on cw.company_id = c.id
+join sales.website w on w.host = cw.host
+where cardinality(w.ux_clues) >= 3;
+```
+
+```sql
+-- jquery_vulnerable: jQuery with known vulnerabilities, the worst first
+select c.id as company_id, c.name, cw.host, t.version, t.max_severity, t.vulnerability_ids
+from sales.company c
+join sales.company_website cw on cw.company_id = c.id
+join sales.website_technology t on t.host = cw.host
+where t.technology = 'jQuery'
+  and t.vulnerability_ids is not null
+order by array_position(array['critical', 'high', 'medium', 'low'], t.max_severity);
+```
+
 ## Common pitfalls
 
 - Do not duplicate shared logic already available in `simpl_core`.
