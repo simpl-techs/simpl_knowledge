@@ -37,6 +37,7 @@ poetry add "simpl-core[novu,composio-sdk] @ git+https://github.com/simpl-techs/s
 poetry add "simpl-core[agent-framework] @ git+https://github.com/simpl-techs/simpl_core.git@main"
 poetry add "simpl-core[mailbox] @ git+https://github.com/simpl-techs/simpl_core.git@main"
 poetry add "simpl-core[parquet] @ git+https://github.com/simpl-techs/simpl_core.git@main"
+poetry add "simpl-core[decks] @ git+https://github.com/simpl-techs/simpl_core.git@main"
 ```
 
 The `mailbox` extra (aioimaplib, aiosmtplib, google-cloud-kms, dnspython) is what an `imap` email connection needs at runtime; see "Email on other providers (IMAP/SMTP)". Nothing imports it at `import simpl_core.services.email`.
@@ -2546,6 +2547,37 @@ when that is unset or Discord does not take the message, falls back to the proce
 raises. A delivered exception is marked announced, so tracker's default policy does not
 post it again to #warning. Pass a `dedup_key` per problem (a document, a job): repeats
 edit one message.
+
+## Decks in a company's look (`decks`)
+
+Needs the `decks` extra (python-pptx, pillow, lxml, resvg-py). A deck is slides on fixed
+layouts (`decks.deck.LAYOUTS`: cover, statement, quote, names, rows, image, hero, figures,
+chart, table, steps, flow, closing and more), written as PowerPoint and typeset to PDF by
+DocRaptor, in the kit it is given. Generic: nothing here knows any company. Each company's
+brand (logo, colours, face, how its pages draw) is kept where its product keeps it and
+passed in; a deck is always in the look of the company that presents it.
+
+```python
+from simpl_core.decks.brand import BrandKit
+from simpl_core.decks.make import make_deck
+
+look = BrandKit.model_validate(stored_brand)        # the customer's kept brand
+made = await make_deck(slides, look=look, logo=logo_bytes, http=http,
+                       organisation="Acme · Rossi", title="Acme per Rossi", lang="it",
+                       docraptor_key=docraptor_key)
+made.pptx, made.pdf, made.pdf_is_test, made.notes
+```
+
+- `brand.kit_from_brand` turns a `BrandKit` into the engine's `kit.DocumentKit`: colour
+  roles that hold their contrast, the logo (SVG or not) drawn for the paper and the dark
+  slides at its own proportions, the face fetched from Google Fonts (Poppins, which
+  ships, stands in when it cannot be).
+- `make_deck` raises `deck.DeckRefused` naming every slide that does not fit (fix them all
+  and call again), `brand.BrandUnusable` for a brand that cannot be drawn, and
+  `typeset.RenderFailed` / `OverDocumentLimit` from DocRaptor. Without a DocRaptor key the
+  PDF is a watermarked test document (`pdf_is_test`): never send it.
+- `make.deck_shape(slides)` says how many slides are words only and which show something,
+  for the maker to weigh.
 
 ## Who takes the meetings: team hand-off
 
