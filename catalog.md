@@ -1,6 +1,6 @@
 # simpl internal libraries catalog
 
-Auto-generated at `2026-11-03T18:26:05.830Z`. Do not edit by hand: every library sync regenerates it, or run `node scripts/ci/generate-catalog.js`.
+Auto-generated at `2026-11-04T08:58:40.070Z`. Do not edit by hand: every library sync regenerates it, or run `node scripts/ci/generate-catalog.js`.
 
 Each entry summarizes an integration plugin (`*-context`). Install the plugin in Claude Code for the full SKILL. Until then, use this file to decide whether a library fits the current task.
 
