@@ -2679,7 +2679,7 @@ layouts (`decks.deck.LAYOUTS`: cover, statement, quote, names, rows, image, hero
 chart, table, steps, flow, closing and more), written as PowerPoint and typeset to PDF by
 DocRaptor, in the kit it is given. Generic: nothing here knows any company. Each company's
 brand (logo, colours, face, how its pages draw) is kept where its product keeps it and
-passed in; a deck is always in the look of the company that presents it.
+passed in, or read from its site; a deck is always in the look of the company that presents it.
 
 ```python
 from simpl_core.decks.brand import BrandKit
@@ -2702,6 +2702,12 @@ made.pptx, made.pdf, made.pdf_is_test, made.notes
   PDF is a watermarked test document (`pdf_is_test`): never send it.
 - `make.deck_shape(slides)` says how many slides are words only and which show something,
   for the maker to weigh.
+- A company's look from its site: `read.complete(BrandKit(site="acme.it"), firecrawl=SiteReader(key),
+  senses=None, http=http)` returns the kit, the logo's bytes and notes (one Firecrawl credit,
+  cached 6 hours). It runs `measure.js` in Firecrawl's browser and reads colours by painted area,
+  the logo's own colour, faces from Google Fonts, cards, corners, labels and the hero. Fields the
+  kit names win. `senses` (a vision check) and `voice_reader` are optional. `brand.logo_png(data)`
+  turns a logo read from a site into a PNG to keep: an SVG can carry scripts.
 
 ## Who takes the meetings: team hand-off
 
