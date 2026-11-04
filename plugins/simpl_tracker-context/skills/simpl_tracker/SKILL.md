@@ -1,11 +1,11 @@
 ---
 name: simpl_tracker
 description: |
-  Every cost at simpl goes through simpl_tracker, always: LLM calls, paid APIs, Cloud Run compute. ALWAYS load it before code that calls a model or a paid API, or deploys to Cloud Run. Load it when the user asks to track cost or spend, add an LLM call or a new provider (OpenAI, OpenRouter, DeepSeek, Cheaper Inference, enrichment or scraping APIs), create or deploy a Cloud Run service, worker pool or job, log with Discord alerts, add Langfuse tracing, or reconcile costs against a provider bill, and whenever code imports `simpl_tracker`. Never add ad hoc cost tables, cost wrappers or notification helpers.
+  Every cost at simpl goes through simpl_tracker, always: LLM calls, paid APIs, Cloud Run compute. ALWAYS load it before code that calls a model or a paid API, or deploys to Cloud Run. Load it when the user asks to track cost or spend, add an LLM call or a new provider (OpenAI, OpenRouter, DeepSeek, Cheaper Inference, enrichment or scraping APIs), create or deploy a Cloud Run service, worker pool or job, log with Discord alerts, or reconcile costs against a provider bill, and whenever code imports `simpl_tracker`. Never add ad hoc cost tables, cost wrappers or notification helpers.
 summary: |
-  Mandatory cost ledger for every simpl service. Records LLM spend per request, paid data-provider calls and Cloud Run compute in Supabase, reports any untracked cost on its own Discord channel, and ships structured logging, Discord notifications and Langfuse helpers.
+  Mandatory cost ledger for every simpl service. Records LLM spend per request, paid data-provider calls and Cloud Run compute in Supabase, reports any untracked cost on its own Discord channel, and ships structured logging and Discord notifications.
 when_to_use: |
-  Any code that spends money: a model call (pydantic-ai, OpenAI, OpenRouter, DeepSeek, Cheaper Inference or any other provider), an LLM batch job, a paid enrichment or scraping API, compute on Google Cloud (Cloud Run service, worker pool, job, Prefect flow), or a Vercel sandbox. Also when adding logging with Discord alerts or Langfuse tracing, or when checking recorded costs against a provider's billing export.
+  Any code that spends money: a model call (pydantic-ai, OpenAI, OpenRouter, DeepSeek, Cheaper Inference or any other provider), an LLM batch job, a paid enrichment or scraping API, compute on Google Cloud (Cloud Run service, worker pool, job, Prefect flow), or a Vercel sandbox. Also when adding logging with Discord alerts, or when checking recorded costs against a provider's billing export.
 required_when: |
   Always. Every cost a simpl service incurs is recorded through simpl_tracker before merging: LLM spend through CostRecordingModel request receipts (attributed by @track_cost or an LLMAccountingScope; batch results through @track_batch_cost), paid data providers through @track_cost, Google Cloud compute through track_instance_lifetime (services, worker pools) or @track_compute (jobs, Prefect flows), and each Vercel sandbox through record_sandbox_usage. No custom cost tables and no untracked paid calls.
 ---
@@ -29,7 +29,7 @@ required_when: |
 
 A cost that fits none of these rows is added to simpl_tracker first, not recorded somewhere else.
 
-It also provides structured logging, Discord notifications, runtime detection, Langfuse helpers and reconciliation against provider billing for simpl Python services.
+It also provides structured logging, Discord notifications, runtime detection and reconciliation against provider billing for simpl Python services.
 
 ## Installation
 
@@ -360,7 +360,6 @@ whatever the client reports as the response id. The logic is in
 
 - Does not own business workflow logic. Use `simpl_core` or the app repo.
 - Does not define database ORM primitives. Use `simpl_orm`.
-- Does not replace Langfuse itself; it provides simpl wrappers and propagation helpers.
 
 ## Where to go next
 
