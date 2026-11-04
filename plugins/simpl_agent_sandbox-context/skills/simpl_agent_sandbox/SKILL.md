@@ -105,10 +105,27 @@ async with VercelSandboxProvider(config.vercel) as provider:
   typing or download on an element that sends a form, and its JSON line stays under
   12,000 characters. The browse runner below drives them.
 - Images: `images/{workbench,browser}/`, tags pinned in `config.py` as the content hash
-  of each folder. Build and push with
-  `python -m simpl_agent_sandbox.images.build <image> --project <vercel project>`, then
-  run the probe `tests/test_conformance_probe.py` (`SANDBOX_LIVE=1`) before pinning or
-  using a new tag.
+  of each folder. The code box (workbench) has Python 3.12 with pandas, duckdb, pillow,
+  openpyxl, xlsxwriter, xlrd, python-docx, python-pptx, reportlab, weasyprint, pypdf,
+  pdfplumber, matplotlib, markdown, jinja2, qrcode, cairosvg, beautifulsoup4,
+  charset-normalizer, tabulate and pyyaml (exact pins in
+  `images/workbench/requirements.txt`), plus headless Chromium, ffmpeg, poppler-utils,
+  pandoc (no LaTeX: PDFs through `--pdf-engine=weasyprint`), qpdf, jq, zip and unzip;
+  the helper's prompt lists the same. Code checks still prove a file's shape only: an
+  `.xlsx`, `.docx` or `.pptx` output is checked with `FileExists` or `FileSize`.
+- Building: CI (`.github/workflows/workbench-image.yml`) builds, pushes and probes the
+  workbench when its folder changes; the pull request carries the new pin. On `main`,
+  after the probe passes, CI points the moving tag `simpl-sbx-workbench:stable` at that
+  image (registry copy, no rebuild); a manual run with `tag_stable=<content tag>` rolls
+  it back after running the probe's isolation checks on that image (not its tools
+  check). A rolled-back box may lack tools the current prompt names. A host that sets
+  `SANDBOX_WORKBENCH_IMAGE=simpl-sbx-workbench:stable` gets each merged image on its next
+  sandbox with no library release or setting change: Vercel resolves the tag at create
+  time (checked live 2026-11-02). The tag pinned in `config.py` stays the default. The
+  helper's prompt names new packages only from the library version that added them.
+  By hand (the browser box): `python -m simpl_agent_sandbox.images.build <image>
+  --project <vercel project>`, then run the probe `tests/test_conformance_probe.py`
+  (`SANDBOX_LIVE=1`) before using a new tag.
 
 ## Task runners (`simpl_agent_sandbox.tasks`)
 
@@ -214,8 +231,10 @@ result.answer.text  # UntrustedText: the sub-agent read pages nobody checked
 - **Results**: `outcome` (`TaskOutcome`: done, output_missing, step_cap, time_cap,
   loop_stopped, model_failed, sandbox_failed, browser_failed) with `detail`, the files,
   the check verdicts, the step log (`StepRecord`: action, short detail and result, model
-  and sandbox time), `model_usage` (requests and tokens) and `usage` (`SandboxUsage` from
-  `destroy()`). `DONE` means the checks passed and every checked file or
+  and sandbox time), `model_usage` (requests and tokens), `usage` (`SandboxUsage` from
+  `destroy()`) and `image_digest`, the exact image the sandbox ran (`sha256:...`, as
+  Vercel resolved the tag; also on `SandboxSession` and in the `sandbox.created` and
+  `sandbox.task.*_finished` log lines; `None` when the provider reports none). `DONE` means the checks passed and every checked file or
   `DownloadCompleted` download came back; `output_missing` names the ones that did not.
   The step log is returned, never stored here (D7).
 - **Errors**: a failed `create` raises `SandboxError` (nothing ran). After that, sandbox,
