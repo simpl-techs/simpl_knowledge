@@ -178,19 +178,19 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   entry under `queues:`, its table and a pool claiming from it, plus the runner its
   instances run; the autoscaler needs no change. Every pool runs one runtime: llama.cpp's
   CUDA server, started by the instance on its GPU for the variant its release names
-  (`consume --pool <pool> --release <variant>:<ontology>`, a variant of the extraction
+  (`consume --pool <pool> --release <variant>`, a variant of the extraction
   `variants.yaml`, which names the model's weights as a Cloud Storage object and its
   sha256). No image holds a model: the generic pool image (`simpl-flow-generative-pool`,
   the Dockerfile's `generative-pool` target on `pool-runtime`: code and llama.cpp) is the
   base each variant's image (`simpl-flow-pool-<variant>`) adds its weights to as one layer
   (`Dockerfile.pool-variant`, at `/opt/models/<sha256>/<file>`, where the weights loader
   reads first); `python -m simpl_flow.pipelines.knowledge_graph.serving image --pool <pool>
-  --release <variant>:<ontology> --tag <tag>` builds and pushes both, the weights taken
+  --release <variant> --tag <tag>` builds and pushes both, the weights taken
   from Cloud Storage. Another model is another variant, its image and a pool deployed with
   it. `serving load` drives a pool's table. `python -m simpl_flow.workpool` (simpl_core's
   `workpool.cli` over the topology) has `status`, `scale`, `check`, `redeploy`, `provision`
   and `autoscale`, each deploy naming every pool's release (`--release
-  generative=nuextract3-gpu:o1`) and the tag its image was built with. It needs simpl_core's
+  generative=nuextract3-gpu`) and the tag its image was built with. It needs simpl_core's
   workpool migrations and migration 155 applied. The `generative` pool (one L4, image
   `simpl-flow-pool-nuextract3-gpu`) runs NuExtract3 for the `ner` rows of variant
   `graphia-v2-nuextract-ner` and the check tier's `verify` rows; an instance whose server
@@ -199,7 +199,8 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
 - `gcp_graphia_v2_flow` (no schedule, started by hand on keys marked by hand) runs the
   scaled knowledge graph pipeline (`pipelines/knowledge_graph/v2`). It marks `source_keys`
   (`p:<post id>`, `h:<host>`) with `priority` for the v2 variant (`v2/variants.yaml`:
-  `graphia-v2-nuextract-ner`, the only one, entities only: NuExtract3's `ner` step served
+  `graphia-v2-nuextract-ner`, the only one, entities only, on ontology `o3` (the pool reads
+  whichever ontology a request names, so changing it needs no pool redeploy): NuExtract3's `ner` step served
   by the `generative` pool on an L4, one call per document, the job writing its documents
   into `knowledge_graph.model_requests` and reading the mentions back, three batches in
   extraction at once; its runs hold mentions and no facts, as the GLiNER2 runs did; no
