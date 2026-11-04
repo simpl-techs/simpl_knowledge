@@ -2593,6 +2593,19 @@ customer (migrations/20261010b_team_handoff.sql):
   off to its taker; otherwise each member's own taker owns it. An identity nobody can take
   for gets no row, so it books nothing while colleagues own `calendar_booking`. Every rule
   carries `calendar_booking`.
+- **Call cover** (`sales.call_cover`, migrations/20261104_call_cover.sql,
+  `account_coordination.cover`): who takes a member's calls when that member is busy at the
+  time the lead agreed (SimpL: Nicolò covers Davide). `sync` projects
+  it as one more responsibility per `calendar_booking` rule and cover,
+  `cover_key(rule, cover)` = `<rule>__cover_<12 hex of the cover id>`, owned by the cover
+  (`owner_user_id`), handed to them by every member whose taker of the rule they cover. The
+  authority rule, walks and `redirect_targets` read it like any other key; `snapshot`
+  never lists cover keys as rules (`is_cover_key`, `cover_base`) and gives each member
+  `cover_user_ids`. Write with `set_member_covers(customer_id=…, user_id=…,
+  cover_user_ids=[…], actor_user_id=…)` (`invalid_handoff` for an identity, oneself, a
+  non-member or a repeat); `save_rule`/`delete_rule` refuse a cover key (`not_found`).
+  simpl-outreach `invite_slot_free` sends a walk to the cover key only when the usual
+  taker is busy and the cover free at an accepted time.
 - **Writes:** `set_member_handoff(customer_id=…, user_id=…, handoff_to_user_id=…,
   actor_user_id=…)`, `save_rule(customer_id=…, key=None|key, description=…, owner_user_id=…,
   actor_user_id=…)` (a new key is a slug of the description), `delete_rule(...)`, and
