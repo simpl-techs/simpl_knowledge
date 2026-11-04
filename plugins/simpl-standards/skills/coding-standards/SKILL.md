@@ -11,7 +11,7 @@ This skill is the always-on hub: universal engineering principles plus a routing
 
 ## Languages and stacks
 
-- **Backend**: Python 3.12–3.13 (`>=3.12,<3.14`, Conda + Poetry), Pydantic v2, async-first. HTTP services on FastAPI (`simpl_api`, `simpl_ops`, the extension gateway `simpl-proxy`); pipelines on Prefect 3 (`simpl_flow`, `simpl-outreach`, `simpl_scraping`, `simpl_ops`); LLM work on pydantic-ai with Langfuse, through `simpl_ia`.
+- **Backend**: Python 3.12–3.13 (`>=3.12,<3.14`, Conda + Poetry), Pydantic v2, async-first. HTTP services on FastAPI (`simpl_api`, `simpl_ops`, the extension gateway `simpl-proxy`); pipelines on Prefect 3 (`simpl_flow`, `simpl-outreach`, `simpl_scraping`, `simpl_ops`); LLM work on pydantic-ai, through `simpl_ia`.
 - **Shared libraries**: domain logic `simpl_core`, models and async repositories `simpl_orm` (SQLModel on async SQLAlchemy 2 + asyncpg), LLM/vector `simpl_ia`, cost tracking `simpl_tracker` (catalog: `internal-libraries-awareness`).
 - **Frontend**: TypeScript (strict mode) and React on the Next.js App Router: `simpl_sales` and `landing-page` on Next 14 / React 18, `simpl_dashboard` and `simpl_console` on Next 16 / React 19; Tailwind, `@supabase/supabase-js`, Vitest, Zod. `simpl_support` is a React component library (`@simpl/support`, built with `tsc`); `simpl-google-extension` is a plain-JS Manifest V3 extension.
 - **Data**: Postgres on Supabase. Schema changes are SQL files in each repo's `migrations/` (Alembic only in `simpl_orm`); access through `simpl_orm`, asyncpg, psycopg or the Supabase clients.

@@ -10,10 +10,6 @@ PREFECT_API_URL  simpl_flow simpl_outreach simpl_ops
 RESEND_API_KEY  simpl_api simpl_flow simpl_ops
 OPENAI_API_KEY  simpl_api simpl_outreach simpl_sales simpl_flow simpl_ops
 OPENROUTER_API_KEY  simpl_api simpl_outreach
-LANGFUSE_HOST  simpl_api simpl_outreach simpl_sales simpl_dashboard
-LANGFUSE_BASE_URL  simpl_api simpl_outreach simpl_sales simpl_dashboard
-LANGFUSE_SECRET_KEY  simpl_api simpl_outreach simpl_sales simpl_dashboard
-LANGFUSE_PUBLIC_KEY  simpl_api simpl_outreach simpl_sales simpl_dashboard
 SIMPL_API_TOKEN  simpl_sales simpl_dashboard
 SIMPL_API_BASE_URL  simpl_sales simpl_dashboard
 COMPOSIO_API_KEY  simpl_api simpl_sales simpl_ops

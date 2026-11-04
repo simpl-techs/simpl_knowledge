@@ -24,7 +24,7 @@ alwaysApply: false
 
 A cost that fits none of these rows is added to simpl_tracker first, not recorded somewhere else.
 
-It also provides structured logging, Discord notifications, runtime detection, Langfuse helpers and reconciliation against provider billing for simpl Python services.
+It also provides structured logging, Discord notifications, runtime detection and reconciliation against provider billing for simpl Python services.
 
 ## Installation
 
@@ -355,7 +355,6 @@ whatever the client reports as the response id. The logic is in
 
 - Does not own business workflow logic. Use `simpl_core` or the app repo.
 - Does not define database ORM primitives. Use `simpl_orm`.
-- Does not replace Langfuse itself; it provides simpl wrappers and propagation helpers.
 
 ## Where to go next
 
