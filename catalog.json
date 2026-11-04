@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-04T13:43:29.628Z",
+  "generated_at": "2026-11-04T13:54:06.274Z",
   "marketplace_alias": "simpl",
   "libraries": [
     {
@@ -33,6 +33,14 @@
       "when_to_use": "Use this skill whenever the user asks about simpl Prefect flows, lead generation pipelines, job offer/company enrichment, ICP workflows, onboarding/customer-success pipelines, opportunity scoring/matching, or code that imports `simpl_flow`. This is primarily a workflow service repo.",
       "required_when": null,
       "plugin_install_command": "/plugin install simpl_flow-context@simpl"
+    },
+    {
+      "plugin": "simpl_foundry-context",
+      "skill_name": "simpl_foundry",
+      "summary": "Model training for simpl: run tracking in Postgres, recipes and dataset snapshots, Batch and Cloud Run jobs, sweeps ranked on a held-out split, and a promotion step that writes a recipe patch and activates nothing.",
+      "when_to_use": "Any code that trains a model, logs metrics or artifacts of a training run, declares a recipe or an evaluator, launches a training job or a sweep, or reads run, experiment or evaluation data. Also when adding a new kind of data source for recipes.",
+      "required_when": "Model training at simpl is recorded through simpl_foundry. No ad hoc run tables, no untracked training jobs.",
+      "plugin_install_command": "/plugin install simpl_foundry-context@simpl"
     },
     {
       "plugin": "simpl_ia-context",

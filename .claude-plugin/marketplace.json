@@ -10,7 +10,7 @@
       "name": "simpl-standards",
       "source": "./plugins/simpl-standards",
       "description": "Cross-cutting standards for all simpl projects: coding conventions, git workflow, testing policy, Python environment toolchain, repo docs and env-var consistency, Doppler secrets.",
-      "version": "0.13.597",
+      "version": "0.13.598",
       "keywords": [
         "standards",
         "conventions",
@@ -158,6 +158,17 @@
       "version": "0.1.4",
       "keywords": [
         "simpl_agent_sandbox",
+        "integration",
+        "simpl"
+      ]
+    },
+    {
+      "name": "simpl_foundry-context",
+      "source": "./plugins/simpl_foundry-context",
+      "description": "Integration context for simpl_foundry. Auto-synced from simpl-techs/simpl_foundry.",
+      "version": "0.1.0",
+      "keywords": [
+        "simpl_foundry",
         "integration",
         "simpl"
       ]

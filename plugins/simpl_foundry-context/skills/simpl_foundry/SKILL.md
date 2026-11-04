@@ -1,0 +1,227 @@
+---
+name: simpl_foundry
+description: |
+  simpl_foundry tracks and runs model training: experiments found by content, runs and metrics in the `training` schema, YAML recipes, dataset snapshots, jobs on Google Batch and Cloud Run, sweeps and promotion. ALWAYS consult this skill before writing code that imports `simpl_foundry`, trains a model, logs a training run, writes a recipe or an evaluator, adds a source reader, or reads the `training` tables, even when the user doesn't name the library. Triggers on "track this training run", "add a recipe", "launch a training job", "run a sweep", "promote a model", "dataset snapshot", "experiment hash", "training on Cloud Run", "python -m simpl_foundry".
+summary: |
+  Model training for simpl: run tracking in Postgres, recipes and dataset snapshots, Batch and Cloud Run jobs, sweeps ranked on a held-out split, and a promotion step that writes a recipe patch and activates nothing.
+when_to_use: |
+  Any code that trains a model, logs metrics or artifacts of a training run, declares a recipe or an evaluator, launches a training job or a sweep, or reads run, experiment or evaluation data. Also when adding a new kind of data source for recipes.
+required_when: |
+  Model training at simpl is recorded through simpl_foundry. No ad hoc run tables, no untracked training jobs.
+---
+
+# simpl_foundry integration guide
+
+> **Maintained by**: the `simpl_foundry` repo, auto-synced to simpl_knowledge.
+> **Source of truth**: `simpl-techs/simpl_foundry/.agent/SKILL.md`
+
+## What this library is
+
+`simpl_foundry` tracks model training in Postgres and runs it. It owns the `training` schema and its migrations, as `simpl_tracker` owns `cost_tracking`. It depends on `simpl_orm` and `simpl_tracker`; `simpl_core` and training repositories such as `entrex` sit above it. It imports neither `simpl_core` nor `simpl_ia`.
+
+## Installation
+
+```bash
+poetry add "simpl-foundry[gcp,hf] @ git+https://github.com/simpl-techs/simpl_foundry.git@main"
+```
+
+| Extra | Installs | For |
+| --- | --- | --- |
+| `gcp` | `google-cloud-storage`, `google-auth` | `gs://` artifact roots and sources, Batch and Cloud Run jobs |
+| `hf` | `transformers` | `simpl_foundry.integrations.hf` |
+| `lightning` | `lightning`, which brings `torch` | `simpl_foundry.integrations.lightning`, `simpl_foundry.integrations.devices` |
+
+Install it; do not only put `src` on `PYTHONPATH`. Source readers are found through installed entry points, so without the package's metadata a recipe has no `files` or `table` kind.
+
+`DatasetSnapshot.to_hf` also needs `datasets`, which no extra installs.
+
+## Basic usage (the 90% case)
+
+`simpl_foundry` tracks model training in Postgres (schema `training`, migration
+`src/simpl_foundry/migrations/`): one row per **experiment**, found by content,
+one row per **run** (a replicate of an experiment), and every logged metric point. The
+dashboard's Training section reads these tables. `import simpl_foundry` loads no model
+runtime. The trainer adapters need their framework: the `hf` extra for `integrations.hf`,
+the `lightning` extra for `integrations.lightning` and the GPU probes.
+
+```python
+from simpl_foundry import experiment_identity, init_run, TrainerKind
+from simpl_foundry.integrations.hf import HF_NON_IDENTITY_ARGS, SimplCallback
+
+identity = experiment_identity(
+    config=config,                                  # the full config as run
+    config_exclude=[f"training.{key}" for key in HF_NON_IDENTITY_ARGS] + ["output_dir"],
+    code_root=Path("src/entrex"),                   # the training package
+    data_files={"records": records_path, "schema": schema_path},
+    base_model="example-org/example-model",        # Hub id or a local directory
+)
+with init_run(project="entrex-ner", identity=identity, config=config, run_dir=output_dir,
+              code_root=Path("src/entrex"), trainer_kind=TrainerKind.HF) as run:
+    trainer = Trainer(..., callbacks=[SimplCallback(run)])
+    trainer.train()
+    run.log({"test/f1": f1}, step=trainer.state.global_step)
+```
+
+- **Experiment identity.** `experiment_hash` hashes five parts:
+  - `identity_version`;
+  - the config minus `config_exclude` (dotted paths): names, output paths, logging, machine;
+  - the code under `code_root`. Tests, caches and dot files are skipped. A `.py` file is hashed by its syntax tree without docstrings, so comments and formatting do not count;
+  - the input files by role and content, not by path;
+  - the starting weights: a Hub repository resolved to its commit (the Hub, or the local cache when offline), or a local directory's files.
+
+  The same content is a new run of the same experiment; any change is a new experiment. The environment (package versions, device) is not hashed: it is recorded on each run.
+- **`init_run`.**
+  - It reads the database settings from the environment (`DatabaseSettings()`, the Supabase variables simpl_flow uses) unless `database=` is given, and raises when they are missing.
+  - `offline=True` writes the event log only.
+  - Values the `training` tables refuse raise `ValueError` at the call: a project not matching `^[a-z0-9][a-z0-9_.-]{0,62}$`, a negative step, a metric key not of 1 to 200 characters, an alias not matching `^[a-z][a-z0-9_-]{0,31}$`.
+  - `WORLD_SIZE` above 1 raises `ValueError`: a run has one process.
+  - Leaving the `with` block finishes the run; an exception fails it, Ctrl-C cancels it, and the exception propagates.
+  - Metric values keep NaN and infinities in `training.metrics`; the run's `summary` (last, min and max per key, 200 keys) stores them as the strings `"NaN"` / `"Infinity"`.
+- **Training never waits on the database.**
+  - The training thread only appends to `<run_dir>/simpl-run/<run_id>/events.jsonl`. A background thread applies new events every 5 s and stamps `heartbeat_at`.
+  - An outage of the database or the network only delays the rows; `finish` keeps trying for the drain time.
+  - A failure the same events would repeat (an integrity or data error, a malformed event) stops the syncing and logs `training.writer.stopped`.
+  - `python -m simpl_foundry sync <events.jsonl | directory>` replays logs and is safe to repeat. A log it cannot apply is reported on stderr, the others go on, and it exits 1.
+  - `finish` and `close` copy the log to the artifact store as `logs/<run_id>/<attempt>/events.jsonl`, so a job's log outlives its container: download it and `sync` the file.
+- **A run whose process died** stays `running` with its last heartbeat. Readers show it as stalled from `heartbeat_at`; nothing sweeps it.
+- **`SimplLogger`** (`simpl_foundry.integrations.lightning`, the `lightning` extra): a Lightning `Logger` over a run, `Trainer(logger=SimplLogger(run))` or appended to `trainer.loggers` from a LightningCLI hook. Keys are grouped like the Hugging Face callback's (`train_loss → train/loss`, `val_f1 → eval/f1`, `test_f1 → test/f1`; a key with a `/` is kept), hyperparameters go to the environment as `lightning_hparams`, and each checkpoint `ModelCheckpoint` saves is stored as `latest` (and `best` when it is the callback's best by its `monitor`); a `last.ckpt` of a step already stored is skipped. `LIGHTNING_NON_IDENTITY_ARGS` lists the `Trainer` arguments to exclude from the identity. It does not end the run.
+- **Plain loops** need no adapter: `with init_run(...) as run:` then `run.log({"train/loss": loss}, step=step)`, `run.log_checkpoint(path, step=step)` and `run.log_artifact(model_dir, kind=ArtifactKind.MODEL, aliases=["final"])`.
+- **System metrics.** Every 30 s (`init_run(system_interval=…)`, `None` turns it off) a run logs `system/process_rss_gb`, `process_cpu_pct`, `host_available_gb`, `host_used_pct` and `swap_used_gb` (through psutil), with the Unix time in seconds as their step, so every attempt lies on one time axis. The Hugging Face and Lightning adapters add GPU probes (`integrations.devices`: `system/cuda<i>_allocated_gb`, `_reserved_gb`, `_utilization_pct`; `system/mps_allocated_gb`, `mps_driver_gb`); a plain loop adds them with `run.add_device_probe(probe)` for each of `torch_device_probes()`, or its own `DeviceProbe`. A probe that raises is dropped.
+- **Trained from scratch:** `experiment_identity(..., base_model=None)` records `{"kind": "none"}` as the starting weights.
+- **Environment.** A run records its host, platform, Python, the versions of the distributions that change a result, `package_commits` (the `vcs_info.commit_id` of each distribution installed from version control) and `packages_hash`, a hash of every installed distribution, version and commit, what a lock file pins as the process really has it. The trainer adapters add `gpu_type`: the CUDA device's name, `mps`, or `null`, which on a job that asked for a GPU means it ran on the CPU.
+- **`SimplCallback`** (the `hf` extra): `loss → train/loss`, `learning_rate → train/lr`, `eval_* → eval/*`, the end-of-training `train_loss → train/mean_loss` (not logged by a trainer resumed from a checkpoint, whose `train_loss` covers only the steps it ran). It records `TrainingArguments.to_dict()` and the device into the run's environment, and only the main process logs. `HF_NON_IDENTITY_ARGS` lists the `TrainingArguments` fields to exclude from the identity.
+- **Artifacts** (`artifact_root="gs://bucket/prefix"` or a local directory on `init_run`; GCS needs the `gcp` extra and Application Default Credentials):
+  - `run.log_checkpoint(path, step=, best=)` stores a checkpoint as `latest` (and `best`); `run.log_artifact(path, kind=, aliases=)` stores anything else, e.g. the final model as `final`.
+  - Files are hard-linked into `<run_dir>/simpl-run/<id>/staging/` before the call returns, so the trainer may delete them or replace them with new files at once, and are uploaded one at a time in the background with a `manifest.json` (every file's size and SHA-256) written last. A file its writer rewrites in place (Lightning's last checkpoint) must be staged with `copy=True`, or the staged copy changes with it.
+  - Uploads go oldest first. A newer checkpoint replaces a waiting or failed one whose every alias it takes; an alias stays with the checkpoint of the highest step; a checkpoint left without any alias is deleted from the store; models are never dropped.
+  - A failed upload is tried again (`UPLOAD_RETRY_SECONDS`). A model still unstored when a run would finish ends it as `failed`, and `finish` raises `ModelNotStored`, so a job exits non-zero.
+  - `log_artifact` raises `FileNotFoundError` for a missing path and `ValueError` for one that holds no data. A file artifact is restored under its own name.
+  - `SimplCallback.on_save` writes `simpl_run.json` (run id, attempt, step) into each Hugging Face checkpoint, then stores it this way. `latest_run_checkpoint(output_dir, run_id)` returns the run's own newest checkpoint on disk, ignoring other runs' checkpoints in a shared output directory.
+- **Resume.** `init_run(..., resume=<run_id>)` continues a running or stalled run as its next `attempt`, under the same id. It needs the database and the same experiment (a changed config or code is a new experiment: `ValueError`). An ended run raises `ValueError`. `run.restore_artifact("latest", dir)` downloads what the alias held, every file checked against the manifest (`ArtifactChecksumMismatch`).
+- **Code commits.** With `code_root`, the experiment's code is committed under `refs/training/<code_hash>` (git plumbing on a temporary index: the branch, `HEAD`, index and files are untouched; edits to tracked files under the code root and the untracked files of the code manifest are included, so a `.env` is not, `.gitignore` honoured, changed files over 5 MiB left out and named) and pushed in the background. The experiment records `code_commit` and `code_repo` once the remote has it. A job given `SIMPL_CODE_COMMIT` records that commit instead. `snapshot=False` turns it off. A consumer's tests that start a run with a `code_root` inside a real checkout set `SIMPL_CODE_COMMIT` (any 40-hex value), or they push a ref to that checkout's remote.
+- **`sync`** also pushes code commits that never reached the remote and uploads artifacts still staged, in the order they were staged, unless the log may belong to a run still running (no `run_ended` and written in the last 5 minutes). A staged checkpoint whose aliases a later step already holds is superseded: not uploaded, recorded as failed, and what an interrupted upload of it left in the store is deleted.
+- Migration `src/simpl_foundry/migrations/20261102_training_artifacts.sql` (after `20261023_training_runs.sql`): `experiments.code_commit` / `code_repo`, `runs.artifact_root`, `training.artifacts`, `training.artifact_aliases`.
+- **Evaluations.** `log_evaluation(run_id, split=, metrics=, evaluator=, run_dir=)` records a run's scores on one split, on a run still running or long ended. `evaluator_identity(code_root=, code_include=, data_files=, config=)` identifies how a model is judged: the scoring files only (`code_include` patterns, so a trainer change keeps the same identity), the data it reads and the settings that change scores (threshold, label prompts). `eval_hash` adds the split and the metric names. A run has one row per `(eval_hash, split)` in `training.evaluations`: evaluating it again the same way adds nothing, and a changed test set or scorer starts apart. The event goes to the run's log under `run_dir` (a new log when the run's own is elsewhere) and straight to the database; a failed write is returned in `LoggedEvaluation.error`, never raised, and `sync` on its `events_path` writes it later. Scores stay out of the run's summary.
+- **Scores per experiment.** View `training.evaluation_scores` (security invoker): per experiment, `eval_hash`, split and metric, the runs evaluated, mean, sample standard deviation, min and max.
+- **Metric goals.** `run.define_metric("eval/f1", "max")` records which way a key is better (`runs.metric_goals`); readers fall back to the key's name. Each summary entry also keeps `min_step` and `max_step`.
+- **Downsampled series.** `training.metric_series(run_ids, metric_keys, max_points)` (security invoker) returns at most `max_points` points per run and key: a longer series is cut into equal step ranges, each with its last step, mean, min and max of its finite values and its count of NaN or infinite ones.
+- **Recipes** (`simpl_foundry.recipe`). A recipe is a YAML file kept next to its trainer, validated by `Recipe` (unknown fields refused): `recipe` (its name), `trainer` (`"package.module:function"`), `trainer_kind`, `base_model`, `data` (`source`, `split`, optional `columns` and named `assets` such as a schema file), `hyperparameters`, `search_surface`, `seed` and `tracking` (`project`, `tags`, `artifact_root`). `split` is either `{column, roles: {role: value or [values]}}`, reading the role from a column the rows carry (rows whose value no role names are counted as unassigned and left out), or `{key, seed, shares: {role: fraction, ..., last: "rest"}}`, the role from `sha256(f"{seed}\0{key}")` with the shares taken in order. A recipe holds `shares` as ordered `[role, share]` pairs, which a recipe file may also write; their order is part of the fingerprint. A split needs a `train` role; `train` and `dev` rows go to the trainer, every other role (`select`) is held out from it and only counted. `tracking.project` matches `^[a-z0-9][a-z0-9_.-]{0,62}$`, `seed` fits an INTEGER column, and a key of `objective.simpler` holds a number in the hyperparameters and in its surface choices.
+  - **Sources** (`simpl_foundry.sources`): a source is a mapping naming its reader by a key equal to the reader's kind. This package ships `{files: [...]}`, local or `gs://` JSONL or Parquet in order, and `{table: schema.name, columns: [...], where: [...]}`, a platform database table read from the run's `database` (`DatabaseSettings()` by default, also with `--offline`). Each `where` clause is `{column, op, value: {literal: ...}}`, `op` one of `eq ne gt gte lt lte in` (`in` takes a list), every clause must hold, and only literals are accepted. A table read is written to the cache as JSONL in the declared column order with its rows sorted, so the same rows give the same snapshot whatever order they came in and new or changed rows give a new one; timestamps, dates, uuids and decimals become text. Its record in `training.datasets.sources` keeps the table, columns, where and row count; the run's `data.sources` names it `table:<schema.name>`. A missing table or column is a `ValueError` naming it. Other kinds come from other packages: see *Adding a source reader*.
+  - **Search surface** (`simpl_foundry.surface`): what a run may change, by dotted hyperparameter path: `{choices: [...]}`, `{range: [low, high]}` (inclusive; `integer: true` for whole numbers) or `{log_range: [low, high]}` (positive). Every key must name a declared hyperparameter whose value it allows. `--set` (and `overrides`) outside it is refused with a `ValueError` naming `search_surface`; anything else is changed by editing the recipe. The surface stays out of the experiment's identity.
+  - **Running one:** `python -m simpl_foundry run <recipe> [--set key=value ...] [--seed N] [--run-dir DIR] [--tag T] [--offline] [--if-exists replicate|skip|ask] [--plan]`, or `run_recipe(load_recipe(path), overrides=..., seed=...)`. `--set` takes a dotted key on the search surface (the value read as YAML, `1e-5` as a number). The command first works out the experiment (`plan_experiment`) and prints its existing runs and scores; `--plan` stops there. When the experiment has runs, `--if-exists replicate` (the default) runs another, `skip` starts nothing if a run with this seed finished or is running (a stalled one does not count), and `ask` asks on the terminal (no terminal is no). A refused override exits with code 2.
+  - **Launching:** `python -m simpl_foundry launch <recipe> [same options as run] [--target local]` works the experiment out as `run` does, then `queue_run(plan, target=...)` builds or reuses the snapshot, commits the trainer's code under `refs/training/<code_hash>` (uncommitted edits included) and pushes it, and writes the experiment and the run as `queued` (`launch_target`, `recipe_hash`, the resolved recipe as config, the snapshot link, and `environment.launch`: target, commit, whether it was pushed, when it was queued and the git state it was launched from). `launch_local(queued, run_dir=...)` then runs the job here, in a temporary git worktree at the commit with the worktree's package first on `PYTHONPATH`, and removes the worktree afterwards. The job is `python -m simpl_foundry job <run id> [--run-dir DIR]` (`run_job`): it reads the run's config and snapshot from the database, refuses a checkout that makes another experiment (naming the part that differs), starts a queued run as attempt 1 (`init_run(attach=...)`, event `run_attached`), resumes a running one as its next attempt and leaves an ended one alone (exit 0, or 1 for a failed run). On SIGTERM it raises `Terminated`, which closes the run without ending it (`Run.close()`), and exits 143, so a retry resumes the run. A transient failure before the run opens exits 75, for another attempt. A job runs with `SIMPL_TRAINING_RUN_ID`, and with `SIMPL_CODE_COMMIT` / `SIMPL_CODE_REPO` when the commit was pushed. `queue_run` refuses `batch` until the recipe's artifact root is `gs://`; a commit that could not be pushed still runs.
+  - **On Google Batch:** a recipe's `resources` section says where a Batch job runs: `image` (the training repository's GPU image in Artifact Registry, `<region>-docker.pkg.dev/<project>/<repository>/<image>` without a tag; project and region come from it), `machine` (`g2-standard-8`), `gpu` (`nvidia-l4`) and `gpu_count`, `provisioning` (`spot` or `standard`), `fallback` (`standard` or `none`), `max_hours` (6: a job gets that long from when its run started, across its attempts, and a run past it fails), `boot_disk_gb`, `region`, `service_account` (`training-runner` in the image's project, or a full email). `simpl_foundry launch <recipe> --target batch` needs it and a `gs://` artifact root; it queues the run, then `launch_batch` builds the job's image on this machine (`code_image`: `FROM <image>:lock-<first 16 hex of sha256(poetry.lock)>`, the training repository's dependencies image for the launching checkout's lock file, `image_tag`, plus the commit's files from `git archive` at `/job/checkout`; tagged `code-<first 12 hex of the commit>-<the lock's 16 hex>` (`code_images`), built for `linux/amd64` with `docker buildx` and pushed, so it needs Docker and the registry's credentials here; a tag already in the registry is reused, so a commit relaunched keeps its base), and submits one task in it, with `SIMPL_TRAINING_RUN_ID`, `SIMPL_CODE_COMMIT` and `SIMPL_CODE_REPO`, labels `simpl_repo` and `training_run_id` on the job and its VMs, `maxRetryCount` 3 a task with a GPU mounting `/var/lib/nvidia` and running `--privileged` with the driver's libraries on `LD_LIBRARY_PATH` (`installGpuDrivers` alone leaves the container on the CPU), and one lifecycle policy, the most Batch accepts: `FAIL_TASK` on exit 1 and 2, so every other failure (a preempted VM's 50001, a stopped job's 143) is retried. A launch that fails in any way ends its run as canceled with the error (type `LaunchFailed`). The job is recorded in the run's environment under `batch` before it is submitted (job, image, provisioning, Cloud Console link, submission time, `previous` jobs with the reason each was replaced). `--wait`, the default, follows it (`watch_job`) until a task runs, and replaces a Spot job refused for capacity, or still waiting after 15 minutes, once by a standard one when `fallback: standard`; with `--no-wait` nothing watches it, so a Spot job waits with no fallback; `--dry-run` prints the job spec and writes nothing. `simpl_foundry cancel <run id>` (`cancel_run`) ends a queued or Batch run as canceled, then deletes its job, and on a canceled run deletes the job again; a running local run is stopped from its process. `simpl_foundry resume <run id> [--wait]` (`resume_run`) submits the same image, commit and provisioning again for a run that is queued or left running, and is refused while its last job may still run a task. The Batch API is called over `httpx` with Application Default Credentials (`google-auth`, from the `gcp` extra). A remote job whose recipe asks for a GPU and that sees none ends its run (`NoGpu`: canceled when queued, else failed) and exits 2 rather than train on the CPU. A job on Batch runs inside a simpl_tracker compute session (`tracked_compute`: process `training:<project>`, resource `compute_engine`, service type `job` or `spot_job` by its provisioning, the machine's CPU and memory, its region), loading the `tracker.yaml` of its checkout; a missing configuration, or a resource `cost_tracking.infra_resource` does not have (`compute_engine` today, so a Batch job records no session), is reported as `compute_tracking.missing`, and GPU time, which simpl_tracker cannot price, as `compute_tracking.gpu_unpriced`. Neither ever fails or delays the job.
+  - **As a Cloud Run job:** `simpl_foundry launch <recipe> --target cloud_run` (`cloud_run.launch_cloud_run`) builds and pushes the same code image, then creates the Cloud Run job `train-<first 12 hex of the run id>` in the recipe's region (`resources.region`, else the image's) with one task: `cpu` (default 8) and `memory_gb` (default 32) of the recipe's `resources`, one `gpu` (`nodeSelector` accelerator, no GPU zonal redundancy), a timeout of `max_hours`, `maxRetries` 3, the recipe's `service_account`, labels `simpl_repo` and `training_run_id`, launch stage `BETA` (GPU tasks over an hour are a preview feature); and starts one execution. `check_limits` refuses, before anything is queued, what a Cloud Run task cannot have: a GPU other than `nvidia-l4` or `nvidia-rtx-pro-6000`, more than one, CPUs outside 4 to 8, memory outside 16 to 32 GB, over 12 hours. There is no Spot: tasks run on demand, and Cloud Run retries a failed task whatever its exit code (a retry of an ended run exits at once, with code 1 for a failed run). The job is recorded in the run's environment under `cloud_run` (job, execution, image, Cloud Console link, start time, `previous` executions). `--wait` follows the execution (`watch_execution`) until its task runs or it fails, printing the failed condition; `--dry-run` prints the job. `simpl_foundry cancel` ends the run, cancels its execution and deletes the job (`stop_job`); `simpl_foundry resume` starts a new execution of the job (`resume_execution`). A launch that fails in any way ends its run as canceled (`LaunchFailed`) and deletes a job it created. On Cloud Run the job's compute session is simpl_tracker's resource `cloud_run`, sized by simpl_tracker (the task has `CLOUD_RUN_JOB`). The target needs the migration that adds `cloud_run` to `training.launch_target`.
+  - **Sweeps** (`simpl_foundry.sweep`, `src/simpl_foundry/migrations/20261104_training_sweeps.sql`): `simpl_foundry sweep run <recipe> --grid training.learning_rate=1e-6,5e-6 --grid training.num_train_epochs=2,3 --seeds 3 --parallel 4 --max-gpu-hours 8 --target batch` (or `--random N [--vary KEY]`; `--target local` runs the trials one after the other, `cloud_run` as one job too; `--dry-run` prints the plan). `plan_sweep` checks every point against `search_surface` and plans it; points that make the same experiment count once, and a point a run has finished, or holds queued or running with a live heartbeat, at the same seed trains nothing and that run joins the ranking. `check_budget` refuses a sweep whose trials × `max_hours` exceed `--max-gpu-hours`. `queue_sweep` writes `training.sweeps`, a queued run per trial (`group_name` `sweep-<id>`, `runs.sweep_id`, `runs.trial_id`) and `training.trials` (`task_index` null for a reused run); `launch_sweep` submits one job with a task per trial. A task runs `simpl_foundry job --sweep <id>`, which finds its run by `BATCH_TASK_INDEX` or `CLOUD_RUN_TASK_INDEX` (`run_of_task`): the job's image reads `SIMPL_TRAINING_SWEEP_ID`. From there a trial is an ordinary run, except that `simpl_foundry resume` refuses it and `simpl_foundry cancel` ends the run and keeps the job: `simpl_foundry sweep cancel <id>` ends the runs of the sweep's job and deletes it. A recipe needs `evaluator` (`"package.module:function"`, `evaluate(model_dir, data: EvaluationData) -> Mapping[str, float]`, `data` holding `split`, `rows`, `assets`, `hyperparameters` and the recipe's `base_model`; its module may define `EVALUATOR_CODE` and `evaluator_settings(data)`), `objective` (`metric: <split>/<metric>` on a held-out role, `goal`, `noise_band`, `simpler`: hyperparameters whose lower value is simpler) and optionally `acceptance_rule` (`metric`, `against`: the run whose model serves today). `simpl_foundry sweep evaluate <id>` (`evaluate_sweep`) scores each finished trial's `final` model on the objective's split, reusing a score already recorded the same way, and ends the sweep once no trial waits. Only a run with no `final` model fails its trial: any other error, a non-finite score included, leaves the trial waiting for the next evaluate. Once the sweep's job has ended, it also ends the runs the job left open (`JobEnded`: failed, or canceled if never started). It reads the snapshot's `hidden/` part, so it runs under an account allowed to. `rank_trials` takes the mean over seeds; means within `noise_band` tie and the simplest wins. `simpl_foundry sweep promote <id> [--recipe FILE] [--out DIR]` (`promote_sweep`) checks the acceptance rule, writes `<recipe file>.patch`, for `git apply` at the root of the recipe's repository, and a report, and marks trials `promoted` and `rejected`; a winner worse than the serving model gets the report and no patch, and so does a winner whose values the recipe already holds, its trials still settled. It activates nothing. `simpl_foundry sweep show <id>` prints where a sweep stands.
+  - **Agents:** the recipe declares what an agent may do: `search_surface`, `code_surface` (patterns relative to the trainer's package; empty means no patch) and `budget: {max_gpu_hours: N}` per agent run (none means no submit). The `experiment_*` tools that read them are `simpl_core`'s, since they need its agent framework.
+  - **Planning:** `plan_experiment(recipe, overrides=, seed=, look_up=True, database=)` checks the overrides, reads the sources, hashes the code, the data and the base model into the experiment, and reads its runs and `training.evaluation_scores` (`ExperimentPlan.existing`, `covering_runs()`), building no snapshot and writing nothing; `run_plan(plan, ...)` runs it. `find_experiment(settings, hash)` and `render_existing` are the lookup and its text. The run is written under `runs/<recipe>` by default, records the recipe's name on its experiment, the recipe's hash as declared in `runs.recipe_hash`, the overrides in `runs.overrides`, the resolved recipe as its config, the snapshot in `training.run_datasets`, and the snapshot and rows per role in its environment (`data.snapshot`, `data.roles`, `data.unassigned`). The CLI prints whether the snapshot was built or reused.
+  - **Snapshots** (`simpl_foundry.snapshot`, `training.datasets`): the data as rows by role, written once per fingerprint (the split, the kept columns and the content of every source and asset file, a table read included; paths, file and table names do not count). The roles a trainer receives and the assets go under `datasets/<fingerprint>/` of the recipe's `artifact_root`, the held-out roles under `hidden/datasets/<fingerprint>/` (deny that prefix to trainers), each an artifact with a `manifest.json` and a `snapshot.json`; without an artifact root only the local copy exists. A run looks in the local cache (`snapshot_cache_dir()`: `SIMPL_TRAINING_CACHE`, else `$XDG_CACHE_HOME/simpl_foundry`, else `~/.cache/simpl_foundry`), then the store, and builds only when neither has it; a cached snapshot the store lacks is uploaded. Rows come back exactly: list, mapping and mixed-type columns are stored as JSON text and decoded on read; a role whose rows lack a column others have is refused (keep a fixed set with `data.columns`). A build refuses a source or asset file that changed after the fingerprint was taken, a split that gives `train` no rows, and a `data.columns` entry the first row lacks. A trainer part's `snapshot.json` gives each source's `kind`, `sha256` and `size` only and leaves `source` out of its `declaration`; the full records stay in `training.datasets`.
+  - **The trainer** is `fit(data: TrainingData, params: TrainerParams, run: Run)`: `data.train`, `data.dev` (row dicts read from the snapshot), `data.assets` (the snapshot's copies, by name), `data.role_counts`, `data.snapshot` (`DatasetSnapshot`: `rows(role)`, `to_arrow(role)`, `to_hf(role)` with JSON columns as text); `params.base_model`, `params.hyperparameters` (overrides applied), `params.seed`. It writes under `run.directory`. Raising fails the run and propagates. Its module may define `IDENTITY_EXCLUDE`, dotted paths inside `hyperparameters` that do not change the trained model.
+  - **Identity** (version 2, `snapshot_experiment_identity`): the trainer entry point and the hyperparameters minus `IDENTITY_EXCLUDE` as config, the trainer's top-level package as code, the snapshot's fingerprint as data, and the base model. The recipe's name, seed and tracking section are left out, so seed replicates share an experiment.
+- **`python -m simpl_foundry diff <experiment> <experiment>`** takes hashes or unique prefixes and prints the config keys, code files, data files and base weights that differ, with the GitHub link comparing the two code commits (`simpl_foundry.diff`).
+- Migration `src/simpl_foundry/migrations/20261102_training_evaluations.sql` (after the two above): `runs.metric_goals`, `training.evaluations`, the `evaluation_scores` view and the `metric_series` function.
+- **Repositories** (`simpl_foundry.repositories`): `ExperimentRepository` (`find_or_create`, `set_code_commit`), `DatasetRepository` (`find_or_create`, a local location replaced by a later `gs://` one; `link_run`), `RunRepository` (`create`, `heartbeat` (forward-only), `merge_environment`, `resume`, `resume_state`, `end` with the state guard, `IllegalRunTransition`), `MetricRepository.upsert`, and `ArtifactRepository` (`create`, `mark_stored`, `mark_failed`, `mark_deleted`, `set_alias`, `aliases`). Every write is replay-safe.
+
+## Adding a source reader
+
+A reader adds a kind of recipe source. Declare it as an entry point named by its kind; the value is a callable taking a `ReaderContext` and returning the reader. Its module is imported only when a recipe uses that kind.
+
+```toml
+[project.entry-points."simpl_foundry.sources"]
+row_store = "simpl_core.row_store.source_reader:RowStoreReader"
+```
+
+```python
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any
+
+from pydantic import BaseModel
+from simpl_foundry import ReaderContext, SourceRead, WhereClause
+from simpl_foundry.sources import check_columns, run_blocking, write_read
+
+
+class ExampleSource(BaseModel):
+    example: str                    # a field named as the kind
+    columns: list[str]
+    where: list[WhereClause] = []
+
+
+class ExampleReader:
+    kind = "example"
+
+    def __init__(self, context: ReaderContext) -> None:
+        self._database = context.database
+
+    def parse(self, spec: Mapping[str, Any]) -> ExampleSource:
+        return ExampleSource.model_validate(spec)
+
+    def read(self, spec: ExampleSource, cache_dir: Path) -> list[SourceRead]:
+        rows = run_blocking(read_rows_somewhere(spec))
+        read = write_read(
+            rows,
+            columns=spec.columns,
+            where=spec.where,
+            cache_dir=cache_dir,
+            metadata={"kind": "example", "dataset": spec.example},
+            label=f"example:{spec.example}",
+        )
+        return [read]
+```
+
+- `parse` returns a model with a field named as the kind, which dumps back to the same mapping: a recipe's hash is taken from that dump.
+- `read` returns one `SourceRead` per file, in order: `path`, `sha256`, `metadata` and `label`. `metadata` must hold `kind` and `size`. `write_read` adds `size`, the columns, the clauses and the row count to rows it writes.
+- A snapshot's fingerprint covers each read's `kind` and `sha256`, so keep what moves without the rows changing, such as a store's version, out of the file.
+- `label` is what the run's `data.sources` lists.
+- `check_columns(columns, where, available, name)` raises the `ValueError` naming what a source lacks.
+
+## Rules and conventions
+
+STRICT (enforced in review):
+
+- A trainer receives only `train` and `dev` rows. Deny the `hidden/` prefix of the artifact root to anything a trainer runs as.
+- Promotion activates nothing. `sweep promote` writes a patch and a report; a person opens the pull request.
+- Keep the schema `training`, `refs/training/*`, `SIMPL_TRAINING_*`, `SIMPL_CODE_*` and the `training.*` log events as they are: stored data and running jobs use them.
+- Migrations are SQL files in `src/simpl_foundry/migrations/`, applied in name order by a person.
+
+FLEXIBLE (defaults):
+
+- `--if-exists replicate` runs another replicate of an experiment; use `skip` in scripts that may repeat.
+- `--wait` follows a job until a task runs; use `--no-wait` only when nothing needs the Spot fallback.
+
+## Common pitfalls
+
+- **Don't** run `python -m simpl_core training job`: that command left with this package. An image's entrypoint runs `python -m simpl_foundry job`.
+- **Don't** expect a `sweep promote` patch every time: on the first Cloud Run sweep the winner was the recipe's own value and the patch only rewrote `5.0e-6` as `5.0e-06`. Such a winner now gets no patch, and the report says so.
+- **Don't** look for `training_run_id` on a sweep's job in the bill: that job carries `training_sweep_id`.
+- **Don't** treat a job as isolated: it holds everything its Doppler config holds. Patched trainers stay off until it has a config, a Postgres role and a service account of its own.
+
+## Testing
+
+Tests that start a run in a real checkout with a `code_root` set `SIMPL_CODE_COMMIT` (any 40-hex value), or they push a ref to that checkout's remote. `offline=True` keeps a run off the database. A test binds a reader to its own store with `SourceRegistry.register`.
+
+```python
+from simpl_foundry import SourceRegistry, init_run
+
+
+def test_a_run_logs_offline(tmp_path, identity):
+    with init_run(project="example", identity=identity, config={}, run_dir=tmp_path, offline=True) as run:
+        run.log({"train/loss": 0.5}, step=1)
+
+
+def test_a_reader_bound_to_a_local_store(store):
+    SourceRegistry.register("example", lambda context: ExampleReader(context), override=True)
+```
+
+## What this library does NOT do
+
+- Does not call models or serve them: model calls go through `simpl_core`'s agent framework, and serving is elsewhere.
+- Does not hold the `experiment_*` agent tools or the `row_store` reader: `simpl_core` does.
+- Does not activate a model.
+- Does not apply migrations.
+
+## Where to go next
+
+- Source: `https://github.com/simpl-techs/simpl_foundry`
+- Working on this repo: `.agent/INTERNAL.md`
+- Recent integration examples: search `simpl_foundry` in `simpl-techs/entrex`
