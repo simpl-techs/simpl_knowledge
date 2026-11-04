@@ -27,7 +27,7 @@ Check: a process started this way sees the shared keys, and `.env` holds only `D
 
 The cost ledger and each provider's bill tell production from tests only by the API key. A test run with a production key is counted as production, and nobody can say where the money went.
 
-- A model key (the list is `scripts/doppler/model-keys.txt`: OpenAI, OpenRouter, DeepSeek, Nebius, Cheaper Inference, AssemblyAI, Anthropic, Gemini, Azure OpenAI) has two different values: the production key on `prd`, and a separate key created at the provider on `dev` and `stg`.
+- A model key (the list is `scripts/doppler/model-keys.txt`: OpenAI, OpenRouter, DeepSeek, Cheaper Inference, Anthropic, Gemini, Azure OpenAI; Nebius and AssemblyAI keep one shared key by decision) has two different values: the production key on `prd`, and a separate key created at the provider on `dev` and `stg`.
 - The `prd` key runs only in production: Cloud Run, Vercel Production, Prefect deployments, scheduled GitHub workflows. Never on a laptop, in a test, a local script, a backfill, a notebook or an agent session, not even for one call. A one-off job run from a laptop on production data is still a local run: dev key.
 - Every local run and every test calls models with the `dev` key (`doppler run --config dev -- …`).
 - If `dev` has no key for the provider you need, or the one it has is the production key: **stop and ask Raff, Iacopo or Flavio for a dev key.** Do not copy the prd key, do not run with `--config prd`, do not use a personal key or any key outside Doppler. Waiting for the key is the right outcome; a test paid with the prod key is not.
