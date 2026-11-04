@@ -163,14 +163,45 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   with `NEBIUS_API_KEY`; nothing goes to Zilliz. The lake reads through DuckDB's `lance`
   extension, which the image installs (`DUCKDB_EXTENSION_DIRECTORY`). Plan and status:
   `docs/knowledge-graph-matchers-plan.md`.
+- `gcp_workpool_autoscaler_flow` (every five minutes; the schedule ships on, so it is deployed
+  once the pool exists)
+  is one tick (simpl_core's `workpool.autoscaler.tick_fleet`, one at a time under a lease)
+  over every queue and pool of the fleet's topology (`workpool/worker_pools.yaml`; it lists
+  only provisioned pools, today `generative` alone, on the `model_requests` queue): it
+  recovers each queue's expired leases, sweeps its rows past their deadline, and sets each
+  pool's instance count from its model's rows, asleep at zero while the model has none.
+  Each tick then posts the due incidents (`workpool.incidents`) on the topology's alert
+  route, `data_lake` (simpl_core's `DataLakeNotifier`): errors and warnings on #data-lake,
+  info ones only logged; a failure streak of the autoscaler's own runs is announced there
+  too. A v2 run that stops because a backend gave no answer (a pool that never answers
+  records no incident) posts one warning there (`announce_no_answer`). A new queue is an
+  entry under `queues:`, its table and a pool claiming from it, plus the runner its
+  instances run; the autoscaler needs no change. A pool instance runs
+  `python -m simpl_flow.pipelines.knowledge_graph.serving consume --pool encoder --release
+  <fine-tune>` from the Dockerfile's `encoder-pool` target; `serving load` drives a pool's
+  table. `python -m simpl_flow.workpool` (simpl_core's `workpool.cli` over the topology) has
+  `status`, `scale`, `check`, `redeploy`, `provision` and `autoscale`, each deploy naming
+  every pool's release (`--release encoder=<fine-tune>`). It
+needs simpl_core's workpool migrations and migration 155 applied. The encoder pool is not
+  in the shipped topology. The `generative`
+  pool (one L4, `consume --pool generative --release nuextract3-gpu:o1`, the Dockerfile's
+  `generative-pool` target built on `generative-model`) runs NuExtract3 on llama.cpp's CUDA
+  server, started by the instance itself, for the extraction rows of variant
+  `graphia-v2-nuextract-gpu` and the check tier's `verify` rows; an instance whose server
+  lists no GPU stops before it is ready. Its deployment, step by step:
+  `docs/knowledge-graph-nuextract-gpu.md`.
 - `gcp_graphia_v2_flow` (no schedule, started by hand on keys marked by hand) runs the
   scaled knowledge graph pipeline (`pipelines/knowledge_graph/v2`). It marks `source_keys`
   (`p:<post id>`, `h:<host>`) with `priority` for a v2 variant (`v2/variants.yaml`, default
-  `graphia-v2-nuextract`: the extractor's NuExtract behind the model contract, on the job's
-  CPUs; `graphia-v2-gliner`: entities only, a fine-tuned GLiNER2 loaded in the job's own
+  `graphia-v2-nuextract-gpu`, below; `graphia-v2-nuextract`: the extractor's NuExtract
+  behind the model contract, on the job's CPUs; `graphia-v2-gliner`: entities only, a fine-tuned GLiNER2 loaded in the job's own
   process, on ontology `o2` (o1 plus the model's 8 extra types), its runs with mentions
   and no facts; `graphia-v3-gliner`: the same with the fine-tune trained on o1's 16 span
-  labels, on ontology `o1`), works its due rows of `knowledge_graph.extraction_index` into the append-only
+  labels, on ontology `o1`; `graphia-v3-gliner-gpu`: that fine-tune served by the `encoder`
+  pool on a GPU, the job writing its documents into `knowledge_graph.model_requests` and
+  reading the spans back, three batches in extraction at once; `graphia-v2-nuextract-gpu`,
+  the default: the extractor's NuExtract served by the `generative` pool on a GPU the same
+  way, no server in the job; there is no deployment per variant or pool), works its due rows of `knowledge_graph.extraction_index` into the append-only
   extraction log (`kg_*` datasets under `ROW_STORE_URI`, run rows last as the commit
   marker; the queue keeps pending rows only, a settled source's state goes to
   `ops_source_states` and model answers to `ops_model_calls`), then as asked: the teacher's blind labels of a random slice of
@@ -183,7 +214,11 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   e.g. `gliner-o2-trial-1` from migration 138) each batch is gated: the teacher answers
   the documents whose units the gate does not accept enough of, at most `gate_budget` a
   run, and every other document is served its accepted units; whenever the gate drops a
-  unit, the model's whole answer is kept beside it as the `shadow` run. Readers of a
+  unit, the model's whole answer is kept beside it as the `shadow` run. With `check_pool`
+  (`generative`) the units the gate would not accept are first checked by that pool's
+  `verify` step, and only what stays unsettled goes to the teacher. A backfill is a
+  low-priority mark (`queue-mark --priority -1`): the ledger claims higher priorities
+  first, so the normal runs work it after the new sources. Readers of a
   document's answer (the export, the slice, identity, the generation) read `served` runs. It is the extraction only: identity and the graph generation are `gcp_graphia_identity_flow`'s. It needs migrations 126 to 135 and 147 to 149, and its variant's
   ontology registered (`python -m simpl_flow.pipelines.knowledge_graph.ontology register`:
   `o1`; `o2` with `--previous o1 --key-map .../ontology/v2.keymap.yaml`). It
@@ -201,8 +236,8 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   band to the review queue), then as asked the next graph generation of a variant's runs
   (`generation`, `variant`, `publish`), then the published generation's entity promotion
   into the golden zone the matcher's `entity` predicate reads (`promote`,
-  `promotion_config`; migrations 153 and 154). Identity's state is still in Postgres
-  (`er_*`) until this pipeline is reworked. One run at a time.
+  `promotion_config`; migrations 153 and 154). Identity's state is still in Postgres (`er_*`) until this pipeline is reworked. One run
+  at a time.
 - `gcp_open_graph_flow` (no schedule, started by hand) labels LinkedIn posts with
   llmgraph (LangChain's `LLMGraphTransformer`) once per teacher, as training data. A
   teacher is a model in one llmgraph mode, listed in
