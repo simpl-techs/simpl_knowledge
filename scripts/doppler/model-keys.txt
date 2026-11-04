@@ -1,0 +1,15 @@
+# Keys that pay for model calls (LLM, embeddings, transcription). Do not put values here.
+# Their dev value must be a separate key created at the provider, never the prd key:
+# the cost ledger and the provider bill tell production from tests only by the key.
+# mirror-prd-to-dev.sh never copies these keys; set-secret.sh writes them on prd only,
+# and on dev/stg only on request and only with a value that is not the prd key.
+# check-model-keys.py lists every dev config that still holds a prd key.
+OPENAI_API_KEY
+AZURE_OPENAI_KEY
+OPENROUTER_API_KEY
+DEEPSEEK_API_KEY
+NEBIUS_API_KEY
+CHEAPER_INFERENCE_API_KEY
+ASSEMBLYAI_API_KEY
+ANTHROPIC_API_KEY
+GEMINI_API_KEY

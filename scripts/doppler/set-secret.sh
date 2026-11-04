@@ -3,9 +3,14 @@
 # configs named after @ in key-targets.txt, e.g. KEY@prd).
 # The value is read from stdin or a hidden prompt and is never printed.
 #
+# Model keys (model-keys.txt) go on prd only. Their dev/stg value is a separate key
+# created at the provider, written by naming the configs; a value equal to the
+# project's prd key is refused there.
+#
 # Usage:
 #   scripts/doppler/set-secret.sh RESEND_API_KEY
 #   printf '%s' "$VALUE" | scripts/doppler/set-secret.sh RESEND_API_KEY
+#   scripts/doppler/set-secret.sh DEEPSEEK_API_KEY dev,stg   # the dev key, not the prd one
 #
 # Targets live in scripts/doppler/key-targets.txt (KEY<space>project...).
 set -euo pipefail
@@ -14,8 +19,8 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 MAP="$ROOT/key-targets.txt"
 CONFIGS=(prd dev stg)
 
-if [[ $# -ne 1 ]]; then
-  echo "usage: $0 KEY_NAME" >&2
+if [[ $# -lt 1 || $# -gt 2 ]]; then
+  echo "usage: $0 KEY_NAME [configs, e.g. dev,stg]" >&2
   exit 2
 fi
 
@@ -29,6 +34,18 @@ first="${entry%%[[:space:]]*}"
 line="${entry#"$first"}"
 if [[ "$first" == *@* ]]; then
   IFS=',' read -r -a CONFIGS <<<"${first#*@}"
+fi
+
+is_model_key=0
+if grep -v '^#' "$ROOT/model-keys.txt" | awk 'NF { print $1 }' | grep -qx "$KEY"; then
+  is_model_key=1
+  CONFIGS=(prd)
+fi
+if [[ $# -eq 2 ]]; then
+  IFS=',' read -r -a CONFIGS <<<"$2"
+fi
+if [[ "$is_model_key" == 1 && $# -eq 1 ]]; then
+  echo "${KEY} is a model key: writing prd only. dev/stg need their own key: $0 ${KEY} dev,stg" >&2
 fi
 
 read -r -a PROJECTS <<<"$line"
@@ -49,6 +66,13 @@ for project in "${PROJECTS[@]}"; do
     if [[ -z "$names" ]]; then
       echo "skip ${project}/${config} (config missing)"
       continue
+    fi
+    if [[ "$is_model_key" == 1 && "$config" != prd ]]; then
+      prd_value="$(doppler secrets get "$KEY" -p "$project" -c prd --plain 2>/dev/null || true)"
+      if [[ -n "$prd_value" && "$prd_value" == "$VALUE" ]]; then
+        echo "refused ${KEY} on ${project}/${config}: that is the prd key; create a dev key at the provider" >&2
+        continue
+      fi
     fi
     printf '%s' "$VALUE" | doppler secrets set "$KEY" -p "$project" -c "$config" --silent
     echo "set ${KEY} on ${project}/${config}"

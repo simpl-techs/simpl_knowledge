@@ -44,6 +44,7 @@ They apply to every piece of code at simpl and sit above style and any single de
 | Writing or reviewing tests | `testing-policy` |
 | Anything that could already be an internal simpl library | `internal-libraries-awareness` |
 | Python env, dependencies, running tests | `python-environment` |
+| Calling a model anywhere (production, local test, script, backfill, eval): through simpl_tracker with process + sub-process; production model keys only in production, `dev` keys locally, ask when one is missing | `state-and-persistence` (Observability) + `simpl_tracker` + `doppler` (Model keys) |
 | Secrets, `.env`, Doppler, Cloud Run / Vercel / Prefect env | `doppler` |
 | Where to run or deploy, GPUs/HPC, picking an LLM or a Google Cloud product, "is it covered by credits" | `cloud-resources` |
 | Branches, commits, PRs | `git-workflow` |
