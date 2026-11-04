@@ -1,7 +1,7 @@
 ---
 name: simpl_ia
 description: |
-  Use this skill whenever the user asks about vector search, embeddings, reranking, chunking, Milvus/Qdrant stores, structured LLM clients, Langfuse prompts, or code that imports `simpl_ia`. ALWAYS consult this skill before adding ad hoc embedding/search/LLM wrappers in simpl repos. Triggers on phrases like "vector search", "embed text", "Milvus", "chunk documents", "structured LLM output", "pydantic-ai agent".
+  Use this skill whenever the user asks about vector search, embeddings, reranking, chunking, Milvus/Qdrant stores, structured LLM clients, or code that imports `simpl_ia`. ALWAYS consult this skill before adding ad hoc embedding/search/LLM wrappers in simpl repos. Triggers on phrases like "vector search", "embed text", "Milvus", "chunk documents", "structured LLM output", "pydantic-ai agent".
 ---
 
 # simpl_ia integration guide
@@ -455,7 +455,7 @@ for chunk in chunk_blocks(lines, soft=1200, hard=1800):
 
 - **Don't** `from simpl_ia import MilvusStore` in code paths that must stay pymilvus-free — first access loads pymilvus at import time.
 - **Don't** import `simpl_ia.inference.embedders` without the `[ml]` extra — lazy loaders raise `ImportError` with the install hint.
-- **Don't** import `simpl_ia.agents` without `[agents]` — it needs `pydantic-ai`, Langfuse, and `simpl-tracker`.
+- **Don't** import `simpl_ia.agents` without `[agents]` — it needs `pydantic-ai` and `simpl-tracker`.
 - **Don't** add a decision model by name to a list, regex or provider of its own — any model on OpenRouter's decisions API is `provider="openrouter", api="decisions"`.
 - **Don't** put the question for a decision-model member in the system prompt — the model judges it as material. Field descriptions, the output type's docstring and `instructions` are what it is asked.
 - **Don't** assume `simpl_ia.core.vector_stores.EmbedderMetadata` and `simpl_ia.core.providers.metadata.EmbedderMetadata` are the same class — they are distinct types for different layers.
