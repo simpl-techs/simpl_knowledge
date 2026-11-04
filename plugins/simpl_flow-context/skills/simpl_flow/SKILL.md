@@ -372,6 +372,9 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   for another reason) is a company already known: it is neither proposed nor watched.
   The flow autopilot never claims a person its user holds in Non sales, found at another
   company: their connection keeps its stage and gets no journey (`autopilot_root` 10).
+- A company where the team holds a Disqualified connection (lead status 12: met on a call,
+  then ruled out by the seller) is never proposed again, neither new nor recycled; next to
+  a client it is only watched.
 - An ICP's **required company questions** (simpl_api, `sales_view.icp_required_question`) gate every
   source: a company is proposed only if its current answer (`sales.company_feature`) to each
   required question is the required yes or no; no answer is not a pass. Signals, monitoring
