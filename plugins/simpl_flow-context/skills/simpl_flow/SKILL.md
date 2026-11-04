@@ -175,32 +175,34 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   too. A v2 run that stops because a backend gave no answer (a pool that never answers
   records no incident) posts one warning there (`announce_no_answer`). A new queue is an
   entry under `queues:`, its table and a pool claiming from it, plus the runner its
-  instances run; the autoscaler needs no change. A pool instance runs
-  `python -m simpl_flow.pipelines.knowledge_graph.serving consume --pool encoder --release
-  <fine-tune>` from the Dockerfile's `encoder-pool` target; `serving load` drives a pool's
-  table. `python -m simpl_flow.workpool` (simpl_core's `workpool.cli` over the topology) has
-  `status`, `scale`, `check`, `redeploy`, `provision` and `autoscale`, each deploy naming
-  every pool's release (`--release encoder=<fine-tune>`). It
-needs simpl_core's workpool migrations and migration 155 applied. The encoder pool is not
-  in the shipped topology. The `generative`
-  pool (one L4, `consume --pool generative --release nuextract3-gpu:o1`, the Dockerfile's
-  `generative-pool` target built on `generative-model`) runs NuExtract3 on llama.cpp's CUDA
-  server, started by the instance itself, for the extraction rows of variant
+  instances run; the autoscaler needs no change. Every pool runs one runtime: llama.cpp's
+  CUDA server, started by the instance on its GPU for the variant its release names
+  (`consume --pool <pool> --release <variant>:<ontology>`, a variant of the extraction
+  `variants.yaml`, which names the model's weights as a Cloud Storage object and its
+  sha256). No image holds a model: the generic pool image (`simpl-flow-generative-pool`,
+  the Dockerfile's `generative-pool` target on `pool-runtime`: code and llama.cpp) is the
+  base each variant's image (`simpl-flow-pool-<variant>`) adds its weights to as one layer
+  (`Dockerfile.pool-variant`, at `/opt/models/<sha256>/<file>`, where the weights loader
+  reads first); `python -m simpl_flow.pipelines.knowledge_graph.serving image --pool <pool>
+  --release <variant>:<ontology> --tag <tag>` builds and pushes both, the weights taken
+  from Cloud Storage. Another model is another variant, its image and a pool deployed with
+  it. `serving load` drives a pool's table. `python -m simpl_flow.workpool` (simpl_core's
+  `workpool.cli` over the topology) has `status`, `scale`, `check`, `redeploy`, `provision`
+  and `autoscale`, each deploy naming every pool's release (`--release
+  generative=nuextract3-gpu:o1`) and the tag its image was built with. It needs simpl_core's
+  workpool migrations and migration 155 applied. The `generative` pool (one L4, image
+  `simpl-flow-pool-nuextract3-gpu`) runs NuExtract3 for the extraction rows of variant
   `graphia-v2-nuextract-gpu` and the check tier's `verify` rows; an instance whose server
   lists no GPU stops before it is ready. Its deployment, step by step:
   `docs/knowledge-graph-nuextract-gpu.md`.
 - `gcp_graphia_v2_flow` (no schedule, started by hand on keys marked by hand) runs the
   scaled knowledge graph pipeline (`pipelines/knowledge_graph/v2`). It marks `source_keys`
-  (`p:<post id>`, `h:<host>`) with `priority` for a v2 variant (`v2/variants.yaml`, default
-  `graphia-v2-nuextract-gpu`, below; `graphia-v2-nuextract`: the extractor's NuExtract
-  behind the model contract, on the job's CPUs; `graphia-v2-gliner`: entities only, a fine-tuned GLiNER2 loaded in the job's own
-  process, on ontology `o2` (o1 plus the model's 8 extra types), its runs with mentions
-  and no facts; `graphia-v3-gliner`: the same with the fine-tune trained on o1's 16 span
-  labels, on ontology `o1`; `graphia-v3-gliner-gpu`: that fine-tune served by the `encoder`
-  pool on a GPU, the job writing its documents into `knowledge_graph.model_requests` and
-  reading the spans back, three batches in extraction at once; `graphia-v2-nuextract-gpu`,
-  the default: the extractor's NuExtract served by the `generative` pool on a GPU the same
-  way, no server in the job; there is no deployment per variant or pool), works its due rows of `knowledge_graph.extraction_index` into the append-only
+  (`p:<post id>`, `h:<host>`) with `priority` for the v2 variant (`v2/variants.yaml`:
+  `graphia-v2-nuextract-gpu`, the only one: NuExtract3 served by the `generative` pool on
+  an L4, the job writing its documents into `knowledge_graph.model_requests` and reading
+  the joint answers back, three batches in extraction at once; no model runs in the job,
+  and there is no deployment per variant or pool; the GLiNER2 and in-job NuExtract
+  variants were removed 2026-11-04, their runs stay in the log), works its due rows of `knowledge_graph.extraction_index` into the append-only
   extraction log (`kg_*` datasets under `ROW_STORE_URI`, run rows last as the commit
   marker; the queue keeps pending rows only, a settled source's state goes to
   `ops_source_states` and model answers to `ops_model_calls`), then as asked: the teacher's blind labels of a random slice of
@@ -209,8 +211,9 @@ needs simpl_core's workpool migrations and migration 155 applied. The encoder po
   extractor variant (`baseline_variant`, e.g. `nuextract3-cpu`): both scored on the
   teacher's labels with paired differences (on the span types both ontologies share when
   the variant's ontology is not the baseline's), stored as the markdown artifact
-  `graphia-v2-acceptance` and returned. With `gate` (a `knowledge_graph.gate_config` id,
-  e.g. `gliner-o2-trial-1` from migration 138) each batch is gated: the teacher answers
+  `graphia-v2-acceptance` and returned. With `gate` (a `knowledge_graph.gate_config` id
+  fitted for the variant; migration 138's `gliner-o2-trial-1` was the removed GLiNER2
+  variant's) each batch is gated: the teacher answers
   the documents whose units the gate does not accept enough of, at most `gate_budget` a
   run, and every other document is served its accepted units; whenever the gate drops a
   unit, the model's whole answer is kept beside it as the `shadow` run. With `check_pool`
@@ -223,11 +226,9 @@ needs simpl_core's workpool migrations and migration 155 applied. The encoder po
   `o1`; `o2` with `--previous o1 --key-map .../ontology/v2.keymap.yaml`). It
   replaced the graphia extractor (`gcp_graphia_extractor_flow`, removed): that extractor's
   `graphia_extractions:2` and facts tables stay as its last run left them, nothing writes
-  them, and the opportunity matcher keeps reading them. NuExtract runs inside the job, on
-  its CPUs, from the server and the weights in its own image (`simpl-flow-graphia`): 8 vCPU
-  and 16 GiB, no model key. One run at a time. The same image also holds GLiNER2 in
-  `/opt/gliner` (`base/`, `heads.pt`, `graphia16/heads.pt`), with torch and gliner2 installed only there, from
-  the optional Poetry group `gliner`. Where each dataset lives and which flow writes it:
+  them, and the opportunity matcher keeps reading them. The job runs the plain image
+  (2 vCPU, 4 GiB): no model, no server, no model key. One run at a time. Where each
+  dataset lives and which flow writes it:
   `docs/knowledge-graph-storage.md`.
 - `gcp_graphia_identity_flow` (no schedule, started by hand, plain image) runs the identity
   service's micro-batches over the runs the extraction log gained, every variant's (the
