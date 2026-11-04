@@ -35,7 +35,7 @@ The cost ledger and each provider's bill tell production from tests only by the 
 
 Maintainers:
 
-- Create the dev key at the provider, named `<project>-dev` there, and write it with `scripts/doppler/set-secret.sh KEY dev,stg` (it refuses the project's prd value) or `doppler secrets set`.
+- Create the dev key at the provider, named `<project>-dev` there. Collect the values in a private file outside any repo (`~/.simpl/dev-model-keys.env`, one `project/KEY=value` line each) and load them with `python3 -I scripts/doppler/check-model-keys.py --load <file>`: it writes dev (and stg when it exists), refuses any prd value, then runs the check. For one key: `scripts/doppler/set-secret.sh KEY dev,stg` (refuses the project's prd value).
 - `set-secret.sh` writes a model key on `prd` only unless you name the configs; `mirror-prd-to-dev.sh` never copies model keys.
 - `python3 -I scripts/doppler/check-model-keys.py` lists every dev/stg config that still holds a production model key (fingerprints only, exit 1 when it finds one). Run it after any change to model keys.
 - A new model provider: add its key name to `model-keys.txt` in the same change.
