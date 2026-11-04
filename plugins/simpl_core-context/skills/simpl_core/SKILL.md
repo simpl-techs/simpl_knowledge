@@ -41,7 +41,7 @@ poetry add "simpl-core[decks] @ git+https://github.com/simpl-techs/simpl_core.gi
 
 The `mailbox` extra (aioimaplib, aiosmtplib, google-cloud-kms, dnspython) is what an `imap` email connection needs at runtime; see "Email on other providers (IMAP/SMTP)". Nothing imports it at `import simpl_core.services.email`.
 
-Base `simpl-core` installs `simpl-ia` (same pin as other platform repos) so `import simpl_ia` works in the venv. The `agent-framework` extra adds `simpl-ia[agents]` (pydantic-ai, Langfuse) for `simpl_core.agent_framework` and `simpl_ia.agents`; that submodule is not imported at `import simpl_core`.
+Base `simpl-core` installs `simpl-ia` (same pin as other platform repos) so `import simpl_ia` works in the venv. The `agent-framework` extra adds `simpl-ia[agents]` (pydantic-ai) for `simpl_core.agent_framework` and `simpl_ia.agents`; that submodule is not imported at `import simpl_core`.
 
 ## Basic usage
 
