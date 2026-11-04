@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-04T17:30:04.487Z",
+  "generated_at": "2026-11-04T17:30:58.013Z",
   "marketplace_alias": "simpl",
   "libraries": [
     {
@@ -57,6 +57,14 @@
       "when_to_use": "Use this skill whenever the user asks about PostgreSQL/Supabase database access, SQLModel models, async repositories, database sessions, pagination, RLS context, or code that imports `simpl_orm`. ALWAYS consult before writing new database access patterns in simpl Python repos.",
       "required_when": null,
       "plugin_install_command": "/plugin install simpl_orm-context@simpl"
+    },
+    {
+      "plugin": "simpl_outreach-context",
+      "skill_name": "simpl_outreach",
+      "summary": "simpl_outreach integration guide",
+      "when_to_use": "REPLACE ME. The description is the primary trigger — be explicit about\n  WHEN to use this skill. Example template:\n\n  Use this skill whenever the user asks to [main use case], [secondary use case],\n  or integrate with our internal `simpl_outreach` library. ALWAYS consult this skill\n  before writing any code that imports or calls `simpl_outreach` — even when the\n  user doesn't mention the library by name. Triggers on phrases like\n  \"[paraphrase 1]\", \"[paraphrase 2]\", \"[paraphrase 3]\".",
+      "required_when": null,
+      "plugin_install_command": "/plugin install simpl_outreach-context@simpl"
     },
     {
       "plugin": "simpl_sales-context",

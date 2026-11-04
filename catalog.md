@@ -1,6 +1,6 @@
 # simpl internal libraries catalog
 
-Auto-generated at `2026-11-04T17:30:04.487Z`. Do not edit by hand: every library sync regenerates it, or run `node scripts/ci/generate-catalog.js`.
+Auto-generated at `2026-11-04T17:30:58.013Z`. Do not edit by hand: every library sync regenerates it, or run `node scripts/ci/generate-catalog.js`.
 
 Each entry summarizes an integration plugin (`*-context`). Install the plugin in Claude Code for the full SKILL. Until then, use this file to decide whether a library fits the current task.
 
@@ -65,6 +65,21 @@ Each entry summarizes an integration plugin (`*-context`). Install the plugin in
 - **When to use**: Use this skill whenever the user asks about PostgreSQL/Supabase database access, SQLModel models, async repositories, database sessions, pagination, RLS context, or code that imports `simpl_orm`. ALWAYS consult before writing new database access patterns in simpl Python repos.
 - **Install full context (Claude Code)**: `/plugin install simpl_orm-context@simpl`
 - **Skill path in cache**: `~/.simpl_knowledge/cache/plugins/simpl_orm-context/skills/`
+
+## simpl_outreach-context
+
+- **Skill**: `simpl_outreach`
+- **Summary**: simpl_outreach integration guide
+- **When to use**: REPLACE ME. The description is the primary trigger — be explicit about
+  WHEN to use this skill. Example template:
+
+  Use this skill whenever the user asks to [main use case], [secondary use case],
+  or integrate with our internal `simpl_outreach` library. ALWAYS consult this skill
+  before writing any code that imports or calls `simpl_outreach` — even when the
+  user doesn't mention the library by name. Triggers on phrases like
+  "[paraphrase 1]", "[paraphrase 2]", "[paraphrase 3]".
+- **Install full context (Claude Code)**: `/plugin install simpl_outreach-context@simpl`
+- **Skill path in cache**: `~/.simpl_knowledge/cache/plugins/simpl_outreach-context/skills/`
 
 ## simpl_sales-context
 
