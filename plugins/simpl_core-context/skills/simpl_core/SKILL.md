@@ -2706,8 +2706,16 @@ made.pptx, made.pdf, made.pdf_is_test, made.notes
   senses=None, http=http)` returns the kit, the logo's bytes and notes (one Firecrawl credit,
   cached 6 hours). It runs `measure.js` in Firecrawl's browser and reads colours by painted area,
   the logo's own colour, faces from Google Fonts, cards, corners, labels and the hero. Fields the
-  kit names win. `senses` (a vision check) and `voice_reader` are optional. `brand.logo_png(data)`
-  turns a logo read from a site into a PNG to keep: an SVG can carry scripts.
+  kit names win. `senses` (a vision check) and `voice_reader` are optional; without `senses`
+  no screenshot is asked for or read. A logo is kept only when it is a picture a deck can draw
+  (`brand.check_logo`); otherwise the read has none and says so in the notes.
+  `brand.logo_png(data)` turns a logo read from a site into a PNG to keep (an SVG can carry
+  scripts) and raises `BrandUnusable` for anything that is not a picture.
+- Every picture is refused above `brand.PICTURE_MAX_PIXELS` (40 million) from its header,
+  before it is decoded, and an SVG before it is drawn. `brand.fetch_bytes` reads only https
+  addresses on public hosts, every redirect checked again, and stops at its size cap.
+  `site.FirecrawlError.status` is Firecrawl's HTTP status (`site.OUT_OF_CREDITS`, 402: the
+  account has no credits left).
 
 ## Who takes the meetings: team hand-off
 
