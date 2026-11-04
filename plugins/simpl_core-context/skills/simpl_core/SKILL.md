@@ -2264,6 +2264,131 @@ await posts.build_index("vector")            # sections of a declared vector or 
   key is configured. Lance prefers `GOOGLE_*` credential variables in the environment,
   so set none for another account.
 
+### Work pools: queues, leases, instances (`workpool`)
+
+`simpl_core.workpool` is the queue and lease machinery for every process that claims
+work from Postgres. Its own tables are in the `workpool` schema
+(`migrations/20261103_workpool.sql`: `resource_leases`, `instances`, `incidents`); a
+queue table and a counters table belong to the consumer's schema and migration.
+
+```python
+spec = QueueSpec(table="knowledge_graph.model_requests",          # selector column: model
+                 payload={"request": "jsonb"}, results={"response": "jsonb", "release_id": "text"})
+queue = WorkQueue(spec)
+async with db.session_scope() as s:                                # requester
+    await queue.enqueue(s, [NewRow(selector="encoder", requester=token, request_id=rid,
+                                   deadline_at=lease_end, size_hint=len(text), payload={...})])
+async with db.session_scope() as s:                                # consumer
+    claim = await queue.claim(s, "encoder", token=t, ttl=ttl, batch_units=400_000,
+                              instance_id=instance)
+async with db.session_scope() as s:
+    await queue.complete(s, t, [RowResult(row.id, {"response": ...})])  # fenced on token + lease
+rows = await queue.wait_done(db, rid, token, expected=n, deadline=d)    # requester reads ...
+async with db.session_scope() as s:
+    await queue.delete_read(s, rid, token)                               # ... and deletes
+```
+
+- **Every queue table has `REQUIRED_COLUMNS`** plus its selector column; the caller
+  declares payload columns (written at enqueue) and result columns (written by the
+  completion). `verify_shape(session, spec, unlogged=...)` lists what a table lacks.
+- **States:** `queued` -> `leased` (claim, counts an attempt) -> `done` | `failed`, or
+  back to `queued` (`fail` with a retry left, `release`, `recover`). `done` and `failed`
+  are terminal; only the requester deletes them, and `sweep` deletes every row past its
+  `deadline_at`. Every write of a holder is fenced on its token and an unexpired lease
+  (`clock_timestamp()`), so a lost lease writes nothing.
+- **Claims** take lanes in rank order, then priority, eligibility and age, with
+  `SKIP LOCKED`; bounded by rows (`limit`) or `size_hint` (`batch_units`, a row counting at
+  least 1), with per-kind `shares` so one kind cannot starve another, taken in claim
+  order so no later lane goes first; a kind with no share only fills. A row whose lease expired twice with its
+  instance alive (`crash_suspect`) is claimed alone; at three it fails.
+- **`recover`** gives the attempt back when the holder's instance is gone from
+  `workpool.instances` or stopping, and keeps it otherwise.
+- Every method runs on the caller's session and never commits, except `wait_done`,
+  which polls with a short session per read and raises `RowsGoneError` at once when rows
+  are missing, `WaitTimeoutError` at the deadline. A requester that does not wait reads its answered
+  and failed rows later with `finished(session, requester, limit=...)` (each `RowState`
+  with its `request_id`) and deletes them with `delete_read`.
+- `LeaseKeeper` renews every lease a process holds in one statement per third of the
+  ttl. `ResourceLease` holds one named resource, arbitrated by `PostgresArbiter`
+  (with `fence` inside a transaction) or `ObjectStoreArbiter` over a `GenerationStore`
+  (`GcsGenerationStore`, the `parquet` extra). `InstanceRegistry`, `ClaimPacer`,
+  `CounterTable`/`MinuteCounters` (one row per key and minute) and `IncidentOutbox` with
+  `deliver_due` (one open incident per dedup key, delivered after commit, each send in
+  a worker thread so a blocking notifier never holds the event loop; a notifier that
+  raises is a failed delivery) complete it.
+- `load_topology(path)` reads a fleet's pools (`Topology`, `Pool`, `Scaling`, `Runtime`,
+  `Quota`): role (`gpu` with `depth`, `cpu` with `concurrency`), substrate, region and GPU
+  type, runtime binding (`in_process` or `server`), `batch_units`, lanes, per-kind
+  `shares`, timings and scaling bounds. It refuses a heartbeat slower than a third of the
+  lease, a drain past the stop grace, connections over `db_connection_budget`, and GPU
+  pools whose `Σ max_instances` (or floors) exceed their region's quota. A pool with
+  `yields: true` (a backfill pool) is left out of that sum: it has no floor, the yielding
+  pools' maximums together fit in what the others' floors leave, and every tick caps it at
+  `Topology.left_for(pool, held)` (the quota less each other pool's floor or new count),
+  the yielding pools decided after the others; wanting more opens an
+  `autoscaler-quota-short` warning a day. The release a pool serves is its deploy
+  argument, never a topology field.
+- `Substrate` reads and sets a pool's instance count (`get`, `set_instances` with the
+  version it read; a stale one raises `StaleVersionError`); `CloudRunWorkerPools` does it
+  through the Cloud Run Admin API v2 (`scaling.manualInstanceCount`, etag, no new
+  revision), `ComputeEngineMigs` through the Compute API v1 on the regional managed
+  instance group named as the pool (`targetSize`, its `fingerprint`; topology
+  `substrate: compute_engine_mig`), and `fleet_substrate(topology, http, tokens)` sends
+  each pool's calls to the one its topology names. `workpool.deploy` rolls Cloud Run
+  pools only: a group's instances come from its own instance template, and every deploy
+  command reports it skipped. `workpool.deploy` checks, rolls (`redeploy`) and creates (`provision`) the
+  pools from the topology's `deployment` section, each instance running `command --pool
+  <name> --release <release>`: the release is a per-pool deploy argument, and a pool
+  serving another one reads as drift. `InstanceRegistry.record_serves`/`served` keep what
+  each pool's runtime serves (`workpool.pool_serves`, migration `20261103b`), so a
+  requester names a pool's model while it has no instance.
+- `workpool.autoscaler`: `decide(pool, demand, current=, memory=, pressure=)` is the pure law
+  (`wanted = ceil(backlog_units / (units_per_s × drain_window × target_utilization))`,
+  sleep after `sleep_after_s` at empty whatever `min_instances` says, wake on enough work,
+  three rising ticks or a row of its lanes near its deadline: `Scaling.wake_after_s` old, by
+  default the drain window less the wake lead, `starved` holds a pool whose ready
+  instances idle with a backlog, cooldown before shrinking, no growth under database
+  pressure). `Autoscaler(db, substrate, topology, demand_reader, steps=...).tick()` runs
+  the caller's tick steps, prunes stale instances, samples `db_pressure`, and sets each
+  pool's count with the version it read, recording `workpool.scaling_operations` and
+  `workpool.pool_states` (migration `20261103c`); failures and at-max, starved and
+  deadline wake-ups open incidents.
+- A claim can be restricted to `kinds` (an empty tuple claims nothing), so a budget-bound
+  pool keeps a reserve for one kind. A `Demand.cap` bounds a pool's count from above (a
+  budget-bound pool's calls the money left allows); a cap of zero keeps it asleep (`capped`).
+- A topology names its fleet's queues (`queues:`, each a `FleetQueue`: table, selector,
+  payload and result columns, `counters`, `failures_kept_in`) and each pool names its
+  queue. A new queue needs its table, its entry, a pool claiming from it and the runner
+  its instances run; it needs no demand reader, tick steps or autoscaler of its own.
+  `serving_counters(table, selector)` is its per-minute counters table (`SERVING_COUNTERS`:
+  rows and units written, answered and failed, batches, busy and ready seconds).
+- `workpool.autoscaler.tick_fleet(db, topology, substrate, caps=, routes=, dry_run=)` runs
+  one tick over every pool at once, since they share the quota, under a Postgres lease
+  named for the fleet's queues (a tick that finds it held does nothing). `QueueDemand`
+  reads each pool's backlog, arrivals per tick, the oldest row of any of its lanes, its
+  rate and its cap; `queue_steps` recover expired leases (rows failed for good after
+  crashing a pool's instances are one `dead-rows:<pool>:<day>` warning), sweep and prune,
+  reported as `<queue>.recover` and so on; then the due incidents go to the topology's
+  alert route. A pool's `cap` and the topology's `alerts` are names: `ALERT_ROUTES` holds
+  core's (`data_lake`: `DataLakeNotifier`, errors and warnings on #data-lake, info only
+  logged), `caps=` and `routes=` add the caller's, and a name nobody registered raises
+  `ValueError` before the tick.
+- `workpool.Requester(db, queue, counters)` is a queue's requester side: `submit` writes
+  rows and counts them as arrivals in one transaction, `sweep` deletes rows past their
+  deadline. `workpool.status.pool_status` and `render` show a fleet now.
+- `workpool.cli.run_cli(argv, topology=, database=, prog=, caps=, routes=)` is a fleet's
+  command line (`status`, `scale`, `check`, `redeploy`, `provision`, `autoscale`);
+  `database` opens the repository's database. `open_fleet_substrate(topology)` is
+  `fleet_substrate` for the length of a block. A pool's `runtime.command` replaces the
+  deployment's `command`, for a fleet whose pools run different entry points.
+- `workpool.consumer.Consumer(db, queue, counters, runner, settings)` is a pool instance's
+  loop over a `JobRunner` (`self_check`, `serves`, `jobs` splitting a batch, `run`
+  answering one, raising `RuntimeDown` when it stops answering): register, self-check,
+  record what it serves, claim with a fencing token per batch, keep `depth` batches in
+  hand, write each batch's answers fenced, and heartbeat with the counters. On the stop
+  signal it reports itself stopping at once, starts no job, gives the running one what is
+  left of `drain_timeout_s` from the signal, gives back the rest and deregisters.
+
 ### Search index for any kind (`search.index`)
 
 `simpl_core.search.index` turns a kind of object into a searchable index: a ledger of
