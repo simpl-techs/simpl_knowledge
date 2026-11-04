@@ -208,10 +208,12 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   variants were removed 2026-11-04, their runs stay in the log), works its due rows of `knowledge_graph.extraction_index` into the append-only
   extraction log (`kg_*` datasets under `ROW_STORE_URI`, run rows last as the commit
   marker; the queue keeps pending rows only, a settled source's state goes to
-  `ops_source_states` and model answers to `ops_model_calls`), then as asked: the teacher's blind labels of a random slice of
-  posts and whole sites (`slice_quota`; policy `graphia_teacher_root`: its active version's
+  `ops_source_states` and model answers to `ops_model_calls`), then as asked: the teacher's blind entity labels (its ner step) of a
+  random slice of documents, each drawn alone at `slice_rate` (2% by the deployment's
+  default; a site's document is one landing chunk for `graphia-v2-nuextract-ner`, whose
+  `site_documents` is `chunk`; policy `graphia_teacher_root`: its active version's
   model, Claude Opus 5.5 or DeepSeek V4.1 Flash, on OpenRouter with zero retention), and the acceptance comparison with a current
-  extractor variant (`baseline_variant`, e.g. `nuextract3-cpu`): both scored on the
+  extractor variant (`baseline_variant`, e.g. `nuextract3-cpu`) on the slice's posts: both scored on the
   teacher's labels with paired differences (on the span types both ontologies share when
   the variant's ontology is not the baseline's), stored as the markdown artifact
   `graphia-v2-acceptance` and returned. With `gate` (a `knowledge_graph.gate_config` id
