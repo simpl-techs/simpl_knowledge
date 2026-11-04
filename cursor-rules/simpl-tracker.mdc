@@ -161,6 +161,14 @@ else the Doppler project without its `simpl_` prefix. It is never built inside a
 pytest run or when `SIMPL_REQUEST_ACCOUNTING` is off. Without those credentials the
 request is reported as `llm_accounting.untracked_process`, as before.
 
+**Every receipt says where it ran, and a local one who ran it.** `record_llm_receipt`
+adds `runtime` to the receipt context: `cloud_run`, `github_actions`, `prefect` or
+`local`. A `local` receipt also gets `run_by`, the person (`SIMPL_RUN_BY` when set,
+else git `user.name`, else the OS account's full name) and `run_host`, the machine.
+Context the caller passes wins. Production model keys run only in production: a
+local run uses the `dev` keys (simpl_knowledge `doppler`, "Model keys"), and names
+its own process (`backfill_...`, `eval_...`), never the production flow it imitates.
+
 **A failed call is its receipt.** When a `@track_cost(service="ai_llm")` call
 raises after its request left a receipt (outcome `failed`), the decorator writes no
 error event: without `provider=` that event used to land as `ai_llm/unknown` on the
