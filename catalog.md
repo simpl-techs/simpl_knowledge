@@ -1,6 +1,6 @@
 # simpl internal libraries catalog
 
-Auto-generated at `2026-11-04T17:16:49.929Z`. Do not edit by hand: every library sync regenerates it, or run `node scripts/ci/generate-catalog.js`.
+Auto-generated at `2026-11-04T17:30:04.487Z`. Do not edit by hand: every library sync regenerates it, or run `node scripts/ci/generate-catalog.js`.
 
 Each entry summarizes an integration plugin (`*-context`). Install the plugin in Claude Code for the full SKILL. Until then, use this file to decide whether a library fits the current task.
 
@@ -94,18 +94,3 @@ Each entry summarizes an integration plugin (`*-context`). Install the plugin in
 - **Required when**: Always. Every cost a simpl service incurs is recorded through simpl_tracker before merging: LLM spend through CostRecordingModel request receipts (attributed by @track_cost or an LLMAccountingScope; batch results through @track_batch_cost), paid data providers through @track_cost, Google Cloud compute through track_instance_lifetime (services, worker pools) or @track_compute (jobs, Prefect flows), and each Vercel sandbox through record_sandbox_usage. No custom cost tables and no untracked paid calls.
 - **Install full context (Claude Code)**: `/plugin install simpl_tracker-context@simpl`
 - **Skill path in cache**: `~/.simpl_knowledge/cache/plugins/simpl_tracker-context/skills/`
-
-## simpl-outreach-context
-
-- **Skill**: `simpl_outreach`
-- **Summary**: simpl_outreach integration guide
-- **When to use**: REPLACE ME. The description is the primary trigger — be explicit about
-  WHEN to use this skill. Example template:
-
-  Use this skill whenever the user asks to [main use case], [secondary use case],
-  or integrate with our internal `simpl_outreach` library. ALWAYS consult this skill
-  before writing any code that imports or calls `simpl_outreach` — even when the
-  user doesn't mention the library by name. Triggers on phrases like
-  "[paraphrase 1]", "[paraphrase 2]", "[paraphrase 3]".
-- **Install full context (Claude Code)**: `/plugin install simpl-outreach-context@simpl`
-- **Skill path in cache**: `~/.simpl_knowledge/cache/plugins/simpl-outreach-context/skills/`

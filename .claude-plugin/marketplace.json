@@ -141,17 +141,6 @@
       ]
     },
     {
-      "name": "simpl-outreach-context",
-      "source": "./plugins/simpl-outreach-context",
-      "description": "Integration context for simpl-outreach. Auto-synced from simpl-techs/simpl-outreach.",
-      "version": "0.1.7",
-      "keywords": [
-        "simpl-outreach",
-        "integration",
-        "simpl"
-      ]
-    },
-    {
       "name": "simpl_agent_sandbox-context",
       "source": "./plugins/simpl_agent_sandbox-context",
       "description": "Integration context for simpl_agent_sandbox. Auto-synced from simpl-techs/simpl_agent_sandbox.",
