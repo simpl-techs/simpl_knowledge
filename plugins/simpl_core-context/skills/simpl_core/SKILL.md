@@ -2971,28 +2971,53 @@ hits = await search.best_per_company(
 ### Sales datasets (`sales_datasets`) and text anonymization (`anonymization`)
 
 What Graphia reads about the companies we hold outreach conversations with, as row
-store datasets, no vectors (`sales_datasets.spec.SPECS`). Five are entities like their
-tables: keyed by the table's id, columns named as there, foreign keys kept
-(`lead_id`, `company_id`), the columns that identify a person left out:
+store datasets. Five are entities like their tables: columns named as there, foreign
+keys kept (`lead_id`, `company_id`), the columns that identify a person left out. Three
+of them are chunked and embedded (`CHUNK_SPECS`): one row per chunk of the
+entity's text, keyed `<id>#<chunk_no>`, each with the entity's columns, its id column,
+`chunk_no`, `text` (the chunk), `language`, `vector` (Qwen3-Embedding-8B at the config's
+`dims`, 4096) and `embedding_model`; the text chunked is not a column of its own.
 
-| Kind | Table | Key | Left out |
-|---|---|---|---|
-| `sales_leads` | `sales.lead` | lead id (+ `token`) | `full_name`, `linkedin_url`, `mini_profile_urn`, images, `origin`, `score` |
-| `sales_lead_skills` | `sales.lead_skill` | `<lead_id>\|<skill>` | — |
-| `sales_lead_experiences` | `sales.lead_experience` | id | `raw`, `fts`, `embedded_at` |
-| `sales_job_offers` | `sales.job_offer` | id (+ `recruiter_token`) | `recruiter_name`, `recruiter_profile_url`, checker bookkeeping |
-| `sales_articles` | `sales.article` | id | `scraping_status` |
-| `conversation_messages` | `sales_outreach.message` | message id | (one row per message with its conversation's company and sender resolved) |
+| Kind | Table | Key | Chunked text | Left out |
+|---|---|---|---|---|
+| `sales_leads` | `sales.lead` | lead id (+ `token`) | — | `full_name`, `linkedin_url`, `mini_profile_urn`, images, `origin`, `score` |
+| `sales_lead_skills` | `sales.lead_skill` | `<lead_id>\|<skill>` | — | — |
+| `sales_lead_experiences` | `sales.lead_experience` | `<id>#<n>` (`experience_id`, a bigint) | `description` | `raw`, `fts`, `embedded_at` |
+| `sales_job_offers` | `sales.job_offer` | `<id>#<n>` (`job_offer_id`, + `recruiter_token`) | `description` | `recruiter_name`, `recruiter_profile_url`, checker bookkeeping |
+| `sales_articles` | `sales.article` | `<id>#<n>` (`article_id`) | `raw_text`, else `summary` | `scraping_status` |
+| `conversation_messages` | `sales_outreach.message` | message id | — | (one row per message with its conversation's company and sender resolved) |
 
 `sales_leads.company_id` is the lead's resolved company (below), not the raw
 `sales.lead.company_id`; skills and positions carry it too.
 
 ```python
 store = RowStore(RowStoreConfig.from_env(), RowStoreCatalog(db))
+scope = await conversation_scope(db)
 datasets = {kind: store.dataset(spec()) for kind, spec in SPECS.items()}
-result = await build_sales_datasets(db, datasets, run_id=run_id)  # full=True: all
+result = await build_sales_datasets(db, datasets, scope=scope, run_id=run_id)
+# The chunked kinds (needs the search extra): mark the ledger, then index.
+articles = store.dataset(CHUNK_SPECS[ARTICLES_KIND](dims=4096))
+await mark_sales_documents(db, ARTICLES_KIND, scope)
+indexer = sales_document_indexer(  # simpl_core.sales_datasets.documents
+    db, ARTICLES_KIND, scope=scope, dataset=articles, embedder=embedder,
+    detect_language=detect_language,
+)
+await indexer.run_batch(batch_size=500, run_id=run_id)
 ```
 
+- **Chunks** (`chunking`, as landing pages are chunked): simpl_ia's `chunk_blocks` at
+  the landing sizes (1,200 soft, 1,800 hard characters), each non-empty line a block,
+  under a header (`<company> | <title>`; a position: its own company and title) that the
+  embedded text puts above the chunk. Every line of a text is in a chunk, however long
+  the text; an entity with no text is chunked from its header alone.
+- **Ledgers** (`LEDGERS`, simpl_flow migration 171, which also reset the three
+  datasets' version 1 to this shape): `sales.article_chunk_index`,
+  `sales.job_offer_chunk_index`, `sales.lead_experience_chunk_index`, one row per
+  entity. `mark_sales_documents` lists every entity in scope with a fingerprint
+  (`marking`) and marks the new, changed and gone ones; the shared `DocumentIndexer`
+  then rewrites only entities whose texts or fields changed and embeds only new chunk
+  texts. Bump `TEXT_PREP_VERSION` when the chunking changes: every entity is marked
+  once and unchanged chunks keep their vectors.
 - **Every row has a company** (`companies`). A lead: their most current experience
   (`LeadRepository.current_experience_company_ids`), else their user-lead connections;
   never `sales.lead.company_id`. A conversation: its `primary_company_id`, else the
@@ -3017,11 +3042,11 @@ result = await build_sales_datasets(db, datasets, run_id=run_id)  # full=True: a
   real time when it has a clear one (`sent`, `posted`, `published` for a full ISO
   article date, `started`), else `stored` (Postgres `created_at`).
 - **Runs:** messages rewrite whole conversations stored since the dataset's newest
-  message; leads, skills and positions compare a fingerprint of every field; articles
-  and job offers compare `updated_at` (job offers listed whole only with `full=True`,
-  which also finds deleted ones). Only rows that changed are rewritten. What left
-  Postgres or the scope becomes a tombstone. `ANONYMIZATION_VERSION` is every row's
-  `row_version`: bump it and run `full=True` once when the rules change.
+  message; leads and skills compare a fingerprint of every field; positions, job offers
+  and articles go through their ledgers (above). Only rows that changed are rewritten.
+  What left Postgres or the scope becomes a tombstone. `ANONYMIZATION_VERSION` is the
+  plain kinds' `row_version` and part of the chunked kinds' fingerprint: bump it when
+  the rules change, and run `full=True` once for the messages.
 
 `simpl_core.anonymization` is the anonymizer on its own, for any text whose people are
 known: `TextAnonymizer([Person("[LEAD_1]", ("Example Name",))], keep=("Example Co",))`.
