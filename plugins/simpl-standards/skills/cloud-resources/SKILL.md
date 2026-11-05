@@ -13,14 +13,14 @@ The one place that says which compute we can use and who pays for it. Never call
 
 Update this table the day a program is approved, a credit expires or an HPC window opens or closes.
 
-| Resource | Status (2026-10-26) | Covers | Expires |
+| Resource | Status (2026-11-05) | Covers | Expires |
 |---|---|---|---|
-| Google for Startups Cloud Program (GFSCP) | Applied, not active: the bill shows no startup credit (only ~€4.6/month of other credits, Aug–Oct 2026) | GCP first-party pay-as-you-go, see below | n.d. |
+| Google for Startups Cloud Program (GFSCP) | Active since 2026-11-03 08:00 UTC: a `PROMOTION` credit has covered the whole GCP bill since then (net €0 on 11-04). Balance n.d. | GCP first-party pay-as-you-go, see below | n.d. |
 | HPC | Access for limited periods of months; provider, hardware and dates n.d. | n.d. | n.d. |
 | AWS Activate | Application in progress (Linear ADM-193) | n.d. | n.d. |
 | Other credit programs | Applications in progress; which ones n.d. | n.d. | n.d. |
 
-Scale of today's spend: GCP 1–25 Oct 2026 ≈ €1,700 ex VAT, ~85% Cloud Run, then Cloud Logging, Cloud Storage, Artifact Registry. No Vertex AI or Gemini on the GCP bill.
+Scale of today's spend: GCP 1–25 Oct 2026 ≈ €1,700 ex VAT, ~85% Cloud Run, then Cloud Logging, Cloud Storage, Artifact Registry; early Nov 2026 €70–100/day gross. No Vertex AI or Gemini on the GCP bill.
 
 ## GCP: NOT covered by GFSCP credits
 
@@ -54,11 +54,13 @@ Billed to the card even while credits are active:
 - A plan that moves work onto credits or HPC states the cost after they end and the end date. Credits that expire mid-project do not make it cheap.
 - Prefer covered resources for heavy one-off work (backfills, batch, embeddings, training) while a window is open; check the Expires column first.
 - Every new resource keeps cost tracking and the `simpl_repo` label (`state-and-persistence`, Observability), credits or not.
+- While credits are active the net bill is €0, so watch gross cost (`cost_eur`): a spike still burns a balance we cannot see.
 
 ## Where to check
 
 - Bill: `cost_tracking.gcp_billing_cost` (`cost_eur` gross, `credits_eur` all types summed, `net_eur`, per day, service and resource).
 - What credits covered: `cost_tracking.gcp_credit_coverage(from, to)` per service (cost before credits, startup credits = type `PROMOTION`, other credits, billed), from `gcp_billing_credit` loaded every 6 h. Shown on `/dashboard/costs` → Infra → "Google Cloud, from the bill": "Without credits" is the cost once credits end.
-- Credit balance and expiry: Cloud Console → Billing → Credits (not in the billing export).
+- Raw bill, hourly and per resource, about a day behind: BigQuery `able-yew-385106.billing_export.gcp_billing_export_resource_v1_01FB25_EA2C5A_F849E9`; startup credits are the `credits` entries with `type = 'PROMOTION'`.
+- Credit balance and expiry: Cloud Console → Billing → Credits (not in the billing export). It needs Billing Account Viewer on billing account `01FB25-EA2C5A-F849E9`; project roles are not enough.
 - Quota increases: https://docs.cloud.google.com/docs/quotas/view-manage. Gemini API rate limits: https://ai.google.dev/gemini-api/docs/rate-limits.
 - Cost estimates: https://cloud.google.com/products/calculator.

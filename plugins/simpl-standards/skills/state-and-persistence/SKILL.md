@@ -64,6 +64,11 @@ This skill is always-on. It governs the runtime behavior of code that owns state
 ## Observability
 
 - Every command emits a structured log with a correlation id; free-text logs without identifiers are write-only noise.
+- **Log volume is bounded: never log per item at INFO in a high-volume path.** Cloud Logging bills ~€0.45 per GiB ingested past the free 50 GiB per project per month, credits or not. In 2026-11 the scraping extractor wrote ~26 INFO lines (17.7 KB) per job, 30 GiB/day, €14/day, until it was quieted.
+  - Queue workers, pollers, fan-outs and loops log once per batch or run, with counts; per-item and per-step detail goes to DEBUG.
+  - In workers, set chatty libraries (agent framework node events, simpl_tracker sessions, HTTP clients) to WARNING.
+  - Before deploying, estimate lines per item × bytes per line × items per day. A workload above 1 GiB/day needs the reason in the PR.
+  - After a deploy, check the workload's volume: Cloud Monitoring metric `logging.googleapis.com/byte_count`, grouped by resource.
 - Persist progress instead of holding it in memory: state a downstream operator might want to inspect lives in the DB or an event bus, not in a process variable.
 - **Every workload deployed to Google Cloud MUST record its compute and LLM costs through simpl_tracker.** Google bills every Cloud Run instance whether or not the code says so; a workload that records nothing is an invoice line with nothing behind it in `cost_tracking`.
   - Cloud Run services and worker pools: call `track_instance_lifetime(process_name=...)` once at startup (FastAPI lifespan, worker main) and `close()` it on shutdown. They are billed for the instance's whole life, idle included, so per-request or per-task sessions undercount.
