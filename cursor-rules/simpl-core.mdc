@@ -1974,8 +1974,10 @@ Three small public surfaces back `simpl_scraping`; any consumer may read them.
 ### Scraping contracts
 
 `simpl_core.models.scraping` and `simpl_core.repositories.scraping`, schema in
-`migrations/20260911_scraping_page_contracts.sql` and
-`migrations/20260915_scraping_page_deletion.sql`:
+`migrations/20260911_scraping_page_contracts.sql`,
+`migrations/20260915_scraping_page_deletion.sql`,
+`migrations/20261105_scraping_extraction_publications_unlogged.sql` and
+`migrations/20261105b_scraping_drop_page_versions_storage_object_idx.sql`:
 
 - `ScrapingPage` (`scraping.pages`): one row per `(canonical_url, representation)`.
   `latest_version_id` names the newest observed raw response.
@@ -1983,7 +1985,9 @@ Three small public surfaces back `simpl_scraping`; any consumer may read them.
   the object holding the response (bucket, key, version id, stored SHA-256 and size),
   never the body. The database rejects UPDATE.
 - `ScrapingExtractionPublication` (`scraping.extraction_publications`): one receipt per
-  extraction job.
+  extraction job. The table is unlogged: a Postgres crash or a backup restore empties
+  it, so treat a receipt as a recent record, never as proof a version was extracted
+  (the extraction job's status is that record). A read replica cannot read it.
 - `ScrapingExtractedEntity` (`scraping.extracted_entities`): the latest validated state
   per `(entity_type, entity_key)`. That pair is the unique key `data_consumer` sinks
   name in `conflict_on`, and `source_observed_at` is the column for an `update_where`
