@@ -374,9 +374,22 @@ It differs from `run` in what it refuses to do, not in what it resolves:
   quiet mid-stream is ended by the HTTP per-read timeout or by *your* ceiling over
   the whole turn — nothing infers a stall from silence.
 
-## Milvus: one hit per group, aliases and raw rows
+## Milvus: one hit per group, aliases, raw rows and filters
 
 Both `MilvusStore` and `AsyncMilvusStore` (from `simpl_ia.core.vector_stores.milvus`):
+
+- **Filter dicts** (`filter=`): `{"f": v}` is `==`, `{"f": None}` is `IS NULL`, a list is
+  `in`, `{"f": {"gte": 1, "lt": 9}}` a range, `{"f": {"ne": v}}` is `!=`,
+  `{"f": {"not_in": [...]}}` is `not in`, `{"f": {"not": <any condition on f>}}` wraps it in
+  `not (...)`, `{"f": {"is_null": True}}` / `{"is_not_null": True}` write `IS NULL` /
+  `IS NOT NULL`. A null field fails every test, negations included. Range operands are
+  finite numbers, datetimes or strings; `array_length` takes ints. A bad filter raises
+  `MilvusFilterExpressionError` (a `MilvusError`). Full syntax: the `filter_translator`
+  module docstring.
+- **`AsyncMilvusStore.query_iterator`** sends template values (`use_filter_templates`) to
+  Milvus, raises `MilvusError` when a batch passes `timeout` (no silent partial answer),
+  and with `output_fields=["*"]` (the default) and no `with_vectors` drops only the
+  schema's vector fields from payloads (long ARRAY fields stay; `scroll` too).
 
 - **One best hit per value of a field**: pass `group_by=GroupBy("company_id")` to
   `search` and `text_search`, or set `group_by` on `HybridSearchConfig` /
