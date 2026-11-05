@@ -2968,6 +2968,65 @@ hits = await search.best_per_company(
   matched `any`, are one grouped BM25 search per list of groups (no candidate check);
   phrases or `all` take the checked path, which reads every candidate's text.
 
+### Sales datasets (`sales_datasets`) and text anonymization (`anonymization`)
+
+What Graphia reads about the companies we hold outreach conversations with, as row
+store datasets, no vectors (`sales_datasets.spec.SPECS`). Five are entities like their
+tables: keyed by the table's id, columns named as there, foreign keys kept
+(`lead_id`, `company_id`), the columns that identify a person left out:
+
+| Kind | Table | Key | Left out |
+|---|---|---|---|
+| `sales_leads` | `sales.lead` | lead id (+ `token`) | `full_name`, `linkedin_url`, `mini_profile_urn`, images, `origin`, `score` |
+| `sales_lead_skills` | `sales.lead_skill` | `<lead_id>\|<skill>` | — |
+| `sales_lead_experiences` | `sales.lead_experience` | id | `raw`, `fts`, `embedded_at` |
+| `sales_job_offers` | `sales.job_offer` | id (+ `recruiter_token`) | `recruiter_name`, `recruiter_profile_url`, checker bookkeeping |
+| `sales_articles` | `sales.article` | id | `scraping_status` |
+| `conversation_messages` | `sales_outreach.message` | message id | (one row per message with its conversation's company and sender resolved) |
+
+`sales_leads.company_id` is the lead's resolved company (below), not the raw
+`sales.lead.company_id`; skills and positions carry it too.
+
+```python
+store = RowStore(RowStoreConfig.from_env(), RowStoreCatalog(db))
+datasets = {kind: store.dataset(spec()) for kind, spec in SPECS.items()}
+result = await build_sales_datasets(db, datasets, run_id=run_id)  # full=True: all
+```
+
+- **Every row has a company** (`companies`). A lead: their most current experience
+  (`LeadRepository.current_experience_company_ids`), else their user-lead connections;
+  never `sales.lead.company_id`. A conversation: its `primary_company_id`, else the
+  owner's connection with its leads, any connection with them, their most current
+  experience. A lead or conversation none of these gives a company to cannot be
+  resolved and stays out of every dataset. Columns: `company_id` on
+  messages, leads, skills, job offers and articles; `lead_company_id` on positions
+  (beside the position's own `company_id`, which may be empty).
+- **Scope (which rows):** the resolvable leads of every conversation with a message,
+  their skills and positions; the job offers (posted, else stored, in the last 365
+  days) and articles of those leads' companies, of every company their connections
+  give, and of the conversations' `primary_company_id`.
+- **People in texts:** one token per person in every text of every dataset
+  (`people`): `[LEAD_…]` (= `sales_leads.token`), `[SELLER_…]` for a `sales.user`,
+  `[PERSON_…]` for a recruiter (= `sales_job_offers.recruiter_token`). A hash of the
+  id, not a secret.
+- **Anonymized:** in every text, the names of the people concerned become their token;
+  every email, LinkedIn profile link and phone becomes `[EMAIL]`, `[LINKEDIN_PROFILE]`,
+  `[PHONE]`. The rest is kept as written; one-word names that are words of the
+  company's or customer's name stay, so brands stay readable.
+- **Dates:** every row but a skill has `dated_at` and `dated_at_basis`: the source's
+  real time when it has a clear one (`sent`, `posted`, `published` for a full ISO
+  article date, `started`), else `stored` (Postgres `created_at`).
+- **Runs:** messages rewrite whole conversations stored since the dataset's newest
+  message; leads, skills and positions compare a fingerprint of every field; articles
+  and job offers compare `updated_at` (job offers listed whole only with `full=True`,
+  which also finds deleted ones). Only rows that changed are rewritten. What left
+  Postgres or the scope becomes a tombstone. `ANONYMIZATION_VERSION` is every row's
+  `row_version`: bump it and run `full=True` once when the rules change.
+
+`simpl_core.anonymization` is the anonymizer on its own, for any text whose people are
+known: `TextAnonymizer([Person("[LEAD_1]", ("Example Name",))], keep=("Example Co",))`.
+One way only; it keeps no map back to the values.
+
 ### Operator notifications
 
 `simpl_core.observability.TrackerOperatorNotifier` delivers `OperatorEvent`s to
