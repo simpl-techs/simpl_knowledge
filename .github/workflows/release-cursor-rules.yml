@@ -30,6 +30,9 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          # The latest main, not the commit that queued this run: a run queued behind
+          # another release must start from the cursor-rules that release pushed.
+          ref: main
 
       - uses: actions/setup-python@v5
         with:
@@ -38,43 +41,28 @@ jobs:
       - name: Install dependencies
         run: pip install pyyaml
 
-      - name: Generate Cursor rules
-        run: bash scripts/generate-cursor-rules.sh
-
-      - name: Write version stamp
-        run: |
-          mkdir -p cursor-rules
-          python3 - <<'PY'
-          import json, subprocess
-          from pathlib import Path
-          sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-          generated_at = subprocess.check_output(
-              ["date", "-u", "+%Y-%m-%dT%H:%M:%SZ"], text=True
-          ).strip()
-          Path("cursor-rules/.version").write_text(
-              json.dumps({"sha": sha, "generated_at": generated_at}, indent=2) + "\n"
-          )
-          PY
-
-      - name: Commit regenerated cursor-rules
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate, commit and push cursor-rules
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add cursor-rules
-          if git diff --cached --quiet; then
-            echo "cursor-rules unchanged; skipping commit"
-            exit 0
-          fi
-          git commit -m "chore(cursor-rules): regenerate from SKILL.md"
-          # A library sync may land on main meanwhile. It never touches cursor-rules/,
-          # so rebase cleanly; that sync's own push queues the next regeneration.
+          # cursor-rules/ is derived only from main's SKILL.md files. When a push lands on
+          # main meanwhile, regenerate on the new main: rebasing our commit conflicts on
+          # .version and on any rule the other push changed.
           for attempt in 1 2 3 4 5; do
+            git fetch --quiet origin main
+            git reset --quiet --hard origin/main
+            bash scripts/generate-cursor-rules.sh
+            printf '{\n  "sha": "%s",\n  "generated_at": "%s"\n}\n' \
+              "$(git rev-parse HEAD)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > cursor-rules/.version
+            git add cursor-rules
+            if git diff --cached --quiet; then
+              echo "cursor-rules unchanged; skipping commit"
+              exit 0
+            fi
+            git commit --quiet -m "chore(cursor-rules): regenerate from SKILL.md"
             git push origin HEAD:main && exit 0
-            echo "Push rejected (attempt $attempt/5); rebasing on the latest main."
+            echo "Push rejected (attempt $attempt/5); regenerating on the latest main."
             sleep $((attempt * 3))
-            git pull --rebase origin main
           done
           echo "::error::Could not push regenerated cursor-rules to main"
           exit 1

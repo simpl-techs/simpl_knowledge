@@ -22,6 +22,9 @@ function originWithCheckout(temp) {
   const origin = path.join(temp, 'origin.git');
   const checkout = path.join(temp, 'marketplace');
   git('init', '--quiet', '--bare', origin);
+  // A push otherwise starts git's auto maintenance in origin, in the background: it rewrites
+  // object files while a clone copies them ("hardlink different from source", flaky in CI).
+  git('--git-dir', origin, 'config', 'receive.autogc', 'false');
   git('-C', root, 'push', '--quiet', origin, 'HEAD:refs/heads/main');
   git('clone', '--quiet', '--branch', 'main', origin, checkout);
   return { origin, checkout };
