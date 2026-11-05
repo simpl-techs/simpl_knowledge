@@ -1758,6 +1758,131 @@ A targeted or backfill run (`due_only=False`) still takes every eligible scope.
 from migration `20261102_crm_scope_sync_schedule.sql`; apply it before running
 this core.
 
+## Strategy contract: plans, directives, facts
+
+The strategy layer plans; the outreach walk does. They meet only in core tables
+(`migrations/20261104f_strategy_contract.sql`, design in
+`.account-strategy/STRATEGY_REWRITE.md` of the workspace):
+
+- **Plans** (`sales.company_plan`, one row per version, and `sales.plan_branch`) are
+  written only through `services.strategy.plan_writer.PlanWriter.write`, which runs the
+  deterministic `plan_check.check_plan` first (staleness, a 14-day commitment horizon,
+  patterns, account caps, one branch per person, refusals, identities) and returns the
+  refusals instead of writing.
+- **Directives** (`sales.outreach_directive`) are what the walk reads:
+  `repositories.strategy.directive.OutreachDirectiveRepository.open_for_ulc(ulc_id)`.
+  One live directive per identity and person; content never changes (a newer one has
+  `epoch + 1`); states move in core only. `services.strategy.directive_emitter.DirectiveEmitter.reconcile`
+  writes them from the current plan (idempotent), and wakes the walk with a
+  `strategy_directive` trigger (or `lead_claimed` for a connection claimed now) whose
+  `trigger_data` carries `directive_id` and `epoch`.
+- **Facts** go back as `outreach_events` the walk writes: `directive.acknowledged` and
+  `directive.cannot_follow` (with `directive_id` and `epoch`), `lead.declined` (with
+  `decline_class`), `lead.referral.named`, plus the existing replies, acceptances and
+  `call.scheduled`. `services.strategy.plan_facts.PlanFacts.scan` reads them and moves
+  directives, branches and the review queue (`sales.strategy_review`). The walk never
+  writes a directive, a branch or a plan.
+- **Entry**: a company offered to a seller of a customer with an active
+  `sales.pool_scope` enters `sales.pool_company` and gets a review
+  (`services.strategy.pool_entry`). `emits_directives = false` is shadow.
+- **Jobs** for simpl_flow to deploy: `services.strategy.jobs.admit_offers`,
+  `scan_facts`, `reconcile_directives`, `observe_outcomes` (scoring: `sales.branch_outcome`,
+  `scoring.prediction_skill` per customer, pattern and measure, with N and the base rate)
+  and `report_health` (overdue or failed reviews alert).
+- **Ask tags and the exchange guard**: `journey_log.ask_objective`, `ask_purpose`,
+  `directive_id`, `plan_branch_id` (migration `20261104g_journey_log_ask_tags.sql`,
+  stamped by the walk's persist step). `services.strategy.ask_guard.exchange_ask_allowed`
+  says whether an exchange call may be asked of a connection's person now: none in 90 days,
+  no opt-out, fewer than two refusals, over every connection of the customer to them.
+- **Planner run**: `services.strategy.planning_run.run_planning(db, planner, now=...)` claims
+  due reviews, reads each company's `dossier.PlanningDossier`, asks the planner (the model,
+  behind `PlannerPort`, implemented in simpl-outreach), writes through `PlanWriter`, and
+  sends refusals back to the planner at most twice. A spent `daily_plan_budget` defers the
+  review to the next UTC day.
+- **Company people read**: a branch may target a role (`plan_branch.target_role`) instead of
+  a lead. When its window opens the emitter queues one `sales.people_search_request` on the
+  branch's identity (`services.strategy.people_reads.PeopleReads.request_for_branch`) and
+  the branch waits (`people_read`). `services.strategy.people_search_runs.run_people_searches(db,
+  operations=DatabaseLinkedInOperations(db), now=...)` runs the queue on the sellers'
+  extensions: every profile read becomes a `sales.lead` with a current `lead_experience` at
+  the company (autopilot's `AutopilotLeadService.bulk_upsert_from_linkedin`), and the company
+  is reviewed at once (`people_read`). People at a company are those leads, whoever read them
+  (the dossier lists them with the headline read). A role read within 30 days (failed within
+  7, or still open) is not read again: the plan check refuses it (`role_already_read`).
+  Search batch helpers shared with autopilot: `services.linkedin_proxy.search_batches`.
+- **Standard's work and languages**: `services.strategy.standard_work.standard_state` says
+  whether `standard` still works a connection (`in_flight`, `replied`, `done`,
+  `not_standard`: 3 unanswered messages on a channel, 30 quiet days, a booked call or a
+  reply keeps it standard's). A directive supersedes `standard` (approval class
+  `supersede_standard`) only while it is `in_flight` or `replied`. `services.strategy.languages`
+  reads a company's languages from its country (ISO alpha-2 or alpha-3); the plan check
+  refuses an identity who speaks none of them when a colleague does (`language_mismatch`,
+  from `sales.user.spoken_languages`). The dossier carries both.
+- **Email reach**: `services.strategy.reach.email_reach(session, lead_ids=..., identity_user_id=...,
+  company_id=..., now=...)` says per person `on_file` (an address the identity may use),
+  `lookup` (a name plus the company's site or a LinkedIn profile, and no provider answer in
+  90 days) or `none`. The plan check refuses an email-only branch to a `none`
+  (`email_unreachable`); the dossier shows each person's reach for the customer's sellers.
+
+- **Scope settings and scoring for the dashboard**: `services.strategy.scope_settings.ScopeSettingsService`
+  starts a customer's scope (shadow by default, one active per customer), updates only the
+  fields given (`ScopeSettings`), and ends it; refusals carry `code` `already_active`,
+  `no_active_scope` or `invalid_setting`. `services.strategy.scoring.pooled_prediction_skill`
+  scores each measure across customers and patterns. There is no skill gate before emission
+  (2026-11-04): the strategy runs as a bet and is scored from production branches.
+- **Directive lifecycle rules** (review of 2026-11-05):
+  - A plan branch with `continues_branch_id` on a committed live branch carries it on as it
+    is (`PlanWriter`): identity, person, dates, moves, channels, budget, ask, guidance and
+    predictions come from the live branch, so a replan keeps its directive. A change is a
+    new branch; its directive supersedes the old one, keeps the chain's
+    `touches_counted_from` and waits for approval again when its class needs one. A
+    directive re-created on a carried branch (after a company pause) finds its predecessor
+    through the branch lineage: it keeps the budget start, and the approval when content
+    and class are unchanged.
+  - A directive still awaiting approval never opened: whatever ends it withdraws it
+    (`models.strategy.directive.ended_state`). Each fact runs in its own savepoint; one that
+    raises is logged (`strategy.fact_failed`) and passed.
+  - Opening records the connection as it was (`prior_claimed`, `prior_status_id`; NULL when
+    standard was working it). Ending for a reason that is not the person's
+    (`directive_delivery.RELEASING_REASONS`) cancels the directive's wakes and queued rows
+    and gives a claimed connection back, unless the person engaged on the thread since the
+    chain opened (`ENGAGEMENT_FACTS`: then only its wakes go and the walk answers as
+    standard); a call, referral, reply or decline keep the thread.
+  - Shadow (`emits_directives` false) withdraws live directives; an approval after the
+    timeout expires, one on a shadow or ended scope or a closed company withdraws.
+  - An opt-out or a refusal ends the person's live directives on every identity, and gives
+    back the other identities' threads with their queued rows cancelled.
+  - Pattern support counts only `branch_outcome` rows observed on a directive
+    (`observed_on = 'directive'`) for the full window or with an event; shadow branches are
+    observed on the customer's own outreach (`observed_on = 'standard'`) and score
+    predictions only; one on a person nobody contacted gets `observed_on = 'nobody'`, which
+    only takes it off the queue. A measure counts a branch only when observed long enough.
+  - Reconcile takes the least recently reconciled companies first
+    (`pool_company.last_reconciled_at`); branches only on open companies of active emitting
+    scopes. A plan's next review is never sooner than the scope's review window.
+
+## Light moves: profile views, reactions, comments
+
+A light move is a `journey_log` row with `action_type` `light_move` on channel
+`profile_view`, `post_reaction` (with `payload.activity_urn`, optional `reaction_type`) or
+`post_comment` (with `activity_urn` and `message`; a draft the seller approves). They are
+`PROXY_KINDS` (`repositories.outreach.journey_dispatch_rules`); no channel starts with
+`linkedin`, so the extension's task queue never selects them, and the dispatch trigger
+(`20261104i`) checks their fields and freezes `activity_urn` once approved.
+
+`services.light_moves.executor.run_light_moves(db, operations=DatabaseLinkedInOperations(db),
+now=...)` runs them through the LinkedIn proxy on the seller's own extension: one move per
+seat per run, the seat's daily limits from simpl_api's `sales.linkedin_light_move_limits`
+(warming ramp, steady views 15, reactions 8, comments 2), a reaction or a comment only after
+a profile view in 14 days and on the person's own post at most 21 days old. A view stores the
+person's posts in `sales.post` (`author_kind` person, `source` `linkedin_profile_activity`,
+`models.post.Post`, `repositories.post.PostRepository`). Events: `models.light_moves.LightMoveEvent`
+(`linkedin.profile.viewed`, `linkedin.reaction.sent`, `linkedin.comment.sent`); a reaction
+and a comment count as touches. The proxy operations (`profile_activity`, `post_reaction`,
+`post_comment`, migration `20261104h`) ship disabled until checked on a live seat;
+`post_comment` sets `redispatch: false` (never handed to an extension twice) and a comment
+that times out fails as `outcome_unknown`, never retried.
+
 ## CRM flows
 
 A scope may declare a *flow* in `crm_export_config.config["flow"]`: which CRM
