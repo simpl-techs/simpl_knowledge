@@ -2593,11 +2593,14 @@ async for batch in searcher.query_rows({"host": hosts, "uses_https": False}):
 - A keyword-only kind has no `max_text_chars` limit, so its `entity` must cap
   `content` itself (`cap_utf8`, `CONTENT_MAX_BYTES`), as the hybrid kinds do.
 - `HybridSearcher.query_rows(conditions, output_fields=, batch_size=,
-  batch_timeout_s=60.0)` reads through simpl_ia's `query_iterator`: a batch slower
-  than `batch_timeout_s` raises `TimeoutError` and closes the read; no consistency
-  level (the collection's default); a payload drops any list longer than 100 items.
-  The filter is sent inline (simpl_ia's templates do not reach the iterator), where
-  `array_length` operands are written unescaped: pass ints only.
+  batch_timeout_s=60.0)` reads through simpl_ia's `query_iterator` (simpl_ia >=
+  0.8.20): the filter is a template, its values sent apart from its text; a batch
+  slower than `batch_timeout_s` raises simpl_ia's `MilvusError` (naming the
+  collection and the rows read so far) and closes the read; no consistency level (the
+  collection's default); vector fields are left out of the payloads, ARRAY fields of
+  any length kept. The filter dict takes simpl_ia's negations (`ne`, `not_in`, a
+  `not` wrapper, each the only key of its field's dict) and `{"is_null": True}`; a
+  null field fails every test but `is_null`, negations included.
 
 - A document of several rows keys them `row_key(doc_key, part, ...)`; its stored keys
   come from `stored_row_keys(dataset, doc_keys)`, one read through the key index.
@@ -2769,6 +2772,143 @@ await indexer.run_batch(batch_size=1000)
   `sparse`, `dense`, `name`, `description`) and adds typed `industry_id`,
   `industry_name`, `country`, `city`, `location`, sizes, `follower_count`, URLs,
   `created_at` (epoch seconds) and `language`.
+
+### Website facts search (`search.website_facts`)
+
+What each company site runs and shows (simpl_scraping's `sales.website` and
+`sales.website_technology`), in the row store and a keyword-only Zilliz collection behind
+the `website_facts` alias: no embeddings, typed filter fields and BM25 on a short
+keyword text. One document per site (its `sales.website` host): `{host}#site` with every
+site fact, `{host}#tech#{digest}` per technology. A site can have technology rows and no
+site row. What moves on every sighting (`last_seen_at`, `seen_on_url`, `evidence`) is
+not indexed; a match reads it from Postgres.
+
+```python
+scanner = WebsiteFactsScanner(db)
+await scanner.follow_extraction()   # every run: succeeded website_signals jobs -> hosts
+await scanner.follow_sites()        # every run: sales.website rows by updated_at
+await scanner.sweep()               # nightly, and the first fill: every site by host
+
+indexer = website_facts_indexer(db, dataset=facts_dataset)  # website_facts_dataset_spec(), no embedder
+await indexer.run_batch(batch_size=500)
+# projection: projection_runner(dataset, milvus, name, WEBSITE_FACTS_COLLECTION, dims=None)
+
+errors = await check_condition(db, condition)       # before ANY save; [] = valid
+search = WebsiteFactsSearch(milvus)                  # the website_facts alias
+found = await search.matching_companies(db, parse_condition(condition), company_ids)
+shown = await website_facts_evidence(db, parse_condition(condition), list(found.values()))
+```
+
+- **The condition** (a signal filter's condition, `collection: "website_facts"`; every
+  part given must hold, at least one):
+
+```json
+{"collection": "website_facts",
+ "technologies": {"names": ["WordPress"], "categories": ["CMS"], "match": "any",
+                  "version_prefix": "4.", "risk": "vulnerable", "min_severity": "high"},
+ "site": [{"field": "uses_https", "op": "is", "value": false},
+          {"field": "estimated_last_update", "op": "before", "value": "2022-01-01"},
+          {"field": "security_headers", "op": "lacks", "value": ["strict-transport-security"]}],
+ "keywords": ["ecommerce"], "keyword_match": "any"}
+```
+
+  - `technologies`: one technology row passes every test given: `names` (exact, e.g.
+    `"Apache HTTP Server"`), `categories` (any of; the active rules' categories),
+    `version_prefix` (whole parts: `8.1` finds 8.1 and 8.1.x, not 8.10; needs `names`),
+    `risk` `past_eol` (end of life before today) or `vulnerable` (with `min_severity`
+    low < medium < high < critical). `match: "all"` needs a passing row for each name
+    (each category when no names). No test for a technology being absent.
+  - `site`: at most 20 tests (`MAX_SITE_TESTS`) on the site row, by field kind
+    (`SITE_FIELDS`, `OPERATORS`): `is` (yes/no); `in`, `not_in` (one value);
+    `starts_with` (`server_version`, `php_version`, whole parts); `has_any`, `has_all`,
+    `lacks` (lists); `before`, `after` (`YYYY-MM-DD`); `lt`, `gt`, `between`
+    (`[low, high]`, inclusive). A text or list value must be one some site holds now
+    (`server_software` lowercased) and fit its slot in Zilliz (128 bytes for a
+    one-value fact, 256 for a list item, 512 for a technology name); a fact no site
+    holds at all (today `insecure_cookies`, nothing writes it) is refused as not
+    collected yet. A list held empty (`[]`) counts as collected: it says nothing was
+    found.
+  - `keywords`: words or phrases (`KeywordFilter` rules) in the keyword text of the
+    site's rows (a technology's name and categories; the site's server, clue names and
+    languages). `keyword_match: "all"` is site-wide: each keyword must be somewhere on
+    the site, in any of its rows, not necessarily the same one (a website signal's
+    "all" needs every keyword in one chunk).
+  - A fact never observed is null and fails every test, `is false` and `lacks`
+    included.
+  - **ICP-only.** `restrict_to_icp: false` is refused ("website facts signals search
+    the ICP's companies only; remove 'restrict_to_icp' or set it to true"); `true` or
+    absent is accepted (the matcher reads the key, default true). Post and website-text
+    signals left unrestricted keep the best 1,024 matches by relevance score; website
+    facts have no score, so an unrestricted signal would match every passing site
+    (tens of thousands, possibly) on every run.
+- **`check_condition(db, condition) -> list[str]`**: the one check every save path
+  calls (simpl_api routes and wizard, the chat agent's re-plan, the background agent's
+  proposals, an approved proposal). First the format (`parse_condition`: the grammar
+  in code), then the values against the data, none of them copied into simpl_core;
+  the reads it needs run at once:
+  - technology names: `sales.website_technology`, index probes on every check, and
+    spellings for the first 5 unknown names from one more statement (a loose index
+    scan per first letter), the whole lookup under `NAMES_TIMEOUT_S` (5 s);
+  - categories: the active row of `scraping.technology_rule_versions` (its open list's
+    categories and its own rules' `cats`, picked out by jsonb path; a payload `format`
+    other than 1 raises), kept a minute (`CATEGORIES_TTL_S`), as the extractors reload
+    rules;
+  - small vocabularies (`VOCABULARY_FIELDS`: TLS errors, fetch outcomes, crawl
+    statuses, estimate sources, clue lists, security headers): the distinct values
+    `sales.website` holds, one scan (30 s timeout; ~2 s on 160k synthetic rows), kept
+    an hour (`VOCABULARY_TTL_S`);
+  - free text (`FREE_TEXT_FIELDS`: `server_software`, `languages`,
+    `insecure_cookies`): only the named values, looked up on every check in one
+    statement (a filtered read per fact, 10 s timeout; ~0.1 s on 160k synthetic rows).
+
+  The kept lists are per database and process. Once held, a list is served past its
+  time to live while one refresh runs in the background; a failed refresh logs
+  `website_facts.<list>_read_failed` and the held list serves at most
+  `CATEGORIES_MAX_STALE_S` (15 min) / `VOCABULARY_MAX_STALE_S` (6 h) more; after that,
+  and in a cold process, a check waits for the read. Concurrent checks share one read
+  and get its value or its error; a failed read caches nothing. A condition is never
+  passed unchecked.
+
+  **What every caller needs:** SELECT on `sales.website`, `sales.website_technology`
+  and `scraping.technology_rule_versions`; USAGE on the schemas `sales` and `scraping`;
+  and to see their rows past row level security (as owner, with BYPASSRLS, or through
+  a policy). simpl_scraping grants the `scraping` schema to its own logins only (034,
+  044, 065), so a `service_role` caller likely fails with "permission denied for
+  schema scraping". Row level security hides rows without an error: a read that finds
+  no row logs `website_facts.no_active_rules` or `website_facts.no_site_values`.
+
+  Every problem comes back at once, each naming the part and its fix, e.g.
+  `technologies.names: no site runs a technology named 'Wordpress'; did you mean
+  'WordPress'?`, `site test 2 ('tls_error_kind' in): no site has 'Expired' for
+  'tls_error_kind'; did you mean 'expired'?, so asking for it matches no site; values
+  sites have: ...`; for `not_in` / `lacks` a value no site holds "excludes no site".
+  Suggestions are worked out for at most 5 unknown values of a test. `parse_condition`
+  raises `ConditionError` (`.errors`); `active_categories(db)`, `site_vocabulary(db)`
+  and `free_text_values(db, asked)` give the lists themselves.
+- **`WebsiteFactsSearch.matching_companies(db, condition, company_ids, today=None)`** ->
+  company id -> `SiteMatch(host, technologies, keyword_texts)`; `matching_sites(condition,
+  hosts)` the same by host. Companies map to hosts as for landing
+  (`hosts_for_companies`, `www.` ignored); companies sharing a site share its match.
+  Technologies, then site tests, then keywords, each on what the one before left; no
+  score. Search errors raise (a failure is never "nothing matched").
+- **`website_facts_evidence(db, condition, matches)`** -> host -> plain JSON: `host`,
+  `url`, `technologies` (10 of the matched, `MAX_TECHNOLOGIES`, the worst first:
+  highest `max_severity`, then end of life passed, then by name (`worst_first`);
+  each with version, categories, `eol_date`, `max_severity`, `vulnerability_count`,
+  up to 10 `vulnerability_ids`, `last_seen_at`, `seen_on_url`, `evidence`),
+  `technologies_matched` (how many matched), `site` (the tested facts), `keywords` (the
+  texts that held them). One read per table by primary key, hosts and names sent as
+  arrays: a page of any size is a few parameters.
+- **Preview** (`open_website_facts_preview(db)`): `previewer.preview(condition,
+  scope=PreviewScope.ICP, icp_id=..., limit=...)` on the ICP's companies, or
+  `PreviewScope.ALL` on every site of the ledger stored at least once (one marked
+  again or failing included), to estimate a signal's reach beyond its ICP (signals
+  themselves are ICP-only); 1,024 a page, 6 pages at once,
+  no page started after 20 s (`cut_short`, `companies_searched` / `sites_searched`).
+  Matches by host then company, with their evidence; `companies_matched`,
+  `sites_matched`.
+- The ledger and cursors are simpl_flow migration 161 (`tests/setup_test_db.sql` holds
+  the DDL to copy). Install `simpl-core[search]`.
 
 ### Post search (`search.posts`)
 
