@@ -1,6 +1,6 @@
 {
   "name": "simpl_foundry-context",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Integration context for simpl_foundry. Auto-synced from simpl-techs/simpl_foundry.",
   "author": {
     "name": "simpl_foundry maintainers"
