@@ -2424,6 +2424,43 @@ await create_collection(milvus, "my_kind_v1", collection, dims=512)
 runner = projection_runner(dataset, milvus, "my_kind_v1", collection, dims=512)
 ```
 
+A keyword-only kind (BM25 and typed filters, no embeddings) has a dataset without
+`vector` (and needs no `embedding_model` or `text_hash`), no embedder, and a collection
+without `dense`; every function that takes the collection's width takes `dims=None`:
+
+```python
+indexer = DocumentIndexer(ledger=..., kind=MyKind(...), dataset=dataset, name="my_kind")
+
+def schema() -> tuple[Any, Any]:  # no width
+    return keyword_schema(add_fields=fields, inverted=(...), sorted_fields=(...))
+
+def entity(row: Mapping[str, Any]) -> dict[str, Any]:  # no vector
+    return {"id": row["key"], ..., "content": cap_utf8(row["text"])}
+
+collection = ZillizCollectionSpec(log_name="my_kind", columns=(...), schema=schema, entity=entity)
+await create_collection(milvus, "my_kind_v1", collection, dims=None)
+runner = projection_runner(dataset, milvus, "my_kind_v1", collection, dims=None)
+searcher = HybridSearcher(milvus, collection="my_kind", dims=None, output_fields=[...])
+async for batch in searcher.query_rows({"host": hosts, "uses_https": False}):
+    ...  # every row passing the filter, no search and no 1,024 cap
+```
+
+- `keyword_schema(add_fields=, inverted=, sorted_fields=, id_max_length=)` is
+  `hybrid_schema` without `dense`: `id`, the kind's fields, `content` and its BM25
+  `sparse` (filled by Zilliz, no embedding). `add_fields` may add ARRAY and nullable
+  fields.
+- Without an embedder the indexer skips the vectors step (nothing is embedded, and
+  `max_text_chars` does not apply); claim, build, the unchanged check, tombstones,
+  commit and settle are the same, and `BatchPipeline` still groups the commits.
+- A keyword-only kind has no `max_text_chars` limit, so its `entity` must cap
+  `content` itself (`cap_utf8`, `CONTENT_MAX_BYTES`), as the hybrid kinds do.
+- `HybridSearcher.query_rows(conditions, output_fields=, batch_size=,
+  batch_timeout_s=60.0)` reads through simpl_ia's `query_iterator`: a batch slower
+  than `batch_timeout_s` raises `TimeoutError` and closes the read; no consistency
+  level (the collection's default); a payload drops any list longer than 100 items.
+  The filter is sent inline (simpl_ia's templates do not reach the iterator), where
+  `array_length` operands are written unescaped: pass ints only.
+
 - A document of several rows keys them `row_key(doc_key, part, ...)`; its stored keys
   come from `stored_row_keys(dataset, doc_keys)`, one read through the key index.
 - `BuiltDocument.text_hash`/`meta_hash` equal to the ledger's (same table) settle the
