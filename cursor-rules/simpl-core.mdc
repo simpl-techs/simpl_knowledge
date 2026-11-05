@@ -2329,7 +2329,11 @@ async with db.session_scope() as s:
   pools' maximums together fit in what the others' floors leave, and every tick caps it at
   `Topology.left_for(pool, held)` (the quota less each other pool's floor or new count),
   the yielding pools decided after the others; wanting more opens an
-  `autoscaler-quota-short` warning a day. The release a pool serves is its deploy
+  `autoscaler-quota-short` warning a day. A pool that wants more than its
+  `max_instances` opens an `autoscaler-at-max` warning only while
+  `Topology.room_above_max(pool)` is above 0 (the quota leaves room to raise the
+  maximum); at the whole quota only more quota grows it, and the tick records the
+  decision's `at_max` reason alone. The release a pool serves is its deploy
   argument, never a topology field.
 - `Substrate` reads and sets a pool's instance count (`get`, `set_instances` with the
   version it read; a stale one raises `StaleVersionError`); `CloudRunWorkerPools` does it
