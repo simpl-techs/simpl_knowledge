@@ -2218,7 +2218,11 @@ await posts.build_index("vector")            # sections of a declared vector or 
     sample (`VECTOR_TRAIN_SAMPLE_BYTES`) and builds the first sections in fragment
     order; with it, it builds the rows no section holds yet, together with the small
     sections (`SECTION_SMALL_ROWS`, 100k), into larger ones, removing those in the same
-    `CreateIndex` commit. A vector section is built in pieces of `VECTOR_PIECE_ROWS`
+    `CreateIndex` commit. On a vector or full-text index, a section from 100k up to
+    half `SECTION_MAX_ROWS` is partial: once the partial sections hold `SECTION_MAX_ROWS`
+    rows together, a call first rebuilds the oldest of them as one full section (one
+    such fold a call), so an index keeps about a section a million rows (0.8.289). A
+    vector section is built in pieces of `VECTOR_PIECE_ROWS`
     (50k) merged into it, on the centroids of an existing section and a rotation of its
     own (each section searches with its own model). One call builds from at most
     `SECTION_ROWS_PER_BUILD` (4M) rows, from a snapshot without the writer lease,
@@ -2235,8 +2239,9 @@ await posts.build_index("vector")            # sections of a declared vector or 
     compacted, its remap is cheap). It never builds a vector index, and builds a
     full-text index only on an empty table. An index on an undeclared column is dropped.
   - `DatasetHealth`: `unbuilt_indexes` names a declared one not built yet;
-    `section_unindexed_rows` and `most_sections` say how far a vector or full-text
-    index's builds are behind, `ngram_unindexed_bytes` and `ngram_small_sections` a
+    `section_unindexed_rows` and `section_partial_rows` say how far a vector or full-text
+    index's builds are behind (rows in no section, rows in partial sections not folded),
+    `most_sections` how many sections each of its searches opens, `ngram_unindexed_bytes` and `ngram_small_sections` a
     substring one's (bytes on disk, as its sections are sized: a large table has many
     full sections by design, so only those under `NGRAM_SECTION_SMALL_BYTES` count), and
     `problems()` reports each past its threshold.
