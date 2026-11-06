@@ -3163,6 +3163,12 @@ A deck looks like the company that presents it, as its site does (Nico chose thi
 site shows its photographs (`BrandStyle.photo_tone`: `natural`, `mono`); the brand's colour
 shows on labels, marks and marked phrases wherever it stands out by
 `brand.ACCENT_SHOWS` (2.5) and gives way to the ink where it does not (a pale yellow).
+A company whose work is not something people see (software, a service) gets no photographs;
+its cover may carry the brand's own art instead (`cover.art`: a render or shape from its
+site's hero, such as SimpL's carbon shards, kept whole beside the words, never veiled). The
+picture reader keeps such art as a PNG with its transparency (`PictureFound.cutout`, a cut-out
+at least `pictures.ART_MIN_SIDE` on its short side; smaller cut-outs are logos and marks), and
+knows a picture served through an image proxy (`/_next/image?url=...`) by its file.
 `decks.pictures.read_pictures(site, http=...)` reads a company's photographs from its own site
 (the home page and the pages it links to, plain HTTP, no Firecrawl credit): logos, marks,
 thumbnails and other sizes of the same upload are left out, each kept picture is a JPEG at
