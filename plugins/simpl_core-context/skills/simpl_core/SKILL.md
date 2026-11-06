@@ -2908,8 +2908,21 @@ shown = await website_facts_evidence(db, parse_condition(condition), list(found.
   no page started after 20 s (`cut_short`, `companies_searched` / `sites_searched`).
   Matches by host then company, with their evidence; `companies_matched`,
   `sites_matched`.
-- The ledger and cursors are simpl_flow migration 161 (`tests/setup_test_db.sql` holds
-  the DDL to copy). Install `simpl-core[search]`.
+- **Hosts the ledger cannot key are skipped.** A host that is not lowercase or holds
+  `/` or `#` (the ledger's `website_facts_search_index_key_shape`;
+  `sales.website_technology` checks nothing, `sales.website` allows `#`) is left out
+  of every pass with a warning, `website_facts.scan_host_skipped` (`host`,
+  `scan_pass`, `rule`), and counted in `FollowResult.skipped` / `SweepResult.skipped`.
+  The cursors move past it, so the passes never stop on it. Fix the source row. An
+  empty host is never read: the follow passes drop it, and the sweep never returns it.
+- **`ledger_key_refusal(key)`**: the ledger's key check as a SQLAlchemy expression over
+  any text column or value: `"empty"`, `"not lowercase"`, `"contains /"` or
+  `"contains #"`, or null when the ledger takes it. The scanner uses it; use it rather
+  than a copy wherever source hosts must match what the index can hold, e.g. a sample
+  of hosts to check against the index (`WEBSITE` from `search.website_facts.tables`):
+  `select(WEBSITE.c.host).where(ledger_key_refusal(WEBSITE.c.host).is_(None))`.
+- The ledger and cursors are the simpl_flow ledger migration `website_facts_search_index`
+  (`tests/setup_test_db.sql` holds the DDL to copy). Install `simpl-core[search]`.
 
 ### Post search (`search.posts`)
 
