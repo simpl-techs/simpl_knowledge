@@ -2306,6 +2306,12 @@ await posts.build_index("vector")            # sections of a declared vector or 
   get `LeaseBusyError`. Every Lance write runs off the event loop. The lease lives
   `lease_ttl` (90 s, renewed every 30 s), so a writer that dies frees the dataset
   before the others give up.
+- **A commit rides out a short stall.** When its write fails on storage IO (a Lance
+  `LanceError(IO)`, such as a GCS request that hung) or the commit hook's lease
+  renewal fails or does not answer in 30 s, and none of its rows reached the table,
+  it confirms the lease and writes again after 5 s, 30 s and 120 s
+  (`WRITE_RETRY_PAUSES_S`, log `row_store.write_retry`), holding the lease. A lease
+  found taken, any other error, or the fourth failure is raised as before.
 - **No commit or read costs more as the table grows.** A commit finds the stored rows
   of its keys through the key index (key and row_version only) and replaces them in
   one Lance commit; reads find rows on a narrow column and take the others by row id;
