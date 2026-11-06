@@ -107,7 +107,10 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   `active: true` (2.5.249, go-live step 3), never resumed by hand:
   every deploy recreates schedules from `prefect.yaml`. Size (production 2026-11-06,
   `pg_class.reltuples`): about 220,000 sites and 1,885,000 technology rows, so about
-  2.1M index rows, 9.6 a site.
+  2.1M index rows, 9.6 a site. Its rows are narrow, so it commits groups of 16 MiB
+  (`params.index.commit_bytes`, migration 177; every other kind keeps simpl_core's
+  64 MiB) and runs in 2 GiB (2.5.261): at 1 GiB with 64 MiB groups, the first fill was
+  killed before its first commit (2026-11-06).
 - **The website facts index check** is a step of `search_index_maintenance_flow`
   that a run names (`checks: ["website_facts"]`), run after everything else, in the
   `gcp_search_index_sweeps` deployment. It calls
@@ -127,7 +130,9 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   `companies`, `website_facts`) writes
   its `active` row's dataset (`name:version:dims`) with the settings under
   `params.index` (the flow's `SETTINGS`: collection, collection_dims, batch sizes,
-  concurrency...); a value a run passes still wins, so a version built by hand is
+  concurrency, and for website facts `commit_bytes`, the commit group size
+  `index_batches` passes to simpl_core's `BatchPipeline`); a value a run passes still
+  wins, so a version built by hand is
   `-p dataset=<name:version:dims>`. A key no flow reads fails the run. Moving a kind to
   a new version, adding a dataset or changing a setting is an `UPDATE`/`INSERT` on that
   table, picked up by the next run, with no deployment.
