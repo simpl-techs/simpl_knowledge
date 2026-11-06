@@ -443,6 +443,12 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   Empty `primary_words` means the ICP's first five `search_keywords` are searched. A
   monitored company's decision carries `metadata.reason_code` `no_role_match` (no role
   search found anyone) or `role_found_not_chosen` (the model chose nobody found).
+- A company the flow autopilot monitored comes back for a recheck after 20 days, at most twice
+  (`sales_outreach.autopilot_monitor_recheck`, `autopilot_root` 18): up to 10 open per seller,
+  oldest first, searched with reserve words not tried there yet, never when someone of the
+  team worked on the company since (a person, Customer, Non sales, an import, the placeholder
+  moved). Its decision rows carry `metadata.recheck_attempt`; a claim moves the Monitoring
+  placeholder to the claim's stage, so the company leaves Monitoring.
 - A company where the team holds a Disqualified connection (lead status 12: met on a call,
   then ruled out by the seller) is never proposed again, neither new nor recycled; next to
   a client it is only watched.
