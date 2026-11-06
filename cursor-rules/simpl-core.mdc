@@ -3490,7 +3490,15 @@ Each operation is a row in `extension_proxy.operation_config_revision`; the gate
 renders it and the extension fetches it with the seller's session.
 
 - `search_people(context, company_linkedin_id, keyword)` reads the people search page
-  filtered to one company (`people_search`).
+  filtered to one company (`people_search`). Many accounts get at most three results.
+- `search_company_people(context, company_linkedin_id, keyword)` searches a company's
+  members by keyword on its People tab (`company_people_search`, what the tab's "search
+  employees" box runs): one page of 12, not capped at three (live on three accounts,
+  2026-11-06). Pass the keyword as typed: it is percent-encoded into the inputs, and the
+  batch's `keyword` is the keyword as given. A response that is not the search (LinkedIn
+  ignored the company filter, a body that is not JSON) comes back as an error batch, never
+  an exception. The caller reserves the pacing slot, as for `search_people`. Needs
+  `migrations/20261106_company_people_search.sql` applied.
 - `list_company_people(context, company_linkedin_id, company_vanity_name)` lists a
   company's members. LinkedIn serves some accounts its old Ember app and others the new
   frontend, and two reads answer this:
@@ -3508,7 +3516,7 @@ renders it and the extension fetches it with the seller's session.
   `sales.company.linkedin_url` (`linkedin_company_vanity_name`), or `None` to skip the
   page. The batch's `keyword` is `COMPANY_PEOPLE_LABEL`; neither read gives a location.
 
-Both return a `LinkedInSearchResultBatch`. A page that is not the expected screen, or a
+All three return a `LinkedInSearchResultBatch`. A page that is not the expected screen, or a
 provider error, comes back as a batch with `error` set, and its raw body stays in the
 ledger for debugging. Parsers read pages by structure only: headings, degree badges and
 counts are in the viewer's language.
