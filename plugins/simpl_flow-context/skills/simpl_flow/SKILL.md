@@ -294,7 +294,10 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
 - `gcp_graphia_identity_flow` (no schedule, started by hand, plain image) runs the identity
   service's micro-batches over the runs the extraction log gained, every variant's (the
   registry read through a read-only connection, nothing writes `sales.*`; the uncertain
-  band to the review queue), then as asked the next graph generation of a variant's runs
+  band to the pending link requests), then those requests settled by models
+  (`resolve_links`, `er.resolution`: applied only at `nuextract_min_confidence` and
+  `teacher_min_confidence`; `links_dry_run` with `links_limit` asks both models and applies
+  nothing, its decisions kept as `dry-run:`), then as asked the next graph generation of a variant's runs
   (`generation`, `variant`, `publish`), then the published generation's entity promotion
   into the golden zone the matcher's `entity` predicate reads (`promote`,
   `promotion_config`; migrations 153 and 154). Identity's state is still in Postgres (`er_*`) until this pipeline is reworked. One run
