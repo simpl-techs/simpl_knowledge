@@ -108,16 +108,17 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   every deploy recreates schedules from `prefect.yaml`. Size (production 2026-11-06,
   `pg_class.reltuples`): about 220,000 sites and 1,885,000 technology rows, so about
   2.1M index rows, 9.6 a site.
-- **The website facts index check** is a step of `gcp_search_index_maintenance_flow`
-  that a run names (`checks: ["website_facts"]`), run after everything else. It calls
+- **The website facts index check** is a step of `search_index_maintenance_flow`
+  that a run names (`checks: ["website_facts"]`), run after everything else, in the
+  `gcp_search_index_sweeps` deployment. It calls
   simpl_core's `run_website_facts_index_check` (`search.website_facts`; the check's
   parts and rules are documented there) on the collection the active `website_facts`
   row names (`configured_collection`). Its report is the run's result
   (`checks.website_facts`) and a warning log when it has differences
   (`website_facts_search.index_check`); it posts to #data-lake only with
   `announce_checks: true` (default false). No schedule runs it: by hand until go-live
-  (`prefect deployment run search_index_maintenance_flow/gcp_search_index_maintenance_flow
-  -p 'checks=["website_facts"]'`), then weekly in Monday's nightly run, by a PR
+  (`prefect deployment run search_index_maintenance_flow/gcp_search_index_sweeps
+  -p 'checks=["website_facts"]'`), then weekly in Monday's nightly sweep run, by a PR
   (README, "Website facts search", go-live step 8). Differences do not fail the run; a
   check that cannot look does.
 - **Which dataset each search index flow writes, and how, is `row_store.dataset_configs`**
@@ -136,11 +137,16 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   `params.maintenance` (`MAINTENANCE_SETTINGS`: `sweep`, `target_rows_per_fragment`,
   `max_rows`, `cleanup_older_than_days`, `stalled_after_minutes`, and `deferred_indexes`:
   declared indexes left unbuilt on purpose, which health does not report, e.g. landing's
-  `text_idx` until a backfill ends, migration 117). At 02:30 UTC (`sweep: true`) it first runs the
-  sweep of every active kind that has one (posts: the posts that changed or went away;
-  companies: those merged away, a slice fingerprinted again; website facts: every site
-  fingerprinted again), unless the row sets `sweep: false` (website facts until
-  go-live). A run can still name `datasets` and `sweeps` itself (`sweeps` runs a sweep
+  `text_idx` until a backfill ends, migration 117). It sweeps nothing. The same flow's
+  second deployment, `gcp_search_index_sweeps` (`datasets: []`, so no dataset and no
+  writer lease; 1 vCPU, 2 GiB, a 4-hour job guard), runs at 02:30 UTC (`sweep: true`)
+  the sweep of every active kind that has one (posts: the posts that changed or went
+  away; companies: those merged away, a slice fingerprinted again; website facts: every
+  site fingerprinted again), unless the row sets `sweep: false` (website facts until
+  go-live). The sweeps wait on Postgres; until 2.5.251 they ran in the maintenance
+  deployment's nightly run, and a loaded database made that run outlast its one-hour
+  job (2026-11-06). Each sweep logs `search_index_maintenance.sweep_started` as it
+  starts, and its summary when it ends. A run can still name `datasets` and `sweeps` itself (`sweeps` runs a sweep
   its row turns off), and index `checks` (`CHECKS`: `website_facts`), which only a run
   that names them runs, last, posting with `announce_checks` only. A new kind adds a
   spec to `KINDS` (`search_index_runtime`; a kind with no vector is named there like
