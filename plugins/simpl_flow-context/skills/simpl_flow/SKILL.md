@@ -100,10 +100,10 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   simpl_core (`search.website_facts`). A host the ledger refuses as a key (a
   `#`, upper case, a `/`) is skipped and logged (`website_facts.scan_host_skipped`) and
   counted (`skipped`) in the run's and the sweep's summaries; the index check leaves such
-  hosts out. **It ships off**: its schedule is
-  inactive and 170 seeds `"sweep": false`, so nothing is written to Zilliz until the
-  go-live steps in the README ("Website facts search"). Its schedule is switched on by
-  a PR that sets `active: true` (merged and deployed at go-live), never resumed by hand:
+  hosts out. **It shipped off**: its schedule
+  was inactive and 170 seeds `"sweep": false`, until the go-live steps in the README
+  ("Website facts search"). Its schedule was switched on by a PR that sets
+  `active: true` (2.5.249, go-live step 3), never resumed by hand:
   every deploy recreates schedules from `prefect.yaml`. Size (production 2026-11-06,
   `pg_class.reltuples`): about 220,000 sites and 1,885,000 technology rows, so about
   2.1M index rows, 9.6 a site.
