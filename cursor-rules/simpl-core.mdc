@@ -3146,7 +3146,26 @@ edit one message.
 Needs the `decks` extra (python-pptx, pillow, lxml, resvg-py). A deck is slides on fixed
 layouts (`decks.deck.LAYOUTS`: cover, statement, quote, names, rows, image, hero, figures,
 chart, table, steps, flow, closing and more), written as PowerPoint and typeset to PDF by
-DocRaptor, in the kit it is given. Generic: nothing here knows any company. Each company's
+DocRaptor, in the kit it is given. Photographs of a company's work have their own layouts:
+`case` (the picture fills the right of the slide to its edges, a label, a title of up to
+three lines and rows or a body on the left), `gallery` (two or three pictures cut to one
+frame, a caption under each) and `image` (full-bleed or under a title). A caption on a
+photograph sits on a dark band. Pictures are passed to `make_deck(pictures=...)` by the
+names the slides use; `deck.picture_refs(slides)` lists the ones to read.
+A deck looks like the company that presents it, as its site does (Nico chose this,
+2026-11-06): a phrase of a title written `*like this*` is drawn in the brand's colour; a
+`cover` may lie on a picture of its work (`image`), in colour or in black and white as the
+site shows its photographs (`BrandStyle.photo_tone`: `natural`, `mono`); the brand's colour
+shows on labels, marks and marked phrases wherever it stands out by
+`brand.ACCENT_SHOWS` (2.5) and gives way to the ink where it does not (a pale yellow).
+`decks.pictures.read_pictures(site, http=...)` reads a company's photographs from its own site
+(the home page and the pages it links to, plain HTTP, no Firecrawl credit): logos, marks,
+thumbnails and other sizes of the same upload are left out, each kept picture is a JPEG at
+most 1600 px long with its page, title, headings, alt text and caption.
+`tag_pictures(found, senses=..., company=...)` has a vision model (the same `senses.ask`
+interface `read.complete` uses) say what each shows, its project and line of work, and how
+well it carries a slide (`full_bleed`, `under_title`, `weak`); `TaggedPicture.entry(url)` is
+what a product keeps once it has stored the JPEG. Generic: nothing here knows any company. Each company's
 brand (logo, colours, face, how its pages draw) is kept where its product keeps it and
 passed in, or read from its site; a deck is always in the look of the company that presents it.
 
