@@ -248,19 +248,19 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   generative=nuextract3-gpu`) and the tag its image was built with. It needs simpl_core's
   workpool migrations and migration 155 applied. The `generative` pool (one L4, image
   `simpl-flow-pool-nuextract3-gpu`) runs NuExtract3 for the `joint` rows of variant
-  `graphia-v2-nuextract-joint` (the `ner` rows of `graphia-v2-nuextract-ner` before
-  2026-11-06) and the check tier's `verify` rows; an instance whose server
+  `graphia-v2-nuextract-joint` and the check tier's `verify` rows; an instance whose server
   lists no GPU stops before it is ready. Its deployment, step by step:
   `docs/knowledge-graph-nuextract-gpu.md`.
 - `gcp_graphia_v2_flow` (no schedule, started by hand on keys marked by hand) runs the
   scaled knowledge graph pipeline (`pipelines/knowledge_graph/v2`). It marks `source_keys`
   (`p:<post id>`, `h:<host>`) with `priority` for the v2 variant (`v2/variants.yaml`:
-  `graphia-v2-nuextract-joint` by default, on ontology `o3` (the pool reads
+  `graphia-v2-nuextract-joint`, the only one, on ontology `o3` (the pool reads
   whichever ontology a request names, so changing it needs no pool redeploy): NuExtract3's `joint` step (ner, pick and fill as one call) served
   by the `generative` pool's L4s, one call per document, the job writing its documents
   into `knowledge_graph.model_requests` and reading the mentions and facts back, three batches in
-  extraction at once; `graphia-v2-nuextract-ner`, entities only, was the default until
-  2026-11-06; no model runs in the job,
+  extraction at once; a variant runs the joint step only, so every run writes entities
+  and the forms they fill (the entities-only variant was removed 2026-11-06); no model
+  runs in the job,
   and there is no deployment per variant or pool; the GLiNER2 and in-job NuExtract
   variants were removed 2026-11-04, their runs stay in the log), works its due rows of `knowledge_graph.extraction_index` into the append-only
   extraction log (`kg_*` datasets under `ROW_STORE_URI`, run rows last as the commit
