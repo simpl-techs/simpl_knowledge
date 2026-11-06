@@ -2312,9 +2312,12 @@ await posts.build_index("vector")            # sections of a declared vector or 
   it confirms the lease and writes again after 5 s, 30 s and 120 s
   (`WRITE_RETRY_PAUSES_S`, log `row_store.write_retry`), holding the lease. A lease
   found taken, any other error, or the fourth failure is raised as before.
-- **No commit or read costs more as the table grows.** A commit finds the stored rows
-  of its keys through the key index (key and row_version only) and replaces them in
-  one Lance commit; reads find rows on a narrow column and take the others by row id;
+- **No commit or read scans more as the table grows.** A commit finds the stored rows
+  of its keys through the key index (key and row_version only, `KEYS_PER_LOOKUP` (10k)
+  keys a read) and replaces them in one Lance commit. The lookup's memory still grows
+  with the key index: about 1.6 KB a key on an empty table, 6 KB on a 1.9M-row one
+  with 11 segments, so a commit's keys, not its bytes, size it. Reads find rows on a
+  narrow column and take the others by row id;
   once `INDEX_NEW_ROWS_AT` (10k) rows are outside the indexes, the commit indexes them
   as new segments, so no read scans more than that.
 - **`maintain` costs the same however big the table grows.** It merges fragments
@@ -2624,9 +2627,16 @@ async for batch in searcher.query_rows({"host": hosts, "uses_https": False}):
   `walk.advance(page)`. Each scope has its own cursor (`ScanCursors`); scoped and
   general runs share the ledger, so neither redoes what the other did or holds.
 - `BatchPipeline` overlaps batches (up to `depth` in hand; `depth=1` prepares one at
-  a time) and commits embedded batches together: one row store commit once their rows
-  reach `commit_bytes` (`COMMIT_BYTES`, 64 MiB) or the first has waited `commit_wait`
-  (`COMMIT_WAIT_S`, 60 s); `commit_bytes=0` commits each batch alone. A batch with
+  a time) and commits embedded batches together: one row store commit once the bytes
+  of their Arrow tables reach `commit_bytes` (`COMMIT_BYTES`, 64 MiB) or the first has
+  waited `commit_wait` (`COMMIT_WAIT_S`, 60 s); `commit_bytes=0` commits each batch
+  alone. `commit_bytes` counts bytes (the batches' row tables plus their companion
+  tables), not rows: a kind of narrow rows (website facts, about 350 bytes a row) fits
+  about 190k rows in 64 MiB, and a commit's key lookup costs per row, so such a kind
+  passes a smaller one (`BatchPipeline(..., commit_bytes=16 * 2**20)`). A batch waits
+  for its group with its
+  tables only: `embed` lets its built documents go (`PreparedBatch.writes` and
+  `companions` are empty afterwards; `to_store` keeps their count). A batch with
   nothing to write settles at once. `on_result` sees each committed batch (a group's
   share one `commit_seq`); `drain()` waits for every batch in hand and commits the
   group (a scoped run drains before `walk.advance`); `deferred`/`stopped` say why it
