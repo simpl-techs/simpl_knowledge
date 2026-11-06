@@ -80,9 +80,49 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   trigger or index added. The logic lives in simpl_core (`search.companies`). The
   schedule runs every 5 minutes (on since 2.5.67); nothing reads `sales_companies_v1`
   until the alias is promoted by hand once the backfill is validated.
+- `gcp_website_facts_search_index_flow` (every 5 minutes once live; 2.5.248) indexes what
+  each company website runs and shows (`sales.website`, `sales.website_technology`,
+  written by simpl_scraping's website signals extractor and crawl) into
+  `website_facts:1` (no vectors: a keyword-only kind) and the Zilliz collection
+  `website_facts_v1` (typed filter fields and BM25, no embeddings; ledger
+  `sales.website_facts_search_index`, migration 170, which also adds its
+  `row_store.dataset_configs` row). Each run follows finished `website_signals` jobs
+  (`scraping.extraction_jobs`) from where the last one stopped, and indexes until the
+  queue is empty (at most 10 follow rounds a run). The follow pass starts at "now", so
+  the website facts sweep (every site by host, fingerprinted again) is what fills it the
+  first time; it is also what sees every other change, a day late at most: the crawl
+  writer's site row, `website-risk apply`, sites gone (simpl_core 0.8.304 dropped the
+  pass on `sales.website.updated_at`, which read the whole table: no index covers it).
+  It creates the collection, never moves the
+  `website_facts` alias: that is promoted by hand once the index check is clean. Reads
+  only; no trigger or index on the website tables. Needs the Doppler `ROW_STORE_URI`
+  and `MILVUS_*` keys (no Nebius key: nothing is embedded). The logic lives in
+  simpl_core (`search.website_facts`). A host the ledger refuses as a key (a
+  `#`, upper case, a `/`) is skipped and logged (`website_facts.scan_host_skipped`) and
+  counted (`skipped`) in the run's and the sweep's summaries; the index check leaves such
+  hosts out. **It ships off**: its schedule is
+  inactive and 170 seeds `"sweep": false`, so nothing is written to Zilliz until the
+  go-live steps in the README ("Website facts search"). Its schedule is switched on by
+  a PR that sets `active: true` (merged and deployed at go-live), never resumed by hand:
+  every deploy recreates schedules from `prefect.yaml`. Size (production 2026-11-06,
+  `pg_class.reltuples`): about 220,000 sites and 1,885,000 technology rows, so about
+  2.1M index rows, 9.6 a site.
+- **The website facts index check** is a step of `gcp_search_index_maintenance_flow`
+  that a run names (`checks: ["website_facts"]`), run after everything else. It calls
+  simpl_core's `run_website_facts_index_check` (`search.website_facts`; the check's
+  parts and rules are documented there) on the collection the active `website_facts`
+  row names (`configured_collection`). Its report is the run's result
+  (`checks.website_facts`) and a warning log when it has differences
+  (`website_facts_search.index_check`); it posts to #data-lake only with
+  `announce_checks: true` (default false). No schedule runs it: by hand until go-live
+  (`prefect deployment run search_index_maintenance_flow/gcp_search_index_maintenance_flow
+  -p 'checks=["website_facts"]'`), then weekly in Monday's nightly run, by a PR
+  (README, "Website facts search", go-live step 8). Differences do not fail the run; a
+  check that cannot look does.
 - **Which dataset each search index flow writes, and how, is `row_store.dataset_configs`**
   (simpl_core migration `20261009_row_store_dataset_configs.sql`, seeded by migration
-  084), not deployment parameters. Each kind (`posts`, `landing`, `companies`) writes
+  084; website facts by 170), not deployment parameters. Each kind (`posts`, `landing`,
+  `companies`, `website_facts`) writes
   its `active` row's dataset (`name:version:dims`) with the settings under
   `params.index` (the flow's `SETTINGS`: collection, collection_dims, batch sizes,
   concurrency...); a value a run passes still wins, so a version built by hand is
@@ -90,24 +130,28 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   a new version, adding a dataset or changing a setting is an `UPDATE`/`INSERT` on that
   table, picked up by the next run, with no deployment.
 - `gcp_search_index_maintenance_flow` maintains every `active` and `maintained` row of
-  `row_store.dataset_configs` (posts, landing pages, companies): compaction, index
+  `row_store.dataset_configs` (posts, landing pages, companies, website facts): compaction, index
   segment merges and a week of versions, every 15 minutes, with each row's
   `params.maintenance` (`MAINTENANCE_SETTINGS`: `sweep`, `target_rows_per_fragment`,
   `max_rows`, `cleanup_older_than_days`, `stalled_after_minutes`, and `deferred_indexes`:
   declared indexes left unbuilt on purpose, which health does not report, e.g. landing's
   `text_idx` until a backfill ends, migration 117). At 02:30 UTC (`sweep: true`) it first runs the
   sweep of every active kind that has one (posts: the posts that changed or went away;
-  companies: those merged away, a slice fingerprinted again), unless the row sets
-  `sweep: false`. A run can still name `datasets` and `sweeps` itself. A new kind adds
-  a spec to `KINDS` (`search_index_runtime`) and a sweep to `SWEEPS` if it needs one.
-  A sweep or dataset that fails does not stop the others; the run then fails naming
-  each one (`MaintenanceFailed`). A row the code cannot read (a kind it does not know,
+  companies: those merged away, a slice fingerprinted again; website facts: every site
+  fingerprinted again), unless the row sets `sweep: false` (website facts until
+  go-live). A run can still name `datasets` and `sweeps` itself (`sweeps` runs a sweep
+  its row turns off), and index `checks` (`CHECKS`: `website_facts`), which only a run
+  that names them runs, last, posting with `announce_checks` only. A new kind adds a
+  spec to `KINDS` (`search_index_runtime`; a kind with no vector is named there like
+  `website_facts`), a sweep to `SWEEPS` and a check to `CHECKS` if it needs them.
+  A sweep, dataset or check that fails does not stop the others; the run then fails
+  naming each one (`MaintenanceFailed`). A row the code cannot read (a kind it does not know,
   dims that do not fit its kind, an unknown setting) is left out and the rest are
   maintained; the first run of each hour posts the rows left out to #data-lake
   (`announce_skipped_configs`, gated by `health_alert_due`), and every run returns them
   under `skipped`.
-- **Data lake alerts go to #data-lake** (posts, landing and companies index flows,
-  maintenance, graphia v2 and the opportunity matcher; `services/run_health.py`,
+- **Data lake alerts go to #data-lake** (posts, landing, companies and website facts index flows,
+  maintenance and its website facts index check when it announces, graphia v2 and the opportunity matcher; `services/run_health.py`,
   `services/search_index_health.py`), through simpl_core's `data_lake_alert`: errors and
   warnings only, never success. Without `DISCORD_DATA_LAKE_WEBHOOK_URL`, or when Discord
   does not take a message, they go to #error or #warning instead.
