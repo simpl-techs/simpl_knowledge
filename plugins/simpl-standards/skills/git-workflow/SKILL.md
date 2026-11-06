@@ -1,6 +1,6 @@
 ---
 name: git-workflow
-description: Our team's conventions for branches, commits, pull requests, and version bumps. ALWAYS consult before any git branch create/switch, commit, PR, or version change. Every PR bumps the version — PATCH by default, MINOR/MAJOR only with written justification. Agents must stay on the already-checked-out branch unless the user explicitly approves a new branch in the current turn.
+description: Our team's conventions for branches, commits, pull requests, and version bumps. ALWAYS consult before any git branch create/switch, commit, PR, or version change. Every PR bumps the version — PATCH by default, MINOR/MAJOR only with written justification. Agents must stay on the already-checked-out branch unless the user explicitly approves a new branch in the current turn. Also covers contributors (people outside engineering, team `contributors`), who always go through a PR, and the green/yellow/red risk lanes on their PRs.
 ---
 
 # Git workflow
@@ -54,6 +54,20 @@ Types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`, `build`, `ci`
 - Under ~400 lines gets same-day review; split bigger PRs.
 - Every PR bumps the version (below); reviewers do not approve without it.
 - Agents: after a merge you ran (only when the user asked for it) succeeds, delete the PR's branches. Remote: GitHub deletes it on merge ("Automatically delete head branches" is on in every active repo); if it is still there, `git push origin --delete <head>`. Tracking ref: `git fetch --prune`. Local: `git branch -D <head>`, only if the branch is not checked out (here or in another worktree) and its tip equals the PR head (`gh pr view <n> --json headRefOid`); a checked-out branch stays, say so. Never delete `main`, `dev`, `staging` or release branches (e.g. the head of a `dev` → `main` PR). Do not use `gh pr merge --delete-branch`: it checks out the base branch when you are on the PR branch.
+
+## Contributors and risk lanes (people outside engineering)
+
+Raffaele's decision, 2026-11-06: people outside engineering may fix bugs and add small features with their own agent, never with a way to break production.
+
+- **Who.** GitHub team `contributors`: Luca (`LucArryn`) and Davide (`dado-ops`); Sara when she gets access. Team `core` is the six developers (Raffaele, Flavio, Iacopo, Nicolò, Michele, Jackie); they decide themselves when to self-approve.
+- **Always a PR.** Every non-archived simpl-techs repository except `simpl_knowledge` requires a PR with one approval from team `core` on `main` (rulesets `main-via-pr`, or `no-direct-commit` on simpl_api, simpl_core, simpl_desk, simpl_agent_sandbox). Core members bypass; anyone else, a new org member included, is limited by default. Never add a contributor to a bypass list. A new repository gets the `main-via-pr` ruleset.
+- **Lanes** (simpl_sales and simpl_dashboard today): the `simpl-lanes` app gives each contributor PR a colour, as a comment and the status `simpl/corsia`. Path rules set the floor, a model review may only raise it (rules and README: `simpl-techs/simpl_devops`).
+  - **Green** (`verde`): page look, copy, styles and images, tests, docs. Merges on its own once the repository's `checks` passed on the PR's last commit and the PR is out of draft; the Vercel deploy hook then publishes it.
+  - **Yellow** (`giallo`): server code, logic and data; a page change that adds or changes a call that saves, deletes or sends; a skipped or deleted test; more than 400 lines or 20 files; anything unclassified. A core developer approves it.
+  - **Red** (`rosso`): database and migrations, customers' money (billing, Stripe, call prices, invoices), sends to leads or customers, login, roles and «view as», release and configuration (`.github`, dependencies, build and test config). Core does it, or pairs on it.
+  - Other repositories have no lanes yet: a contributor's PR there always waits for a core approval.
+- **An agent working for a contributor:** works on a branch and opens a PR, marked ready (not draft) only when done; keeps a PR small and in one lane (a page change apart from the server change it needs); reads the `simpl-lanes` comment and tells its person the colour and what happens next; never changes `.github`, tests or config to get a lower colour or a passing check, and never asks for a bypass. A red change is said as red, and a core developer is involved before writing it.
+- **Developers:** approve a contributor's yellow or red PR when GitHub asks team `core`. Their own PRs are unchanged: `checks` is skipped for them and `lanes` stops in seconds.
 
 ## Agents: Linear
 
