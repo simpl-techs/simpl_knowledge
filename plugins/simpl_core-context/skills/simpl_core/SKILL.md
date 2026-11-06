@@ -2787,7 +2787,6 @@ not indexed; a match reads it from Postgres.
 ```python
 scanner = WebsiteFactsScanner(db)
 await scanner.follow_extraction()   # every run: succeeded website_signals jobs -> hosts
-await scanner.follow_sites()        # every run: sales.website rows by updated_at
 await scanner.sweep()               # nightly, and the first fill: every site by host
 
 indexer = website_facts_indexer(db, dataset=facts_dataset)  # website_facts_dataset_spec(), no embedder
@@ -2798,7 +2797,60 @@ errors = await check_condition(db, condition)       # before ANY save; [] = vali
 search = WebsiteFactsSearch(milvus)                  # the website_facts alias
 found = await search.matching_companies(db, parse_condition(condition), company_ids)
 shown = await website_facts_evidence(db, parse_condition(condition), list(found.values()))
+
+# The index check: the collection against Postgres; differences posted to #data-lake
+report = await run_website_facts_index_check(db, "website_facts_v1", announce=True)
+report.clean, report.differences, report.summary()
 ```
+
+- **What the follow pass sees, and what waits for the sweep** (0.8.304): the follow pass
+  reads finished `website_signals` jobs through `extraction_jobs_succeeded_idx`, so the
+  page writer's changes (content, technologies) reach the index within minutes. A
+  change only the crawl writer makes (the site row: HTTPS and TLS, security headers,
+  response times, the header technologies it writes with it) or `website-risk apply`
+  waits for the nightly sweep: up to a day, then the next nightly matching run.
+  `follow_sites` (by `sales.website.updated_at`, which no index covers: every round read
+  and sorted the whole table) was removed; drop any call to it.
+- **The index check** (`index_check`, 0.8.304): whether the collection holds what
+  Postgres holds. `run_website_facts_index_check(db, collection, *, settings=
+  IndexCheckSettings(), announce=True, alert=data_lake_alert_async, today=None) ->
+  IndexCheck` opens Zilliz from the environment (`MILVUS_URI`, `MILVUS_TOKEN`), checks,
+  and with `announce` posts the differences through `alert` (any coroutine with
+  `data_lake_alert_async`'s shape). `check_website_facts_index(db, store, collection,
+  settings, *, today)` does the check on an open store; `announce_index_check(report,
+  *, alert)` posts. `configured_collection(db, kind)` reads a kind's
+  `params.index.collection` from `row_store.dataset_configs`. `IndexCheck`:
+  `collection`, `checked` (what each part looked at, in numbers), `differences`
+  (`IndexDifference`: `check`, `what`, up to 20 `hosts`), `clean`, `summary()`.
+  Parts: (a) counts (within `count_tolerance`, 0.5%) and ledger rows failed or stuck;
+  (b) 200 random sites plus three chosen cases, row by row and field by field; (c)
+  fixed signals on 1,000 random sites (every site field with each of its operators, a
+  yes/no field both `true` and `false`, every technology test, the keyword rules, and
+  combined ones), through `WebsiteFactsSearch` and through `matching_hosts` on
+  Postgres; (d) sites the extractor wrote (finished `website_signals` jobs) 15-60
+  minutes ago, the one path the follow pass promises within minutes. Left out of (b)
+  and (c): sites the extractor wrote within the hour, those pending, and those whose
+  facts moved since the ledger's last mark (`awaiting_sweep`, counted in `checked`: the
+  scanner's own fingerprint, `scan.site_fingerprints`, differs from `source_hash`; the
+  crawl writer's site rows and the risk command wait for the nightly sweep, which is no
+  difference); refused hosts everywhere. Not clean when it compared too little: a table
+  with no row for the login, or (b) or (c) comparing under half the sites it drew,
+  with why. A fill is pending sites the index never held (`stored_at` null): over
+  `fill_pending` (1,000) of them it reports a fill in progress instead of counts,
+  stuck rows and freshness; the sweep's re-marks of held sites never count. Run it
+  once the nightly sweep's marks have drained (an hour or more after the sweep); earlier
+  it is still right, with less to compare. Every read has its own statement timeout
+  (60 s, the counts 180 s). Its reads take about 4 passes of `sales.website` (70 MB),
+  one count of `sales.website_technology` and primary-key reads of the samples.
+- **`matching_hosts(db, condition, hosts, *, today, sites=None)`**: what a parsed
+  condition matches in Postgres, by the condition's own rules: most site tests in SQL
+  (`SITE_TESTS`, one per operator), versions and `LOWERCASED_FIELDS` texts on the site
+  row as the index builds it (`BUILT_ROW_TESTS`, `version_prefixes`), technology tests
+  per row (version prefix by `version_prefixes`, `required` / `covers`), keywords
+  through `KeywordFilter` on the rows' keyword texts. It reads the built rows itself
+  when a condition needs them; pass `sites=BuiltSites.of(sources)` to reuse them. The
+  check's other side; a test asks every operator of `OPERATORS` and every field of
+  `SITE_FIELDS` through both.
 
 - **The condition** (a signal filter's condition, `collection: "website_facts"`; every
   part given must hold, at least one):
@@ -2914,7 +2966,7 @@ shown = await website_facts_evidence(db, parse_condition(condition), list(found.
   of every pass with a warning, `website_facts.scan_host_skipped` (`host`,
   `scan_pass`, `rule`), and counted in `FollowResult.skipped` / `SweepResult.skipped`.
   The cursors move past it, so the passes never stop on it. Fix the source row. An
-  empty host is never read: the follow passes drop it, and the sweep never returns it.
+  empty host is never read: the follow pass drops it, and the sweep never returns it.
 - **`ledger_key_refusal(key)`**: the ledger's key check as a SQLAlchemy expression over
   any text column or value: `"empty"`, `"not lowercase"`, `"contains /"` or
   `"contains #"`, or null when the ledger takes it. The scanner uses it; use it rather
