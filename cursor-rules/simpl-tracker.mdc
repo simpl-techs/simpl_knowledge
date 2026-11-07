@@ -267,8 +267,10 @@ the logic is in `simpl_tracker.provider_spend`.
 dry run by default, `--apply` writes, always exits 0 and reports problems through
 `report_tracking_gap`) reads the last four complete UTC days of the BigQuery billing
 export and loads each with `cost_tracking.load_gcp_billing_day`: the day in
-`gcp_billing_cost` (EUR net of credits, tax excluded, USD at the ECB rate), split
-across the sessions that ran on each resource in `gcp_cost_allocation`, rollup
+`gcp_billing_cost` (EUR before and after credits, tax excluded, USD at the ECB rate),
+the cost before credits split across the sessions that ran on each resource in
+`gcp_cost_allocation` (repos, customers and the rollup carry what Google was used for;
+what credits covered is only in `gcp_credit_coverage`), rollup
 rebuilt. `compute_cost_daily(from, to)` is the one source of compute cost per day,
 provider and repo; `run_daily_aggregation`, `infra_cost_daily` and
 `infra_cost_by_provider` read it.
