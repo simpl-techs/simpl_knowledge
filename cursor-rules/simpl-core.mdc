@@ -3378,6 +3378,26 @@ for the loan's customer for the rest of its life, after the loan ends too.
   `reason="not_a_lead"`. `UserLeadConnection.released_at` exposes the mark; read it with
   `claimed` (claiming again clears it, `trg_ulc_reclaim_clears_release`). simpl-outreach's
   admission gate ends a walk on a released connection without a review.
+- **A contact who left the company** (2026-11-07, ENG-941,
+  `services.outreach.contact_left.record_contact_left(session, *, ulc_id, source, evidence,
+  learned_at, ended_on=None, new_company_id=None) -> ContactLeft`; the caller owns the
+  transaction): never Not In Target, the target is the company. Ends the person's open roles
+  at the connection's company (`LeadRepository.end_roles_at`), then moves the connection to
+  `new_company_id` when it is in the connection's ICP pool (`in_icp_pool`:
+  `opportunity.icp_company_matches` minus `icp_verification_exclusions`), else releases it
+  (`release_connections`, reason `contact_left`, stage kept). A connection with a call (a
+  call stage, Disqualified included, a booking or a charge) is left as it is
+  (`ContactLeftOutcome.KEPT_FOR_CALL`: the caller asks the seller). Writes one
+  `lead.company.left` event (`source` reply/profile/backfill, `evidence` capped at 500
+  characters, `outcome`, `research_queued`) timed at `learned_at`. After a move or a
+  release the old company goes back on simpl_flow's recheck lane
+  (`services.autopilot.company_recheck.queue_company_recheck`): only when the seller's
+  autopilot is on for the ICP under the flow runner, a recheck attempt is left (1 or 2),
+  and once the seller's placeholder is in Monitoring `autopilot_recheck_still_monitored`
+  holds (no teammate works the company outside Monitoring; ended roles do not count since
+  simpl_flow migration 178); otherwise the placeholder change is rolled back (savepoint).
+  A moved person's lead is put on the new company when it still named the old one
+  (`LeadRepository.replace_company`). It does not re-arm a walk: callers do.
 - **Borrower switched off:** the dispatch authority cancels anything a connection stamped
   with a loan (open or ended) still has queued once the loan's customer is switched off
   (`metadata.is_active = false`) or has no active pay-per-call subscription
