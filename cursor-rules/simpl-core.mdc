@@ -3073,30 +3073,34 @@ store datasets. **Nothing is anonymized here:** names, emails, phones and profil
 are as Postgres holds them, because Graphia links identities on the real data first
 and anonymizes after, before what it builds goes into the graph (user decision
 2026-11-05). Five are entities like their tables: columns named as there, foreign keys
-kept (`lead_id`, `company_id`), only columns that serve our pipelines left out. Three
-of them are chunked and embedded (`CHUNK_SPECS`): one row per chunk of the
-entity's text, keyed `<id>#<chunk_no>`, each with the entity's columns, its id column,
-`chunk_no`, `text` (the chunk), `language`, `vector` (Qwen3-Embedding-8B at the config's
-`dims`, 4096) and `embedding_model`; the text chunked is not a column of its own.
+kept (`lead_id`, `company_id`), only columns that serve our pipelines left out. All but
+the skills are chunked and embedded (`CHUNK_SPECS`), and so are the messages: one row
+per chunk of the entity's text, keyed `<id>#<chunk_no>`, each with the entity's
+columns, its id column (`ID_FIELDS`), `chunk_no`, `text` (the chunk), `language`,
+`vector` (Qwen3-Embedding-8B at the config's `dims`, 4096) and `embedding_model`; the
+text chunked is not a column of its own.
 
 | Kind | Table | Key | Chunked text | Left out |
 |---|---|---|---|---|
-| `sales_leads` | `sales.lead` | lead id | — | images, `origin`, `score` |
-| `sales_lead_skills` | `sales.lead_skill` | `<lead_id>\|<skill>` | — | — |
+| `conversation_messages` | `sales_outreach.message` | `<id>#<n>` (`message_id`) | the message's own text (no quoted reply), in Graphia's parts | the whole body with quotes (one row per part, with its conversation's company and its sender: `sender_side`, `sender_user_id` or `sender_lead_id`, `sender_name`, `sender_email`) |
+| `sales_leads` | `sales.lead` | `<id>#<n>` (`lead_id`) | the profile (job title, tagline, summary), in Graphia's parts; one empty chunk without | images, `origin`, `score`, `summary` |
+| `sales_lead_skills` | `sales.lead_skill` | `<lead_id>\|<skill>` | — (plain, `SPECS`) | — |
 | `sales_lead_experiences` | `sales.lead_experience` | `<id>#<n>` (`experience_id`, a bigint) | `description` | `raw`, `fts`, `embedded_at` |
 | `sales_job_offers` | `sales.job_offer` | `<id>#<n>` (`job_offer_id`) | `description` | checker bookkeeping |
 | `sales_articles` | `sales.article` | `<id>#<n>` (`article_id`) | `raw_text`, else `summary` | `scraping_status` |
-| `conversation_messages` | `sales_outreach.message` | message id | — | (one row per message with its conversation's company and its sender: `sender_side`, `sender_user_id` or `sender_lead_id`, `sender_name`, `sender_email`) |
 
 `sales_leads.company_id` is the lead's resolved company (below), not the raw
-`sales.lead.company_id`; skills and positions carry it too.
+`sales.lead.company_id`; skills and positions carry it too. Each chunked entity is one
+Graphia source, `GRAPHIA_PREFIXES[kind] + id` (`m:`, `l:`, `e:`, `a:`, `j:`), and its
+`n`-th chunk (from 1) one Graphia document: the source, then `#<n>`.
 
 ```python
 store = RowStore(RowStoreConfig.from_env(), RowStoreCatalog(db))
 scope = await conversation_scope(db)
 datasets = {kind: store.dataset(spec()) for kind, spec in SPECS.items()}
 result = await build_sales_datasets(db, datasets, scope=scope, run_id=run_id)
-# The chunked kinds (needs the search extra): mark the ledger, then index.
+# The chunked kinds (needs the search extra): mark the ledger, then index. Every kind
+# but the messages reads the scope (SCOPED_KINDS); the messages take scope=None.
 articles = store.dataset(CHUNK_SPECS[ARTICLES_KIND](dims=4096))
 await mark_sales_documents(db, ARTICLES_KIND, scope)
 indexer = sales_document_indexer(  # simpl_core.sales_datasets.documents
@@ -3106,19 +3110,34 @@ indexer = sales_document_indexer(  # simpl_core.sales_datasets.documents
 await indexer.run_batch(batch_size=500, run_id=run_id)
 ```
 
-- **Chunks** (`chunking`, as landing pages are chunked): simpl_ia's `chunk_blocks` at
-  the landing sizes (1,200 soft, 1,800 hard characters), each non-empty line a block,
-  under a header (`<company> | <title>`; a position: its own company and title) that the
-  embedded text puts above the chunk. Every line of a text is in a chunk, however long
-  the text; an entity with no text is chunked from its header alone.
-- **Ledgers** (`LEDGERS`, simpl_flow migration 171, which also rebuilt version 1 of
-  these three datasets, the messages and the leads in their current shapes): `sales.article_chunk_index`,
-  `sales.job_offer_chunk_index`, `sales.lead_experience_chunk_index`, one row per
-  entity. `mark_sales_documents` lists every entity in scope with a fingerprint
-  (`marking`) and marks the new, changed and gone ones; the shared `DocumentIndexer`
-  then rewrites only entities whose texts or fields changed and embeds only new chunk
-  texts. Bump `TEXT_PREP_VERSION` when the chunking changes: every entity is marked
-  once and unchanged chunks keep their vectors.
+- **Chunks** (`chunking.document_chunks`, positions, job offers, articles, as landing
+  pages are chunked): simpl_ia's `chunk_blocks` at the landing sizes (1,200 soft, 1,800
+  hard characters), each non-empty line a block, under a header (`<company> | <title>`;
+  a position: its own company and title) that the embedded text puts above the chunk.
+  Every line of a text is in a chunk, however long the text; an entity with no text is
+  chunked from its header alone.
+- **Parts** (`chunking.document_parts`, messages and lead profiles): Graphia's
+  documents. A text of at most `PART_CHARS` (1,800) once stripped is one part, as
+  written; a longer one is cut like a body above at 1,800/1,800. Each part is exactly
+  the text Graphia extracts, so a search hit on a row is a Graphia document. Header: a
+  message's company and subject, a lead's name and company.
+- **Ledgers** (`LEDGERS`; simpl_flow migration 171 for positions, job offers and
+  articles, 183 for messages and leads, each rebuilding version 1 of its datasets):
+  `sales.article_chunk_index`, `sales.job_offer_chunk_index`,
+  `sales.lead_experience_chunk_index`, `sales.lead_chunk_index`,
+  `sales.conversation_message_chunk_index`, one row per entity. `mark_sales_documents`
+  lists every entity with a fingerprint (`marking`) and marks the new, changed and
+  gone ones; the shared `DocumentIndexer` then rewrites only entities whose texts or
+  fields changed and embeds only new chunk texts. Bump `TEXT_PREP_VERSION` when the
+  chunking changes: every entity is marked once and unchanged chunks keep their
+  vectors. A message's fingerprint holds its conversation's message count and newest
+  message, so a new message rebuilds its whole conversation (same company and people
+  on every row); unchanged texts keep their vectors.
+- **Zilliz** (`sales_datasets.zilliz`): one hybrid collection per chunked kind
+  (`COLLECTIONS`), read through its alias (`ALIASES`: the kind's name), partitioned by
+  `company_id`, with the entity id to group by, `title`, `dated_at`, `language` and
+  each kind's filter ids. A lead's row opens with their name, so a keyword search finds
+  a lead by name.
 - **Every row has a company** (`companies`). A lead: their most current experience
   (`LeadRepository.current_experience_company_ids`), else their user-lead connections;
   never `sales.lead.company_id`. A conversation: its `primary_company_id`, else the
@@ -3138,12 +3157,12 @@ await indexer.run_batch(batch_size=500, run_id=run_id)
 - **Dates:** every row but a skill has `dated_at` and `dated_at_basis`: the source's
   real time when it has a clear one (`sent`, `posted`, `published` for a full ISO
   article date, `started`), else `stored` (Postgres `created_at`).
-- **Runs:** messages rewrite whole conversations stored since the dataset's newest
-  message; leads and skills compare a fingerprint of every field; positions, job offers
-  and articles go through their ledgers (above). Only rows that changed are rewritten.
-  What left Postgres or the scope becomes a tombstone. `ROW_VERSION` is the plain
-  kinds' `row_version` and part of the chunked kinds' fingerprint: bump it when what a
-  row holds changes, and run `full=True` once for the messages.
+- **Runs:** skills compare a fingerprint of every field; the chunked kinds go through
+  their ledgers (above). Only rows that changed are rewritten. What left Postgres or
+  the scope becomes a tombstone. An unreadable message body or a conversation with no
+  company is skipped and logged (`sales_datasets.messages_left_out`). `ROW_VERSION` is
+  the skills' `row_version` and part of the chunked kinds' fingerprint: bump it when
+  what a row holds changes.
 
 `simpl_core.anonymization` is the anonymizer on its own, for any text whose people are
 known, for the step after identity linking:
