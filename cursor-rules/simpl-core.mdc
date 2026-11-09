@@ -2827,7 +2827,10 @@ report.clean, report.differences, report.summary()
   response times, the header technologies it writes with it) or `website-risk apply`
   waits for the nightly sweep: up to a day, then the next nightly matching run.
   `follow_sites` (by `sales.website.updated_at`, which no index covers: every round read
-  and sorted the whole table) was removed; drop any call to it.
+  and sorted the whole table) was removed; drop any call to it. Since 0.8.314 each page
+  reads about `page` jobs however far behind the cursor is and whatever the table's
+  statistics say: 277k jobs behind, a page had read and joined all of them and hit the
+  statement timeout (2026-11-06, 2026-11-07).
 - **The index check** (`index_check`, 0.8.304): whether the collection holds what
   Postgres holds. `run_website_facts_index_check(db, collection, *, settings=
   IndexCheckSettings(), announce=True, alert=data_lake_alert_async, today=None) ->
@@ -2845,20 +2848,25 @@ report.clean, report.differences, report.summary()
   yes/no field both `true` and `false`, every technology test, the keyword rules, and
   combined ones), through `WebsiteFactsSearch` and through `matching_hosts` on
   Postgres; (d) sites the extractor wrote (finished `website_signals` jobs) 15-60
-  minutes ago, the one path the follow pass promises within minutes. Left out of (b)
+  minutes ago, drawn evenly among the sites written then, the one path the follow pass
+  promises within minutes. Left out of (b)
   and (c): sites the extractor wrote within the hour, those pending, and those whose
   facts moved since the ledger's last mark (`awaiting_sweep`, counted in `checked`: the
   scanner's own fingerprint, `scan.site_fingerprints`, differs from `source_hash`; the
   crawl writer's site rows and the risk command wait for the nightly sweep, which is no
   difference); refused hosts everywhere. Not clean when it compared too little: a table
-  with no row for the login, or (b) or (c) comparing under half the sites it drew,
-  with why. A fill is pending sites the index never held (`stored_at` null): over
+  with no row for the login, or (b), (c) or (d) comparing under half the sites it
+  drew, with why ((d) since 0.8.314). A fill is pending sites the index never held (`stored_at` null): over
   `fill_pending` (1,000) of them it reports a fill in progress instead of counts,
   stuck rows and freshness; the sweep's re-marks of held sites never count. Run it
   once the nightly sweep's marks have drained (an hour or more after the sweep); earlier
   it is still right, with less to compare. Every read has its own statement timeout
   (60 s, the counts 180 s). Its reads take about 4 passes of `sales.website` (70 MB),
-  one count of `sales.website_technology` and primary-key reads of the samples.
+  one count of `sales.website_technology`, primary-key reads of the samples, and the
+  extractor's recent jobs mapped to hosts 2,000 a statement (the last hour twice, 45
+  and 15 minutes once each: about 120 short statements at 80k jobs an hour). Before
+  0.8.314 one statement joined a whole window of jobs to its pages and timed out on
+  production (2026-11-08).
 - **`matching_hosts(db, condition, hosts, *, today, sites=None)`**: what a parsed
   condition matches in Postgres, by the condition's own rules: most site tests in SQL
   (`SITE_TESTS`, one per operator), versions and `LOWERCASED_FIELDS` texts on the site

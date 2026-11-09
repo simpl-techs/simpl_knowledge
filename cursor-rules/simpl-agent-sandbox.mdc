@@ -226,8 +226,8 @@ result.answer.text  # UntrustedText: the sub-agent read pages nobody checked
   and every page field is on one line. `CodeTaskResult.summary` and
   `BrowseTaskResult.answer` are `UntrustedText`; output files and downloads are
   untrusted bytes to store, never to run or render on a server.
-- **Results**: `outcome` (`TaskOutcome`: done, output_missing, step_cap, time_cap,
-  loop_stopped, model_failed, sandbox_failed, browser_failed) with `detail`, the files,
+- **Results**: `outcome` (`TaskOutcome`: done, output_missing, submit_asked, step_cap,
+  time_cap, loop_stopped, model_failed, sandbox_failed, browser_failed) with `detail`, the files,
   the check verdicts, the step log (`StepRecord`: action, short detail and result, model
   and sandbox time), `model_usage` (requests and tokens), `usage` (`SandboxUsage` from
   `destroy()`) and `image_digest`, the exact image the sandbox ran (`sha256:...`, as
@@ -244,7 +244,8 @@ result.answer.text  # UntrustedText: the sub-agent read pages nobody checked
   A sink that raises is logged and never replaces the result. Before the host shuts
   down, it awaits `drain_destroys()`, so destroys whose callers were cancelled finish;
   a destroy cancelled anyway reports `(sandbox_id, None, "CancelledError")`.
-- **Browse safety** (v1 reads and downloads public pages; typing is for site search):
+- **Browse safety** (without a submit context: reads and downloads public pages; typing
+  is for site search):
   the sandbox reaches public IPv4 addresses only, checked by the firewall after DNS;
   browserd's filter passes only GET, HEAD and OPTIONS to public addresses (a name is
   refused unless every address it resolves to is public; loopback and the CDP port
@@ -256,6 +257,22 @@ result.answer.text  # UntrustedText: the sub-agent read pages nobody checked
   with a backslash, whitespace, control characters or credentials are refused. Not
   covered: page script that sends typed text in a GET request to a site (a search box
   does exactly that).
+- **Form submits** (phase 4, opt-in): pass `submits=SubmitContext(switch, origin,
+  private)` to `run_browse_task`. The host sets it, never the model: `switch` is
+  `OPS_BROWSE_SUBMITS` (`off` behaves exactly as no context), `origin` is `owner` or
+  `tainted`, `private` whether the task holds private data. The sub-agent then gets
+  `submit` (on a SUBMIT element) and `type` with `enter` (in a one-line text field).
+  Each press is decided by fixed rules from facts the page cannot lower: free submits
+  go under browserd's one-request permit, which checks the body at the wire; a submit
+  the owner must approve ends the task `SUBMIT_ASKED` with `result.ask` (`SubmitAsk`:
+  the page, the form's fields and exact values, the rules, a PNG screenshot); refused
+  ones (accounts, logins and codes, payments, CAPTCHAs, posting on social and comment
+  sites) press nothing. `result.submits` holds a `SubmitRecord` per try, for the
+  audit: values only for free submits. After the owner's press, the host calls
+  `run_form_submit(ask, provider, ...)`: a new box, no model, the approved values
+  filled, sent only when the form still hashes as the owner saw it; the outcome is
+  `executed`, `not_sent`, `failed` or `unknown` (pressed, no answer: never send it
+  again).
 - **Open-web risks** (D28, accepted by Jackie): a page can trick the sub-agent into
   opening a URL that carries text from its context, the task included, to any site;
   link-click actions (unsubscribe, confirm or sign-in links) can fire on any site; the
