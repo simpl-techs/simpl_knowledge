@@ -67,8 +67,8 @@ def call_ai(prompt: str, user_id: str | None = None):
 - **Every Cloud Run workload MUST record its compute.** Services and worker pools call `track_instance_lifetime(process_name=...)` once at startup and `close()` it on shutdown; jobs and Prefect flows use `@track_compute(process=...)` on the entry point. `infra_tracking.enabled` must be true in `tracker.yaml`. Per-request or per-task sessions on a service or worker pool undercount: Google bills the instance's whole lifetime, idle included.
 - On Cloud Run, `configure_from_yaml()` runs `require_compute_tracking()`: a report on the cost-tracking channel when infra tracking is off or no session opens within 10 minutes. It never stops the process, and the deploy-time check in simpl_knowledge only warns.
 - Compute sessions that never close are closed as `timeout` by the DB sweeper and still count in reports. Do not write `infra_compute_session` rows yourself.
-- Reports take OpenAI, OpenRouter and DeepSeek from their bills on every provider-day loaded (`scripts/provider_bill_sync.py`): the difference to the ledger is a `provider_bill_difference` row with no repo or customer, so per-customer cost is what the ledger recorded. A call your code makes without a receipt shows up there, not under your repo.
-- Reports take Google Cloud from its bill, not from sessions, on every day the billing export is loaded (`scripts/gcp_billing_sync.py`, every six hours). Sessions still matter: they split each billed resource across repos, processes and customers, and a resource with none is reported as unattributed. A session's `service_name` must be the Cloud Run resource name (it is when auto-detected).
+- Reports take OpenAI, OpenRouter and DeepSeek from their bills on every provider-day loaded (`src/simpl_tracker/jobs/provider_bill_sync.py`): the difference to the ledger is a `provider_bill_difference` row with no repo or customer, so per-customer cost is what the ledger recorded. A call your code makes without a receipt shows up there, not under your repo.
+- Reports take Google Cloud from its bill, not from sessions, on every day the billing export is loaded (`src/simpl_tracker/jobs/gcp_billing_sync.py`, every 10 hours). Sessions still matter: they split each billed resource across repos, processes and customers, and a resource with none is reported as unattributed. A session's `service_name` must be the Cloud Run resource name (it is when auto-detected).
 - Notification failures must remain fail-safe; they should log but not block the workload.
 - Discord webhooks are raw URLs from env (`DISCORD_ERROR_WEBHOOK_URL`, `DISCORD_WARNING_WEBHOOK_URL`, `DISCORD_SUCCESS_WEBHOOK_URL`), interpolated in `tracker.yaml`. Do not load Prefect `DiscordWebhook` blocks. Cost-tracking gaps go to their own channel through `DISCORD_COST_TRACKING_WEBHOOK_URL`, read directly from the environment (not from `tracker.yaml`).
 - Notify API version 3 (`simpl_tracker.logging.NOTIFY_API_VERSION`). Every level method takes `notify: bool | "info" | "warning" | "error"` (default `NOTIFY_DEFAULT`), `error: BaseException | str | None`, `notify_fingerprint` and `notify_entities`. `True` maps the level to its channel; a string picks the channel; `False` always silences. An exception `error=` reaches every channel with its traceback. Every level method and `notify_*` helper returns a `bool`: `True` when the alert was accepted (queued, or delivered with `async_delivery` off) or skipped only because report-once found its exception already announced on that channel or a higher one; `False` when no channel applies, the silent marker applies, there is no notifier, notifications are suppressed, the service is disabled or closed, or `send` refused or raised. Accepted is not delivered.
@@ -249,8 +249,8 @@ difference; do not append an export to the ledger to close it.
 
 Neither offers that export over an API, but both report the account's spend:
 OpenRouter's `/api/v1/credits` the cumulative usage, DeepSeek's `/user/balance` the
-balance left, each for the whole account whatever key asks. `scripts/provider_spend.py`
-(hourly in `.github/workflows/provider-spend.yml`; dry run by default, `--apply`
+balance left, each for the whole account whatever key asks. `src/simpl_tracker/jobs/provider_spend.py`
+(every 10 hours in simpl_flow's `cost_tracking_flow` on Prefect; dry run by default, `--apply`
 writes, always exits 0 and reports problems through `report_tracking_gap`) stores a
 snapshot of each in `provider_spend_snapshot`, then compares the last day of
 snapshots with the ledger over the same intervals (`ledger_spend_between`) and stores
@@ -259,16 +259,16 @@ interval with a DeepSeek top-up is left out of both sides. It says how much the
 ledger misses, net; `reconcile_providers.py` with an export says which requests.
 
 ```bash
-doppler run --config dev -- python scripts/provider_spend.py [--apply]
+doppler run --config dev -- python -m simpl_tracker.jobs.provider_spend [--apply]
 ```
 
 It needs `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `SUPABASE_URL`,
 `SUPABASE_SERVICE_ROLE_KEY` and migration `20261013170100_provider_spend_snapshots`;
 the logic is in `simpl_tracker.provider_spend`.
 
-### Google Cloud: loaded from the billing export every six hours
+### Google Cloud: loaded from the billing export every 10 hours
 
-`scripts/gcp_billing_sync.py` (every six hours in `.github/workflows/gcp-billing.yml`;
+`src/simpl_tracker/jobs/gcp_billing_sync.py` (every 10 hours in simpl_flow's `cost_tracking_flow` on Prefect;
 dry run by default, `--apply` writes, always exits 0 and reports problems through
 `report_tracking_gap`) reads the last four complete UTC days of the BigQuery billing
 export and loads each with `cost_tracking.load_gcp_billing_day`: the day in
@@ -287,7 +287,7 @@ what startup-program credits (`PROMOTION`) and other credits covered, and what w
 billed: the cost page reads it. Credit balance and expiry are not in the export.
 
 ```bash
-doppler run --config dev -- python scripts/gcp_billing_sync.py [--since 2026-07-01] [--apply]
+doppler run --config dev -- python -m simpl_tracker.jobs.gcp_billing_sync [--since 2026-07-01] [--apply]
 ```
 
 It needs `GCP_BILLING_SERVICE_ACCOUNT_JSON_INLINE` (else Application Default
@@ -302,8 +302,8 @@ OpenRouter bills a stream its caller cancels for what was generated until then; 
 reasoning model can generate for minutes before the client reads a single chunk, so the
 receipt (`interrupted`, `unpriced`) has no body id and no amount. Since 0.8.7 it is named
 by the `x-generation-id` header OpenRouter sends with the status line, and
-`scripts/openrouter_costs.py settle --apply` (hourly, the first step of
-`provider-spend.yml`) asks `GET /api/v1/generation?id=` what each such generation was
+`src/simpl_tracker/jobs/openrouter_costs.py settle --apply` (every 10 hours, just before
+`provider_spend`, in simpl_flow's `cost_tracking_flow` on Prefect) asks `GET /api/v1/generation?id=` what each such generation was
 billed and settles it through `settle_llm_receipts`. Services pick this up when they
 relock simpl-tracker. Logic: `simpl_tracker.openrouter`.
 
@@ -322,15 +322,15 @@ same change.
 ### Cheaper Inference: priced from its catalog, settled from its export
 
 Cheaper Inference sends no amount on its answers and sets its price per request, so its
-calls are costed twice by `scripts/cheaper_inference_costs.py` (dry run by default,
+calls are costed twice by `src/simpl_tracker/jobs/cheaper_inference_costs.py` (dry run by default,
 `--apply` writes; always exits 0: with `--apply`, an unreadable export row, a bill that
 fails to settle, missing credentials or a crashed run go to the cost-tracking channel
 through `report_tracking_gap`, and a dry run only prints them):
 
 ```bash
-doppler run --config dev -- python scripts/cheaper_inference_costs.py pricing --apply
-doppler run --config dev -- python scripts/cheaper_inference_costs.py settle --apply
-doppler run --config dev -- python scripts/cheaper_inference_costs.py settle --since 2026-09-01 --apply
+doppler run --config dev -- python -m simpl_tracker.jobs.cheaper_inference_costs pricing --apply
+doppler run --config dev -- python -m simpl_tracker.jobs.cheaper_inference_costs settle --apply
+doppler run --config dev -- python -m simpl_tracker.jobs.cheaper_inference_costs settle --since 2026-09-01 --apply
 ```
 
 `pricing` syncs the gateway's ZDR catalog into `provider_pricing`: calls are estimated
@@ -346,8 +346,8 @@ receipt replaces if it lands later. The window runs from the start of `--since` 
 days ago by default; an early date backfills) to 30 minutes ago. Each applied run then
 reconciles the window per request, like OpenRouter's, without the export rows, and
 stores it in `provider_reconciliation`, which `reconciliation_alert.py` watches.
-`.github/workflows/cheaper-inference-costs.yml` runs `settle --apply` hourly and
-`pricing --apply` daily; nothing else needs to schedule them.
+simpl_flow's `cost_tracking_flow` on Prefect runs `settle --apply` and `pricing --apply` every 10 hours;
+nothing else needs to schedule them.
 
 Every recorder names a Cheaper Inference request by `x-ci-request-id`: the transport
 for unwrapped and abandoned requests, and `CostRecordingModel` through the transport,
