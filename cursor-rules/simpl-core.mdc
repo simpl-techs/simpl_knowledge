@@ -2969,7 +2969,14 @@ report.clean, report.differences, report.summary()
   hosts)` the same by host. Companies map to hosts as for landing
   (`hosts_for_companies`, `www.` ignored); companies sharing a site share its match.
   Technologies, then site tests, then keywords, each on what the one before left; no
-  score. Search errors raise (a failure is never "nothing matched").
+  score. Search errors raise (a failure is never "nothing matched"). Since 0.8.318 up to
+  `HOSTS_PER_QUERY` (4,096) hosts go to Zilliz together: the technology tests are one
+  filter query, the site tests one more (a field tested twice adds one), and the keyword
+  part searches 1,024 hosts at a time (`MAX_TOP_K`, its cap on groups); before, every
+  part was cut at 1,024. A filter query reads every passing row, several a host
+  included. `hosts_per_search(condition)` is how many companies or hosts a caller
+  paging them should pass at once: 4,096 without keywords, 1,024 with (the opportunity
+  matcher's page size).
 - **`website_facts_evidence(db, condition, matches)`** -> host -> plain JSON: `host`,
   `url`, `technologies` (10 of the matched, `MAX_TECHNOLOGIES`, the worst first:
   highest `max_severity`, then end of life passed, then by name (`worst_first`);
