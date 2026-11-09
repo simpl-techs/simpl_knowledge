@@ -303,7 +303,7 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   band to the pending link requests), then those requests settled by models
   (`resolve_links`, `er.resolution`: applied only at `nuextract_min_confidence` and
   `teacher_min_confidence`; `links_dry_run` with `links_limit` asks both models and applies
-  nothing, its decisions kept as `dry-run:`), then as asked the next graph generation of a variant's runs
+  nothing, its decisions kept as `dry-run:`; `identity_batches` caps the run's micro-batches, the next run goes on from the watermark), then as asked the next graph generation of a variant's runs
   (`generation`, `variant`, `publish`), then the published generation's entity promotion
   into the golden zone the matcher's `entity` predicate reads (`promote`,
   `promotion_config`; migrations 153 and 154). Identity's state is still in Postgres (`er_*`) until this pipeline is reworked. One run
@@ -421,6 +421,27 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   "page_kind", "snippet"}]}}`, the snippet cut around the first keyword (the text lives
   only in the index, so it travels with the match). `page_kind` `site` is the site's
   template (menu, footer), shown at the home URL.
+- A **website facts signal** tests what each company's site runs and shows
+  (simpl_scraping's `sales.website` and `sales.website_technology`), as the website
+  facts index holds it in Zilliz (alias `website_facts`, keyword-only, no embedding):
+  `{"mode": "all_match", "conditions": [{"collection": "website_facts", "technologies":
+  {"names": ["PHP"], "risk": "past_eol"}, "site": [{"field": "uses_https", "op": "is",
+  "value": false}], "keywords": ["ecommerce"], "keyword_match": "any"}]}`. The condition
+  is simpl_core's (`search.website_facts`; every part, field and operator in its
+  SKILL.md), and simpl_core's `check_condition` checks it before any save. A company
+  matches when its site passes every part given: a site matches or not, with no score.
+  It searches the signal's ICP companies only, never every site, and companies sharing a
+  site share its match. On an ICP without filters (no company list) the signal fails:
+  the run reports it and keeps its matches. The evidence is the site:
+  `matching_objects = {"website_facts": {"count": 1, "ids": ["<host>"], "evidence":
+  [{"host", "url", "technologies", "technologies_matched", "site", "keywords",
+  "snippet"}]}}`: simpl_core's `website_facts_evidence` read from Postgres at match time
+  (at most 10 matched technologies, worst first, without what moves on every sighting:
+  `last_seen_at`, `seen_on_url`, the raw `evidence` text; `site` the tested facts; each
+  part only when the condition has it), plus `snippet`, one line on what matched (e.g.
+  `PHP 7.2.34, end of life 2020-11-30; security headers: no strict-transport-security`),
+  which shortlists show as for a website signal. No score (`total_score` null). A
+  condition simpl_core can no longer read fails that signal the same way.
 - An **include filter** (`sales.icp_filters.filter_type = 'include'`, wish_list
   `company.id IN ('…', …)`) names companies an ICP holds on top of its rules. The
   matcher upserts them in a separate pass with none of the ICP's clauses (a union, never
