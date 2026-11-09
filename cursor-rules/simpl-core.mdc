@@ -3164,6 +3164,21 @@ await indexer.run_batch(batch_size=500, run_id=run_id)
   the skills' `row_version` and part of the chunked kinds' fingerprint: bump it when
   what a row holds changes.
 
+### Search over Graphia's sources (`search.graphia_sources`)
+
+`open_source_search(nebius_api_key=...)` gives a `SourceSearch` over seven collections:
+the five chunked sales kinds', the posts' and the landing pages'. `search(text,
+filters=SourceSearchFilters(kinds, company_ids, hosts, languages), per_kind, limit)`
+embeds the text once per collection with its kind's query instruction, runs each
+collection hybrid (dense and BM25) grouped by source, and fuses the collections by RRF
+on their ranks. Each `SourceHit` names its Graphia `source` and `document` (a landing
+chunk: its page's first document, `landing_document_key(host, url)`), the chunk's row
+`key`, `title`, `content`, `company_id` or `host`, `dated_at` and its `rank`.
+`SourceSearch.resolve_leads(name)` finds leads by name in the lead profiles' collection;
+`resolve_companies(db, text)` a company by URL or domain (normalized landing host),
+LinkedIn URL or exact name; `resolve_lead_by_linkedin(db, url)` a lead by profile URL,
+all through Postgres' indexes.
+
 `simpl_core.anonymization` is the anonymizer on its own, for any text whose people are
 known, for the step after identity linking:
 `TextAnonymizer([Person("[LEAD_1]", ("Example Name",))], keep=("Example Co",))`. One
