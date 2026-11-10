@@ -379,8 +379,19 @@ It differs from `run` in what it refuses to do, not in what it resolves:
   own values; a threshold of `0` turns the skip off. The member raises
   `TargetTimeoutSkip` before sending, so the chain moves on with no wait and nothing
   is billed; the trail shows `raised` with that `error_class`. After the cooldown
-  (default 300 s) one call at a time tries the target again. A chain's last member never refuses. Counts
-  live in the process, so a short-lived run starts with none.
+  (default 300 s) one call at a time tries the target again. A chain's last member
+  never refuses. Counts live in the process, so a short-lived run starts with none.
+- **A closed list of OpenRouter upstreams is tried one upstream at a time.** When a
+  target's `provider_routing` closes its list (`only`, or `order` with
+  `allow_fallbacks: false`) and names two or more upstreams, each request is pinned
+  to one of them (`only: [name]`), in the written order. A request that fails with a
+  provider error moves to the next upstream, for at most the target's
+  `max_invalid_responses` requests (else the policy's, else `retries + 1`), then the
+  chain moves to its next member. Each upstream is counted and skipped on its own,
+  so one stalled upstream is passed over while the others keep serving the model.
+  Every attempt keeps the target's `fallback_index` and carries the pinned name as
+  `upstream` in the trail. With the skip off (`AI_TIMEOUT_SKIP_THRESHOLD=0`) the
+  list is sent to OpenRouter whole.
 
 ## Milvus: one hit per group, aliases, raw rows and filters
 
