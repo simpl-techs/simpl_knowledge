@@ -1873,8 +1873,10 @@ The strategy layer plans; the outreach walk does. They meet only in core tables
 ## Light moves: profile views, reactions, comments
 
 A light move is a `journey_log` row with `action_type` `light_move` on channel
-`profile_view`, `post_reaction` (with `payload.activity_urn`, optional `reaction_type`) or
-`post_comment` (with `activity_urn` and `message`; a draft the seller approves). They are
+`profile_view`, `post_reaction` (with `payload.activity_urn`, optional `reaction_type`),
+`post_comment` (with `activity_urn` and `message`; a draft the seller approves) or
+`post_repost` (an instant repost without a note, with `activity_urn`; only a post whose
+thread is an activity, else it fails as `repost_needs_activity_thread`). They are
 `PROXY_KINDS` (`repositories.outreach.journey_dispatch_rules`); no channel starts with
 `linkedin`, so the extension's task queue never selects them, and the dispatch trigger
 (`20261104i`) checks their fields and freezes `activity_urn` once approved.
@@ -1882,15 +1884,26 @@ A light move is a `journey_log` row with `action_type` `light_move` on channel
 `services.light_moves.executor.run_light_moves(db, operations=DatabaseLinkedInOperations(db),
 now=...)` runs them through the LinkedIn proxy on the seller's own extension: one move per
 seat per run, the seat's daily limits from simpl_api's `sales.linkedin_light_move_limits`
-(warming ramp, steady views 15, reactions 8, comments 2), a reaction or a comment only after
-a profile view in 14 days and on the person's own post at most 21 days old. A view stores the
+(warming ramp, steady views 15, reactions 8, comments 2, reposts 1), a reaction, a comment
+or a repost only after a profile view in 14 days and on the person's own post at most 21
+days old. A view stores the
 person's posts in `sales.post` (`author_kind` person, `source` `linkedin_profile_activity`,
-`models.post.Post`, `repositories.post.PostRepository`). Events: `models.light_moves.LightMoveEvent`
-(`linkedin.profile.viewed`, `linkedin.reaction.sent`, `linkedin.comment.sent`); a reaction
-and a comment count as touches. The proxy operations (`profile_activity`, `post_reaction`,
-`post_comment`, migration `20261104h`) ship disabled until checked on a live seat;
-`post_comment` sets `redispatch: false` (never handed to an extension twice) and a comment
-that times out fails as `outcome_unknown`, never retried.
+`models.post.Post`, `repositories.post.PostRepository`), each with `thread_urn`: the post's
+social thread (an activity, `ugcPost` or `share` URN, not always the activity's), where a
+reaction or a comment goes. `payload.activity_urn` names that thread: a producer takes it from
+`sales.post.thread_urn`, never builds it from `post_id`. A post the person reposted as it is
+(its actor is not the person) or reshared with their words is `is_repost`, never their own.
+The port takes the thread: `react_to_post(thread_urn=...)`, `comment_on_post(thread_urn=...)`,
+`repost_post(thread_urn=...)`. Events: `models.light_moves.LightMoveEvent`
+(`linkedin.profile.viewed`, `linkedin.reaction.sent`, `linkedin.comment.sent`,
+`linkedin.repost.sent`, `event_data.activity_urn` the thread); a reaction, a comment and a
+repost count as touches. The proxy operations (`profile_activity`, `post_reaction`,
+`post_comment`, migration `20261104h`; `post_repost`, `20261110c`) ship disabled; on a live
+seat (2026-11-10) `profile_activity` revision 2 (`20261110`, moduleKey's colon encoded),
+`post_reaction` and `post_comment` answered. `post_repost` calls LinkedIn's server-driven
+UI action `createInstantRepost` (flagship-web), not the voyager API. `post_comment` and
+`post_repost` set `redispatch: false` (never handed to an extension twice); one that times
+out fails as `outcome_unknown`, never retried.
 
 ## CRM flows
 
