@@ -2866,11 +2866,11 @@ report.clean, report.differences, report.summary()
 ```
 
 - **Signals on an ICP** (0.8.322): `WEBSITE_FACTS_KIND` is how every prompt that lists
-  signal kinds describes this one, word for word (simpl_api's wizard and chat, the Sales
-  Domain skills); `NO_COMPANY_FILTERS` is the refusal on an ICP without an enabled
+  signal kinds describes this one, word for word (simpl_api's wizard and chat, which
+  import it, and the Sales Domain skills); `NO_COMPANY_FILTERS` is the refusal on an ICP without an enabled
   company filter; `condition_key` tells when two conditions are the same signal;
-  `technology_names` is simpl_api's `list_website_technologies` listing, moved here
-  (simpl_api keeps its copy until it switches). See "Signal proposals" under the Sales
+  `technology_names` is the listing behind simpl_api's `list_website_technologies` and
+  the Sales Domain agent's, moved here from simpl_api (which imports it). See "Signal proposals" under the Sales
   Domain approval queue.
 - **What the follow pass sees, and what waits for the sweep** (0.8.304): the follow pass
   reads finished `website_signals` jobs through `extraction_jobs_succeeded_idx`, so the
