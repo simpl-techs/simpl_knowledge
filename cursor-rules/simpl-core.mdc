@@ -2812,6 +2812,11 @@ await indexer.run_batch(batch_size=500)
 # projection: projection_runner(dataset, milvus, name, WEBSITE_FACTS_COLLECTION, dims=None)
 
 errors = await check_condition(db, condition)       # before ANY save; [] = valid
+# A signal on an ICP: check_condition, then the ICP's company filters (simpl_api's save rule)
+errors = await website_facts_signal_errors(db, filter_json, icp_id=icp_id)
+condition_in_words(parse_condition(condition))       # "sites running PHP past end of life"
+await technology_names(db, search="apache", category=None,
+                       listing_tool="list_website_technologies", save_tool="create_icp_signal")
 search = WebsiteFactsSearch(milvus)                  # the website_facts alias
 found = await search.matching_companies(db, parse_condition(condition), company_ids)
 shown = await website_facts_evidence(db, parse_condition(condition), list(found.values()))
@@ -2821,6 +2826,13 @@ report = await run_website_facts_index_check(db, "website_facts_v1", announce=Tr
 report.clean, report.differences, report.summary()
 ```
 
+- **Signals on an ICP** (0.8.322): `WEBSITE_FACTS_KIND` is how every prompt that lists
+  signal kinds describes this one, word for word (simpl_api's wizard and chat, the Sales
+  Domain skills); `NO_COMPANY_FILTERS` is the refusal on an ICP without an enabled
+  company filter; `condition_key` tells when two conditions are the same signal;
+  `technology_names` is simpl_api's `list_website_technologies` listing, moved here
+  (simpl_api keeps its copy until it switches). See "Signal proposals" under the Sales
+  Domain approval queue.
 - **What the follow pass sees, and what waits for the sweep** (0.8.304): the follow pass
   reads finished `website_signals` jobs through `extraction_jobs_succeeded_idx`, so the
   page writer's changes (content, technologies) reach the index within minutes. A
@@ -3676,6 +3688,33 @@ An ICP's required company questions (simpl_api's feature check, `sales_view.icp_
 - `SalesDomainPendingActionService.refresh_pending()` expires old rows and withdraws the ones that no longer apply (`status = 'rejected'`, `rejection_reason` `expired: …` / `stale: …`, `decided_by` NULL). Hosts call it on their scheduled sweep; `has_open_pending` and the daily review snapshot call it themselves, so a stale row never holds a wake.
 - `SalesDomainPendingActionExecutor.approve_and_execute` re-checks first. A row that no longer applies is withdrawn and `StalePendingActionError` (a `ValueError`) is raised with an operator-readable message; nothing executes. When only some drafts are still waiting, it executes on those and records the narrowed payload. `claim_for_approval` refuses rows past the age cap whichever path calls it.
 - A deferred `icp_description_update` / `icp_filter_update` (`wish_list`) stores `previous_description` / `previous_wish_list`, the value it was written against, so approval never overwrites a newer edit.
+
+### Signal proposals (`icp_signal_create`, 0.8.322)
+
+The Sales Domain agent proposes website facts signals for an ICP (`icp_signal_propose`; `list_website_technologies` spells names and categories; the skill `website-facts-signal-proposals` says when and how). A signal is saved only after a person approves it, whatever the seller's HITL setting (Len, 2026-11-04).
+
+- **Off by default.** The tool works only in a daily review or a manual run (`icp_signal_tools.proposes_in`, the production triggers) of a seller whose row switches it on: `sales.user.outreach_prefs` `{"sales_domain_signal_proposals": true}` (`outreach_prefs.signal_proposals_enabled`, read into `SalesDomainV2Deps.signal_proposals` by `build_operator_deps`). Any other trigger, `icp_validation_review` included, answers `switched_off`, and the prompt mentions signals only in a daily review or manual run with the switch on. Switch a seller on with `UPDATE sales."user" SET outreach_prefs = COALESCE(outreach_prefs, '{}'::jsonb) || '{"sales_domain_signal_proposals": true}'::jsonb WHERE id = '<user id>';` (a production write).
+- **Before queuing**, in order: the checks a simpl_api save runs for the kind (`search.website_facts.website_facts_signal_errors`); a signal the ICP already has (enabled or not) is refused; a signal proposal already waiting on the ICP comes back `already_pending` unless this one supersedes it; then the preview (`open_website_facts_preview`, up to 20 s) counts the ICP's companies it matches. A complete count of none is not queued; a count cut short by its time budget is queued as partial (`count_note`, `matches.cut_short`).
+- **Limits:** one signal proposal waits per ICP (the ICP is the target, as for every ICP proposal); one is queued per run and three `preview=true` calls are allowed per run (daily review and manual; `no_novelty_daily_review` and `tactical_observation_only` have none).
+
+Payload, as the dashboard reads it:
+
+```python
+{"icp_id": "…", "icp_title": "Italian SMEs with old sites", "title": "PHP past end of life",
+ "in_words": "sites running PHP past end of life",          # search.website_facts.condition_in_words
+ "filter_json": {"mode": "all_match", "conditions": [{"collection": "website_facts", …}]},
+ "importance_level": 3, "change_reason": "…",
+ "matches": {"companies": 42, "sites": 40, "icp_companies": 3100, "companies_searched": 3100,
+             "cut_short": False, "counted_at": "2026-11-09T…+00:00"},
+ "sample_matches": [{"company_name": "…", "host": "…"}]}   # at most 5
+```
+
+Approving it (`execute_pending_action_command`) writes `sales.icp_signal` through `services.icp_signal_writes.create_proposed_website_facts_signal` (the only public writer: the unchecked insert is private) with simpl_api's create columns (`ICP_SIGNAL_CREATE_COLUMNS`: `icp_id`, `title`, `filter_json`, `importance_level`, `timeout` NULL, `enabled` true), after the same checks on today's data and a duplicate check; a refusal is the proposal's `execution_error` (status `failed`) and no row is written. Hosts:
+
+- `customer_brain.sales_domain_pending_action` accepts the type only after `migrations/20261109_sales_domain_pending_icp_signal_create.sql` (rollback beside it); apply it before a release that queues it.
+- **Deploy order:** the migration, then the dashboard with the approvals card (simpl_dashboard 0.1.408), then simpl_api relocked on this release (approving applies the proposal), then simpl_flow relocked (the agent proposes), then switch an account on. Roll back in reverse: switch accounts off, simpl_flow, simpl_api, the dashboard, then the migration's rollback (it refuses while an `icp_signal_create` row exists).
+- The agent's host (simpl_flow) and the approving host (simpl_api) need the `search` extra, the website facts check's reads (SELECT on `sales.website`, `sales.website_technology`, `scraping.technology_rule_versions` past RLS), and, for the agent's count, Zilliz as `AsyncMilvusStore.from_env` reads it.
+- `db_read_user_icps` (the agent's tool) lists each ICP's signals: `signals` (newest 20: `title`, `kind` post / website / website_facts / article / sql, `enabled`, `in_words` for website facts) and `signals_total`. The seed that rides on every model turn carries `signals_total` only (`db_read_user_icps(ctx, signal_lists=False)`).
 
 ## Regenerating a draft (asynchronous)
 
