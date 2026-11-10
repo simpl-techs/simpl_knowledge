@@ -179,11 +179,11 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
     dataset an index that does not keep up (`read_index_progress`): documents due and
     no commit for `params.maintenance.stalled_after_minutes` (60 by default; 0 turns it
     off, as migration 085 does for landing while its runs are held), or a Zilliz
-    projection that far behind the store. Graphia v2 runs by hand, with no schedule
-    (`UNSCHEDULED_LEDGERS`): in its ledger, documents a run that stopped
-    still holds count, dated by when the claim ran out; and documents due for over 6 h
-    (`BACKLOG_AFTER`) while no run holds any, so a run that stopped early is not left
-    unseen. `search_index_maintenance.health` and `.progress` log them every run.
+    projection that far behind the store. The frozen `graphia_extractions` (kind
+    `extractions`) has no progress check: its old ledger,
+    `knowledge_graph.extraction_index`, is Graphia v2's queue, and a stopped v2 run
+    read as this dataset's stalled index. `search_index_maintenance.health` and
+    `.progress` log them every run.
 - `gcp_memory_projection_flow` runs every five minutes and incrementally applies
   pending `agent_memory` revisions to Zilliz. It requires `NEBIUS_API_KEY`,
   `MILVUS_URI`, and `MILVUS_TOKEN`; do not replace it with routine collection
