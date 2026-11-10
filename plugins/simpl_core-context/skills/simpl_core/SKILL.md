@@ -3392,6 +3392,25 @@ passage = await document_passage(reads, ontologies, doc_key, variant_name=...)
   included, by fingerprint; a document that does not hash to its stored fingerprint is
   refused. A run whose fingerprint is not loaded raises `LookupError`
   (`log.ontology_of`): reload after a new version is registered.
+- **Steps** (`steps`): what identity and promotion make of a graph, for an explorer.
+  `read_identity(db, graph.nodes)` reads each unit's entity (`er_assignment`), follows
+  redirects to the canonical entity, and reads its registry anchor (`company:<id>` /
+  `lead:<id>`), the unit's link decision, an open link request and the anchors ruled
+  out. `read_promotion(db)` reads the newest `promotion_config` (as
+  `promotion_rules.PromotionRules`, also simpl_flow's) and the newest `done` or
+  `measured` run's report (a measurement that wrote no golden row, simpl_flow 187). `graph_steps(graph, identity, promotion)` gives `GraphSteps`: `extracted`
+  counts, `identity` (units folded into entities: per entity type units, entities,
+  merged, anchored, unplaced, pending; per relation type edges, folded, loops; the
+  merge groups), and `promotion` (the bars, and each entity and relation type shown or
+  why not: `type_off`, `type_unmeasured`, `type_below_precision`, or `not_measured`
+  when no run measured it). `units` maps each unit to its node after identity
+  (`node_id`: the canonical entity, else the unit itself).
+
+  ```python
+  from simpl_core.graphia.steps import graph_steps, read_identity, read_promotion
+
+  steps = graph_steps(graph, await read_identity(db, graph.nodes), await read_promotion(db))
+  ```
 
 ### Operator notifications
 
