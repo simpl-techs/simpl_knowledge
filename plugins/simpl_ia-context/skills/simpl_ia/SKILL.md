@@ -373,6 +373,14 @@ It differs from `run` in what it refuses to do, not in what it resolves:
   the chain advances. Once chunks flow, that clock is off. A target that goes
   quiet mid-stream is ended by the HTTP per-read timeout or by *your* ceiling over
   the whole turn — nothing infers a stall from silence.
+- **A target that keeps timing out is skipped.** A chain member stops sending to a
+  target that reached `AI_TIMEOUT_SKIP_THRESHOLD` timeouts (default 5) in the window
+  (default 300 s) and timed out more often than it responded. Each host may set its
+  own values; a threshold of `0` turns the skip off. The member raises
+  `TargetTimeoutSkip` before sending, so the chain moves on with no wait and nothing
+  is billed; the trail shows `raised` with that `error_class`. After the cooldown
+  (default 300 s) one call at a time tries the target again. A chain's last member never refuses. Counts
+  live in the process, so a short-lived run starts with none.
 
 ## Milvus: one hit per group, aliases, raw rows and filters
 
