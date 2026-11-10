@@ -3231,7 +3231,13 @@ embeds the text once per collection with its kind's query instruction, runs each
 collection hybrid (dense and BM25) grouped by source, and fuses the collections by RRF
 on their ranks. Each `SourceHit` names its Graphia `source` and `document` (a landing
 chunk: its page's first document, `landing_document_key(host, url)`), the chunk's row
-`key`, `title`, `content`, `company_id` or `host`, `dated_at` and its `rank`.
+`key`, `title`, `content`, `company_id` or `host`, `dated_at` and its `rank`. Its
+`score` only encodes that rank; what was measured is `similarity` (the exact cosine
+between the query and the chunk shown, from its stored vector; None if the row left
+the collection), `dense_rank` and `dense_score` (the source's place in the semantic half
+and its closest chunk's exact cosine, maybe another chunk), and `keyword_rank` and
+`keyword_score` (BM25, no fixed scale).
+Cosines compare well within a kind, only roughly across kinds.
 `SourceSearch.resolve_leads(name)` finds leads by name in the lead profiles' collection;
 `resolve_companies(db, text)` a company by URL or domain (normalized landing host),
 LinkedIn URL or exact name; `resolve_lead_by_linkedin(db, url)` a lead by profile URL,
