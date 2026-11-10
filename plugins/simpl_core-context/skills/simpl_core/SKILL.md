@@ -3798,7 +3798,9 @@ icp_id=None)`, 5,000 leads per statement, so no statement nears the API pool's 6
 client timeout); `icp_target_coverage(conn, icp_id=…)` is one ICP and raises
 `IcpWithoutOwnerError` for an ICP without an owner. The biggest customer (94k connected
 leads) takes about 19 reads of ~9 s on production, whatever its targets' size; callers
-that count often cache the result per customer (simpl_api `icp_target_left`).
+that count often cache the result per customer (simpl_api `icp_target_left`). Each
+target is read once, whole: its rows also give `target_refreshed_at` (their latest
+`updated_at`), so no second walk of `opportunity.icp_company_matches` runs.
 
 ## Autopilot yield (Sales Domain)
 
