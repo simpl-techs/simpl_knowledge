@@ -228,7 +228,7 @@ Graphia's extractions read back as small graphs, for admins: its own Cloud Run s
 
 Routes, under `/api/v1/admin/graph-explorer`, `require_admin` on each (a staff agent's ticket is refused):
 
-- `POST /search` `{text, kinds?, company_ids?, hosts?, languages?, per_kind, limit}`: the sources best matching a text, fused across the seven collections; each hit names its Graphia `source` and `document`.
+- `POST /search` `{text, kinds?, company_ids?, hosts?, languages?, per_kind, limit}`: the sources best matching a text, fused across the seven collections; each hit names its Graphia `source` and `document`. `score` only encodes the hit's `rank` in its collection; how close it is comes in `similarity` (cosine of the query and the chunk shown), `dense_rank`/`dense_score` (semantic half: place and closest chunk's cosine) and `keyword_rank`/`keyword_score` (BM25, no fixed scale), None where not measured.
 - `POST /resolve` `{text}`: the companies and leads a typed name, domain or URL names.
 - `POST /graph` `{sources? and/or doc_keys? | company_id | lead_id, per_kind, limits, locations, variant_name}`: the capped graph (`simpl_core.graphia.models.Graph`, with `timings_ms`; `truncated.seed_runs` when the seeds' runs were read up to `limits.seed_run_rows`), and for a company or a lead the sources it read (`identified`, with `capped`: the kinds whose read stopped at 5,000 rows). A company or a lead without sources gives an empty graph.
 - `GET /documents?doc_key=&variant_name=`: one document's passage (text and spans); 404 when the variant has no current run of it.
