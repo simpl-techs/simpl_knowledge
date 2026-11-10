@@ -93,12 +93,15 @@ async with VercelSandboxProvider(config.vercel) as provider:
 - Hosts build each provider from config and register it once at startup in
   `SandboxProviderRegistry`; a policy names the provider to use.
 - The browser image carries the T0 path-A pieces in `/opt/sbx`: start `browserd.py
-  [--no-downloads]` detached (Chromium plus an in-browser request filter), then run
+  [--no-downloads] [--typed] [--read-checks=N]` detached (Chromium plus an in-browser
+  request filter), then run
   `act.py '<json action>'` once per step (`step`: unfreeze the page, one action, settle,
-  snapshot, freeze; plus `navigate`, `snapshot`, `downloads`). The filter lets through
+  snapshot, freeze; the step's `screenshot` saves a PNG among the downloads; plus
+  `navigate`, `snapshot`, `downloads`). The filter lets through
   only GET, HEAD and OPTIONS to public addresses, checked after DNS (loopback and the
   CDP port included, which the firewall cannot see), in every tab, popup, frame and
-  worker,
+  worker, plus page script's reads by POST from any public host that is not refused,
+  until anything is typed (D83 widened by G25, below),
   and browserd removes `WebSocket`, `WebSocketStream`, `WebTransport` and
   `RTCPeerConnection` from every page, frame and worker, because WebSockets never reach
   the filter. `act.py` refuses to act when the daemon is not running, refuses any click,
@@ -228,7 +231,8 @@ result.answer.text  # UntrustedText: the sub-agent read pages nobody checked
   and every page field is on one line. `CodeTaskResult.summary` and
   `BrowseTaskResult.answer` are `UntrustedText`; output files and downloads are
   untrusted bytes to store, never to run or render on a server.
-- **Results**: `outcome` (`TaskOutcome`: done, output_missing, submit_asked, step_cap,
+- **Results**: `outcome` (`TaskOutcome`: done, output_missing, submit_asked, bot_check,
+  step_cap,
   time_cap, loop_stopped, model_failed, sandbox_failed, browser_failed) with `detail`, the files,
   the check verdicts, the step log (`StepRecord`: action, short detail and result, model
   and sandbox time), `model_usage` (requests and tokens), `usage` (`SandboxUsage` from
@@ -236,7 +240,11 @@ result.answer.text  # UntrustedText: the sub-agent read pages nobody checked
   Vercel resolved the tag; also on `SandboxSession` and in the `sandbox.created` and
   `sandbox.task.*_finished` log lines; `None` when the provider reports none). `DONE` means the checks passed and every checked file or
   `DownloadCompleted` download came back; `output_missing` names the ones that did not.
-  The step log is returned, never stored here (D7).
+  The step log is returned, never stored here (D7). A browse result also has
+  `blocked_requests` (how many requests browserd blocked) and `blocked_top`: its 10
+  largest groups as `BlockedRequests` (host, method, reason, count; the host comes from
+  the page, so untrusted). When the browser stopped, `detail` holds browserd's exit line
+  (reason and code), including the first one after a restart that let the task go on.
 - **Errors**: a failed `create` raises `SandboxError` (nothing ran). After that, sandbox,
   browser and model failures are outcomes; an unexpected error raises `TaskRunError`
   with the step log and token count so far; a cancellation is re-raised. In every case
@@ -252,13 +260,51 @@ result.answer.text  # UntrustedText: the sub-agent read pages nobody checked
   browserd's filter passes only GET, HEAD and OPTIONS to public addresses (a name is
   refused unless every address it resolves to is public; loopback and the CDP port
   included), and browserd removes the WebSocket, WebTransport and
-  WebRTC constructors from every page, frame and worker. Our code refuses any click,
+  WebRTC constructors from every page, frame and worker. One exception (phase 7, D83):
+  with no submit permit open, a POST passes when page script sent it (XHR or Fetch,
+  never a document, beacon or CSP report), to any public host that is not on the
+  refused list (G25), before anything was typed in the task, with a
+  readable body of at most 64 KB and no personal-data or card shape, at most 300 bodies
+  checked per task (passed or not). Sites such as HubSpot load their prices that way. A GET, HEAD or OPTIONS with a
+  body goes through the same check. `result.read_posts` counts them; nothing is logged. Our code refuses any click,
   typing or download on an element that sends a form (a submit or image input, a submit
   button, or anything inside one) before it reaches the browser, and act.py refuses it
   again at click time. Typed text loses its line breaks, so Enter is never pressed. URLs
   with a backslash, whitespace, control characters or credentials are refused. Not
   covered: page script that sends typed text in a GET request to a site (a search box
   does exactly that).
+- **What the sub-agent reads** (phase 7, G9-G11): the page's text on the screen, then
+  below it (1,500 characters), each control's state after its name
+  (`(on)`, `(checked)`, `(expanded)`), and its own notes from earlier steps (each page
+  action may carry `notes`, at most 1,500 characters, the latest kept), fenced apart
+  from the page. Two actions read the whole page without scrolling, on demand (G12):
+  `find(text)` (controls with refs and text lines holding the words, about 2,000
+  characters) and `read_more` (the next 4,000 characters below what was seen). Near a
+  cap each prompt says to finish (G19), and a task the loop guard or the step cap stops
+  gets one last turn that may only call `done` (G20): `DONE` when its checks pass.
+  Done is refused once when a listing task has not read its page to the end (G17), and
+  once when the answer gives amounts or counts that no page of the task showed (G16);
+  a second done goes, with those amounts in `result.unverified`; a figure the task text
+  itself quotes counts as seen, and a currency amount must match a currency amount the
+  pages printed, a count a count (G35). A listing task about prices or plans has done
+  refused once while the answer leaves out a price the task's own site printed (G34:
+  "these prices were on the page but are not in your answer: $446 ..."); a second done
+  goes, with those still left out in `result.missing_prices`. A pricing task (monthly, yearly, billing) on a page with
+  a billing switch has done refused once until the sub-agent used the switch (G27); a
+  second done goes, and `result.detail` ends "answered without using the page's billing
+  switch ...". A click on a switch, tab or box adds what it reads now to the step's
+  result. A regional redirect (zendesk.com to zendesk.de, de.example.com, /de/) is named
+  in the step and never counts as a loop (G18); another host or path of the site
+  (app.example.com, /go/pricing) is not one. A bot check on the open page (its title or
+  first text, or a refused request to a CAPTCHA service's host and path beside almost no
+  text) ends the task `BOT_CHECK`, with fixed words in `detail` (G26).
+- **Screenshots as files** (phase 7, D87): with `allow_downloads`, the sub-agent also
+  gets `screenshot(name, full_page=False)`. The PNG (the screen, or the page down to
+  6,000 px and 1,280 px wide; at most 2 MB, else at half scale, else refused; a name
+  already saved is refused) is saved among the
+  downloads under that name and comes back in `files` like a download, so a
+  `DownloadCompleted("plans.png")` goal checks it and the host's type check (D19) keeps
+  it. Its description says to use it only when the task asks for a picture.
 - **Form submits** (phase 4, opt-in): pass `submits=SubmitContext(switch, origin,
   private)` to `run_browse_task`. The host sets it, never the model: `switch` is
   `OPS_BROWSE_SUBMITS` (`off` behaves exactly as no context), `origin` is `owner` or
@@ -288,12 +334,110 @@ result.answer.text  # UntrustedText: the sub-agent read pages nobody checked
   page stays frozen while the model thinks. A navigation without a load event within
   `nav_timeout_s` (15 s) is retried once in a new tab that browserd opens; on browserd's
   exit line Chromium is restarted once in the same sandbox and the last page reopened,
-  and a second exit ends the task with `BROWSER_FAILED`. A `cdp_websocket` driver is
-  planned behind the same interface.
+  and a second exit ends the task with `BROWSER_FAILED`. It counts blocked requests by
+  host, method and reason in memory (at most 200 groups; more hosts count as one), and
+  the sub-agent's next page shows a `BLOCKED since your last action: 14 × POST
+  app.example.com (method)` line, at most 5 groups, only when something new was blocked
+  (D84). A `cdp_websocket` driver is planned behind the same interface.
 - **Live view (developers only)**: `scripts/live_view.py` runs one task and serves its
   step log and the browser's frames on `http://127.0.0.1:8791/`. Pass a `TaskObserver`
   subclass to `run_*_task` to see events yourself; what it receives is raw and must
   never reach a model or `tool_call_runs`.
+
+## Host package (`simpl_agent_sandbox.host`)
+
+What a host runs inside one `code_task` or `browse_task` tool call (0.3.0; moved
+from simpl_core's agent framework, plan `sandbox-host-out-of-core-plan.md` M1, with
+the same names). The host registers its own tools; inside each call it builds a
+`SandboxToolContext` and awaits a run. Needs the `tasks` extra.
+
+```python
+from simpl_agent_sandbox.host import (
+    BrowseTaskSpec,  # the tool arguments the model fills in (pydantic)
+    CodeTaskSpec,
+    SandboxPolicy,
+    SandboxToolContext,
+    SandboxToolHost,
+    SandboxUsageReport,
+    SubmitTaskFacts,
+    run_browse_tasks,
+    run_code_tasks,
+    run_form_submits,
+    structured_client_sub_agents,
+)
+
+host = SandboxToolHost(  # once, at startup
+    sub_agent_model=structured_client_sub_agents(deepseek_client(key)),
+    file_store=store,  # SandboxFileStore protocol; None: no inputs, outputs not kept
+    on_usage=record_usage,  # SandboxUsageReport -> simpl_tracker; None: a tracking gap
+    on_ask=stage_ask,  # async (whole ask) -> staged id | None; only for form submits
+    browser_image=image,  # region and images default to the pinned ones
+)
+context = SandboxToolContext(  # per call, never from the model
+    host=host,
+    policy=SandboxPolicy(provider="vercel", tools=["browse_task"], allow_downloads=True),
+    process_name="ops_sandbox:agent-slug",
+    attribution={"user_id": "...", "pipeline_run_id": "...", "node_run_id": "..."},
+    deadline=deadline,  # time.monotonic() instant: the earliest of the host's limits
+    submit_facts=SubmitTaskFacts("owner", private=False),  # browse with submits only
+)
+reply = await run_browse_tasks(context, tasks)  # dict the calling model reads
+```
+
+- **One call is a batch** (D17): `policy.parallel` tasks at once (an
+  `asyncio.Semaphore`), at most `MAX_SANDBOXES_PER_PROCESS` (8) sandboxes across the
+  process and `MAX_BROWSERS_PER_SITE` (2) browsers starting on one site. One failing
+  task never stops the others; results come back in input order, each with its
+  `index`, `outcome`, `done` and `detail`. A cancellation of the call is raised.
+- **Time**: each task gets its share of the time left before `deadline`, less
+  `FINISH_MARGIN_S` (30 s) for the model to read the reply; a call that would give a
+  task less than 120 s is refused before any sandbox starts. The host computes the
+  deadline: its turn's end, and the model call's cut if it has one (simpl_core read
+  that from its own context variable; this package never imports simpl_core).
+- **Costs**: every sandbox's usage goes to `on_usage` as a `SandboxUsageReport` with
+  the context's `process_name` and `attribution` as they are; put `node_run_id` and
+  `pipeline_run_id` in the attribution to group costs by run. A failing sink is
+  logged and reported as a tracking gap, never raised.
+- **Files**: code task inputs are loaded by reference from the file store; outputs
+  and downloads are saved there, and the row lists each with its `ref` or why it was
+  `not_kept`.
+- **What the model reads**: every text is cut to a fixed size; page- or
+  sandbox-derived text sits under `untrusted_` keys (`untrusted_summary`,
+  `untrusted_answer`, `untrusted_final_url`). A browse row also has `blocked_requests`,
+  `blocked_top` (the 10 largest groups of blocked requests: `untrusted_host`, `method`,
+  `reason`, `count`; D84; a method that is not HTTP's reads `OTHER`) and
+  `unverified_amounts` (amounts or counts in the answer
+  that no page of the task showed, kept after one refused done; G16) and
+  `missing_prices` (prices the task's own site printed that a listing answer still
+  left out; G34). Refusals (a
+  non-public start URL, downloads off, too many tasks, a tool the policy does not
+  offer, two tasks on one start page, D86) come back as rows or a `refused` / `error`
+  key, not exceptions. A create the provider refuses for lack of room (Vercel's 429,
+  `SandboxUnavailableError` with `reason` `capacity` or `rate_limited`) waits about 15 s,
+  doubling to 60 s, and tries again while the task would still get its minimum time
+  before the deadline (3 minutes in all with none); then its row is `sandbox_unavailable`
+  with `detail` "no sandbox was free, so this task did not run: try it again later",
+  then the provider's words (G28).
+- **Form submits** (phase 4): with `policy.submits` set to `ask` or `on`, browse tasks
+  run under the submit rules with the host's `submit_facts` (None: tainted and
+  private). Each row lists its `submits`; a task that ends `submit_asked` hands the
+  whole ask to `on_ask` (with the form's screenshot kept in the file store) and the
+  model reads only the staged id, the rules and the page's host. After the owner
+  approves, `run_form_submits(context, [staged_ask])` presses it in a new box with
+  no model; `ask_from_row` rebuilds and rechecks a staged ask, raising `ValueError`
+  for one the rules would now refuse.
+- **Logs, not alerts**: warnings on the `simpl_agent_sandbox.host.*` loggers
+  (`sandbox.host.usage_sink_failed`, `output_not_kept`, `task_not_started`,
+  `task_failed`, `task_crashed`, `ask_not_staged`, `screenshot_not_kept`), each with
+  the sandbox id or task index, `doing` and `cause` as `extra` fields and the
+  exception as `exc_info`; `task_refused` and `task_finished` at info. The library
+  sends no notification: to alert on these, add a `logging.Handler` on the
+  `simpl_agent_sandbox.host` logger that forwards WARNING records to your notifier
+  (for simpl_tracker: `LOG.warning(record.getMessage(), notify="warning",
+  error=record.exc_info[1], **extra_fields)`).
+- **Tests**: replace the runners where the host package calls them,
+  `simpl_agent_sandbox.host.runs.run_code_task` / `run_browse_task` /
+  `run_form_submit`, and register the fake provider.
 
 ## Testing
 
@@ -320,8 +464,9 @@ result = await provider.run(session, ["python3", "job.py"], timeout_s=10)
 - It is not `simpl_sandbox`, the local cross-repo dev stack with a local Supabase.
 - It holds no storage: bytes go in and bytes come out; the caller stores files.
 - It records no costs: `destroy` returns usage for the caller to record with simpl_tracker.
-- It registers no agent tools: `code_task` and `browse_task` live in simpl_core's agent
-  framework, which depends on this library.
+- It registers no agent tools: a host (simpl_ops) builds its own `code_task` and
+  `browse_task` around `simpl_agent_sandbox.host`, and decides who may call them.
+- It never imports simpl_core.
 
 ## Where to go next
 
