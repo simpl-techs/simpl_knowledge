@@ -212,7 +212,7 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   098) once per ICP, on the row store's datasets (`pipelines/intelligence`: every active
   dataset as a DuckDB view), and writes the row store datasets `icp_fit:1`,
   `signal_hits:1` and `opportunities:1` (migration 096). Definitions are written in the
-  matchers' DSL (`pipelines/opportunities_v2/dsl.py`) and stored as versions in
+  matchers' DSL (simpl_core `opportunity_matcher.dsl`) and stored as versions in
   `opportunity.icp_spec` / `opportunity.signal_spec` (migration 095), added with
   `python -m simpl_flow.pipelines.opportunities_v2 spec-add`. Query texts are embedded
   with `NEBIUS_API_KEY`; nothing goes to Zilliz. The lake reads through DuckDB's `lance`
