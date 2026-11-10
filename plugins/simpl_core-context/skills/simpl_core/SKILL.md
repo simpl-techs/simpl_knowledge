@@ -3788,6 +3788,18 @@ positions=…, source=…, today=None)` writes those positions; it never commits
 - **Result:** `PositionsWritten` (`outcome`, `companies`, `skipped`, `experience_added`,
   `current_employer_id`, `lead_company_filled`, `connections_filled`).
 
+## ICP target coverage
+
+`simpl_core.sales_domain.icp_target_coverage` puts each company of an ICP's target in
+one bucket (taken, rejected, not proposable, still to propose) on an asyncpg connection.
+`icp_target_coverages(conn, icp_ids=[…])` counts several ICPs and reads the customer's
+connected companies once for all of them (`connected_companies(conn, customer_id=…,
+icp_id=None)`, 5,000 leads per statement, so no statement nears the API pool's 60 s
+client timeout); `icp_target_coverage(conn, icp_id=…)` is one ICP and raises
+`IcpWithoutOwnerError` for an ICP without an owner. The biggest customer (94k connected
+leads) takes about 19 reads of ~9 s on production, whatever its targets' size; callers
+that count often cache the result per customer (simpl_api `icp_target_left`).
+
 ## Autopilot yield (Sales Domain)
 
 `simpl_core.sales_domain.autopilot_yield` measures how much of a person's daily company
