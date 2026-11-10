@@ -217,6 +217,21 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   with `NEBIUS_API_KEY`; nothing goes to Zilliz. The lake reads through DuckDB's `lance`
   extension, which the image installs (`DUCKDB_EXTENSION_DIRECTORY`). Plan and status:
   `docs/knowledge-graph-matchers-plan.md`.
+- The lake also has four Postgres tables copied as they are (`table_copy_flow`,
+  migration 186; deployments `gcp_locations_copy`, `gcp_company_headcount_copy`,
+  `gcp_company_funding_copy`, `gcp_company_crustdata_copy`, nightly at 01:10-01:25 UTC):
+  views `locations` (`geolocation.locations`: `city`, `region`, `province`, `country`,
+  `cap`, `is_failed`, keyed by the location's id), `company_headcount`
+  (`linkedin_headcount`, `yoy_growth_percent`, `by_role_percent` and
+  `total_growth_percent` as JSON text, `updated_at`), `company_funding`
+  (`days_since_last_fundraise`, `last_funding_round_investment_usd`,
+  `last_funding_round_type`, `acquired_by` and `acquisitions` as JSON text,
+  `updated_at`) and `company_crustdata` (`year_founded` as text, `hq_country`,
+  `company_type`), each keyed by the company's id. A copy's settings are its row's
+  `params.copy` (simpl_core `COPY_SETTINGS`); a run takes `settings` to override them.
+- `gcp_sales_articles_fill` (hourly) fills every company's articles, any age, into
+  `sales_articles` version 2 (migration 186; maintained, not active, not projected), as
+  `gcp_sales_job_offers_fill` does the job offers.
 - `gcp_workpool_autoscaler_flow` (every five minutes; the schedule ships on, so it is deployed
   once the pool exists)
   is one tick (simpl_core's `workpool.autoscaler.tick_fleet`, one at a time under a lease)
