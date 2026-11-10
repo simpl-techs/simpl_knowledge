@@ -1898,9 +1898,12 @@ The port takes the thread: `react_to_post(thread_urn=...)`, `comment_on_post(thr
 (`linkedin.profile.viewed`, `linkedin.reaction.sent`, `linkedin.comment.sent`,
 `linkedin.repost.sent`, `event_data.activity_urn` the thread); a reaction, a comment and a
 repost count as touches. The proxy operations (`profile_activity`, `post_reaction`,
-`post_comment`, migration `20261104h`; `post_repost`, `20261110c`) ship disabled; on a live
+`post_comment`, migration `20261104h`; `post_repost`, `20261110c`) shipped disabled; on a live
 seat (2026-11-10) `profile_activity` revision 2 (`20261110`, moduleKey's colon encoded),
-`post_reaction` and `post_comment` answered. `post_repost` calls LinkedIn's server-driven
+`post_reaction`, `post_comment` and `post_repost` answered. The three writes are enabled by
+their revision 2 (`20261110d`); `profile_activity` stays disabled. The flag is per operation,
+not per customer: a consumer that must not send for some seats checks that itself (simpl_ops
+admits only SimpL's own colleagues). `post_repost` calls LinkedIn's server-driven
 UI action `createInstantRepost` (flagship-web), not the voyager API. `post_comment` and
 `post_repost` set `redispatch: false` (never handed to an extension twice); one that times
 out fails as `outcome_unknown`, never retried.
