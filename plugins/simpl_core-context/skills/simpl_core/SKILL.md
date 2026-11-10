@@ -3226,6 +3226,37 @@ await indexer.run_batch(batch_size=500, run_id=run_id)
   the skills' `row_version` and part of the chunked kinds' fingerprint: bump it when
   what a row holds changes.
 
+### Opportunity matcher specs (`opportunity_matcher`)
+
+The DSL matcher v2 reads (ICP and signal specs, stored in simpl_flow's
+`opportunity.icp_spec` / `opportunity.signal_spec`), and the conversion of today's
+definitions into it. Moved from simpl_flow `pipelines/opportunities_v2/dsl.py`
+(0.8.343); simpl_flow's evaluator still holds its own copy until it imports this one.
+
+- `opportunity_matcher.dsl`: `IcpSpec`, `SignalSpec`, the `Predicate` tree (`company`,
+  `similar`, `text`, `fact`, `entity`, `job_offers`, `all`/`any`/`not`, `min_matches`,
+  `within_days`), `spec_hash`. New in core: `Company.location` (by `geolocation`
+  names), `size_min`/`size_max` (the company's own bracket), `linkedin_size`,
+  `linkedin_urls`, `unknown`, `description_regex` (RE2); `IcpSpec.include_ids`
+  (candidates optional when given); `job_offers` with a row-level `where`
+  (`JobCondition`: `roles`, `words`, `about`, `like`, `regex`, `seniority`,
+  `employment_types`, `countries`/`regions`/`provinces`/`cities`, `active`, `unknown`,
+  `all`/`any`/`not`), `days`, `older_than_days`, `min_offers`.
+- `opportunity_matcher.word_queries`: the `words` syntax (words, `"phrases"`, `OR`,
+  `-not`, `prefix*`, parentheses), `from_websearch` / `from_tsquery` (Postgres'
+  readings under `simple`), `matches(query, text_words(text))`: whole words, case and
+  accents ignored, no stemming.
+- `opportunity_matcher.legacy_specs`: `read_legacy_icps(db)` (active ICPs, enabled
+  filters and signals) and `convert_icp(icp)` -> `IcpConversion` (spec or `Refusal`,
+  each signal's `SignalConversion`; keys `legacy_signal_<hex>`). An ICP filter it cannot
+  read refuses the ICP; a signal it cannot read is refused alone.
+- `python -m simpl_core opportunity_specs_report [--json PATH] [--connection-mode
+  session]`: what converts and why the rest does not. Read-only.
+
+Does NOT: write specs (simpl_flow's matcher run will, through its spec store), evaluate
+predicates (simpl_flow `opportunities_v2/evaluate.py`), or read headcount, funding,
+Crustdata, articles, positions or website facts signals (refused: not in matcher v2).
+
 ### Search over Graphia's sources (`search.graphia_sources`)
 
 `open_source_search(nebius_api_key=...)` gives a `SourceSearch` over seven collections:
