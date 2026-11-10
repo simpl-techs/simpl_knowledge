@@ -2327,6 +2327,15 @@ await posts.maintain()                       # indexes, bounded compaction and m
 await posts.build_index("vector")            # sections of a declared vector or text index
 ```
 
+- **A plain copy of a source table** (nothing to embed) is a `copy_spec(name, version,
+  fields)` dataset written with `RowCopy(dataset)`: `copy_range(rows, after=, upto=,
+  version=)` (every source row of a key range: changed or new rows written, keys gone
+  tombstoned), `copy_rows(rows, version=)` (rows by key, no tombstones),
+  `copy_keys(keys, after=, upto=, version=, read=)` (keys only: new keys read and
+  written, keys gone tombstoned), then `flush()`. Rows hold the source's columns and
+  `row_hash`; an unchanged row is never written. `version` is `read_version()` (the
+  read's time, so a later read wins). `sales_datasets.TableCopier` drives it page by
+  page with cursors.
 - **A commit upserts by `key`, and a row replaces the stored one only if its
   `row_version` is not older**, so a replay is harmless. A deleted source row is a
   tombstone (`deleted=True`, fields null) so projections see the delete. Mark source
@@ -3219,6 +3228,20 @@ await indexer.run_batch(batch_size=500, run_id=run_id)
 - **Dates:** every row but a skill has `dated_at` and `dated_at_basis`: the source's
   real time when it has a clear one (`sent`, `posted`, `published` for a full ISO
   article date, `started`), else `stored` (Postgres `created_at`).
+- **Every company's articles** (0.8.346): `marking.article_listing` lists them by id for
+  a `ListingWalk` (any age; an article with no company left out), and
+  `ArticlesKind` with no scope builds them, as for job offers (simpl_flow's
+  `sales_articles` version 2 fill).
+- **Tables copied as they are** (`TABLE_COPIES`, 0.8.346, for matcher v2): `locations`
+  (`geolocation.locations`), `company_headcount`, `company_funding` and
+  `company_crustdata`, one dataset row per source row keyed by its id, no vector. A
+  `CopiedTable` is a fingerprint walk by key (`rows_after`) or a change cursor with a key
+  sweep (`changed_after`, `keys_after`, `rows_of`); `TableCopier(db, dataset, table,
+  cursors=ScanCursors(db, "sales.table_copy_scan"), settings=...)` runs a pass
+  (`await copier.run(deadline=...)`, a `CopyRun` of what it read and wrote), writing
+  through `row_store.RowCopy` (only changed rows, tombstones for keys gone).
+  `COPY_SETTINGS` names the settings: `page_size`, `read_rows`, `commit_rows`,
+  `pause_s`, `overlap_minutes`, `walk_rows`.
 - **Runs:** skills compare a fingerprint of every field; the chunked kinds go through
   their ledgers (above). Only rows that changed are rewritten. What left Postgres or
   the scope becomes a tombstone. An unreadable message body or a conversation with no
