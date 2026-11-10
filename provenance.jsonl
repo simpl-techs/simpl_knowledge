@@ -672,3 +672,4 @@
 {"repo": "simpl-techs/simpl_core", "sha": "fe952ac8e1a67f31627f5edf3528d56d154e8116", "skill_name": "simpl_core", "plugin": "simpl_core-context", "plugin_version": "1.0.240", "timestamp": "2026-11-10T11:19:51.860186+00:00", "actor": "Len378"}
 {"repo": "simpl-techs/simpl_api", "sha": "3f325be0fe82e35c79f55cd5be5085fcb22c9c4b", "skill_name": "simpl_api", "plugin": "simpl_api-context", "plugin_version": "1.0.290", "timestamp": "2026-11-10T11:24:53.415136+00:00", "actor": "not-Karot"}
 {"repo": "simpl-techs/simpl_api", "sha": "c138650dd27b00347884c4ae122ed05882865a11", "skill_name": "simpl_api", "plugin": "simpl_api-context", "plugin_version": "1.0.291", "timestamp": "2026-11-10T11:28:26.921728+00:00", "actor": "Len378"}
+{"repo": "simpl-techs/simpl_core", "sha": "bdf27249fe0894a5e83c85ae17fda9ba80b95831", "skill_name": "simpl_core", "plugin": "simpl_core-context", "plugin_version": "1.0.241", "timestamp": "2026-11-10T11:34:17.248276+00:00", "actor": "Len378"}

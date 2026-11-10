@@ -2412,7 +2412,19 @@ await posts.build_index("vector")            # sections of a declared vector or 
   "sales_posts__v2")` gives `schema()` and `read(columns, where=...)`: live rows only,
   `where` a pyarrow expression. It never writes, so it takes no lease and needs no
   catalog. The agent framework's `data_producer` reads the row store through it
-  (`source: row_store`).
+  (`source: row_store`). `read(..., limit=n)` reads at most `n` matching rows.
+- **A serving process keeps its tables on one Lance session.** `PinnedTables(config,
+  names, session=lance.Session(...))` opens one pinned `StoredTable` per name as a set,
+  in `names`' order, before any of them is read (`await tables.table(name)`);
+  `prewarm({name: columns})` loads the indexes on those columns once at start, and
+  `await refresh(max_age_s)` opens a new set at the latest versions once the current
+  one is that old and swaps it in when all are open, reusing what the session holds.
+  Put first the table a writer commits last (a commit marker). Opened per request, a cold BTree lookup on a
+  large table loads its whole index from GCS (hundreds of MB in the Graphia log).
+- **Join many filter terms with `any_of(terms)` / `any_range(column, ranges)`**
+  (`row_store.filters`), never a chained `a | b | c ...`: Lance serializes the
+  expression to Substrait at a cost exponential in a chain's length (50 ranges never
+  finished); the helpers join a balanced tree.
 - `RowStoreConfig.from_env()` reads `ROW_STORE_URI` (`gs://<bucket>`, optionally with
   a prefix). Lance reaches the bucket with Application Default Credentials (the job's
   service account on Cloud Run, `gcloud auth application-default login` locally); no
@@ -3195,12 +3207,97 @@ chunk: its page's first document, `landing_document_key(host, url)`), the chunk'
 `SourceSearch.resolve_leads(name)` finds leads by name in the lead profiles' collection;
 `resolve_companies(db, text)` a company by URL or domain (normalized landing host),
 LinkedIn URL or exact name; `resolve_lead_by_linkedin(db, url)` a lead by profile URL,
-all through Postgres' indexes.
+all through Postgres' indexes; LinkedIn URLs match whatever host, trailing slash,
+query or case they are pasted with (`lead_linkedin_url_variants`,
+`company_import_service.parse_import_identity`). `resolve(db, search, text)` is what one
+search box needs, as a `Resolution(companies, leads)`: a profile URL gives a lead,
+another LinkedIn URL or a URL with a scheme a company, a word that looks like a domain
+(`anna.rossi`) both a host and a name lookup, any other text the exact company name and
+the lead name search.
 
 `simpl_core.anonymization` is the anonymizer on its own, for any text whose people are
 known, for the step after identity linking:
 `TextAnonymizer([Person("[LEAD_1]", ("Example Name",))], keep=("Example Co",))`. One
 way only; it keeps no map back to the values. The sales datasets do not call it.
+
+### Graphia read model (`graphia`)
+
+Reads what simpl_flow's Graphia pipeline extracted (its log tables in the row store,
+`kg_*__v1`) back as a small graph, for an explorer. Read-only; needs the `row-store`
+extra, and `identifiers` the `search` extra. The ontology model lives here too
+(`graphia.ontology`: `parse_ontology`, `Ontology`, `EdgeRuleDef`...; its fingerprint is
+the sha256 of the document's bytes); simpl_flow imports it from here.
+
+```python
+import lance
+
+from simpl_core.graphia.document import document_passage
+from simpl_core.graphia.identifiers import SourceIdentifiers
+from simpl_core.graphia.log import LogReads
+from simpl_core.graphia.neighbourhood import NeighbourhoodLimits, neighbourhood
+from simpl_core.graphia.ontology_store import load_ontologies
+
+ontologies = await load_ontologies(db)  # {fingerprint: Ontology}, every registered version
+session = lance.Session()               # one for the process's life
+reads = LogReads(config, session=session)
+identifiers = SourceIdentifiers(config, db, session=session)
+await reads.prewarm()                   # ~1 GB of index into the session, once
+await identifiers.prewarm()
+
+await reads.refresh(300)                # before a request: newer versions, same session
+found = await identifiers.of_company(company_id, per_kind=10)
+graph = await neighbourhood(
+    reads,
+    ontologies,
+    variant_name="graphia-v2-nuextract-joint",
+    sources=found.sources,          # or doc_keys=[...]
+    limits=NeighbourhoodLimits(),   # 50 seed docs, 25 units, 10 facts a unit, hub at 500 rows
+    locations=True,
+)
+passage = await document_passage(reads, ontologies, doc_key, variant_name=...)
+```
+
+- **Current run.** A document is read through its variant's latest `extracted`,
+  `served` run that no whole-run retraction takes back (`log.latest_runs`, highest
+  `(finished_at, extraction_run)`); rows of other runs are left out.
+- **Source and doc keys** (`graphia.source_keys`): `m:` message, `l:` lead profile,
+  `e:` position, `a:` article, `j:` job offer, `p:` post, `h:` site; a source's
+  documents are the doc keys in `[source, source + "$")` (`m:<id>`, `m:<id>#2`...).
+- **Identifiers** (`SourceIdentifiers`): a company id to its job offers, articles,
+  positions (`company_id` or `lead_company_id`), messages, leads, posts and site host;
+  a lead id to its profile, positions, sent messages and posts. Newest first by
+  `dated_at` (posts `posted_at`), at most `per_kind` each, `truncated` naming the kinds
+  cut. At most `READ_LIMIT` (5,000) rows are read a kind; `capped` names the kinds
+  whose read stopped there, whose newest sources may be missing. A chunk key `<id>#<n>`
+  counts as its entity. Names to ids are not resolved here.
+- **Graph** (`models.Graph`): `nodes` are units (what the extraction names, before
+  identity), named by the author's name or the text naming them most often; `facts`
+  with their roles (a unit, a literal, a choice or plain text); `edges` are the
+  relations the forms' edge rules derive (`relations.fact_relations`): unit endpoints
+  only, every source to every target but itself, `when`/`unless` on the fact's choices,
+  `properties` copied. `endpoints_without_unit` counts the endpoints left out. The
+  hop follows only units that cross authors (`units.crosses_authors`: any type but an
+  organization or a person, or an author keyed `company:`/`lead:`/`user:`); a unit
+  with more than `hub_rows` role rows is a hub, flagged and not expanded. The seeds'
+  runs are read up to `seed_run_rows` (5,000) rows (`truncated.seed_runs` when cut: a
+  seed document may be missing or shown through an older run). `truncated` says what
+  each cap left out; `timings_ms` each step's time. No sources and no documents: an
+  empty graph.
+- **Offsets** are code points into the document's `model_text` (a JavaScript client
+  converts from UTF-16 before slicing).
+- **Serving** (`LogReads`, `SourceIdentifiers`): without a `session` every table opens
+  cold and loads its indexes for that request alone (a graph took 18 to 44 s on prod),
+  so keep that for tests and scripts. A serving process holds both on one
+  `lance.Session` for its life, calls `prewarm()` at start (about 14 s and 1 GB for
+  the log from a workstation) and `await refresh(max_age_s)` before each request:
+  graphs on documents never read before then took 2.6 to 3.7 s from a workstation
+  (10/11/2026). The log's tables open as one set, runs first, so a request never sees
+  a run whose facts its tables lack.
+- **Ontologies** (`ontology_store.load_ontologies(db)`): every version in
+  `knowledge_graph.ontology_version` (simpl_flow's registry writes it), retired ones
+  included, by fingerprint; a document that does not hash to its stored fingerprint is
+  refused. A run whose fingerprint is not loaded raises `LookupError`
+  (`log.ontology_of`): reload after a new version is registered.
 
 ### Operator notifications
 
