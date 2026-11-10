@@ -2124,11 +2124,15 @@ Three small public surfaces back `simpl_scraping`; any consumer may read them.
 `simpl_core.models.scraping` and `simpl_core.repositories.scraping`, schema in
 `migrations/20260911_scraping_page_contracts.sql`,
 `migrations/20260915_scraping_page_deletion.sql`,
-`migrations/20261105_scraping_extraction_publications_unlogged.sql` and
-`migrations/20261105b_scraping_drop_page_versions_storage_object_idx.sql`:
+`migrations/20261105_scraping_extraction_publications_unlogged.sql`,
+`migrations/20261105b_scraping_drop_page_versions_storage_object_idx.sql`,
+`migrations/20261110_scraping_drop_extraction_publications_config_idx.sql` and
+`migrations/20261110b_scraping_pages_extraction_marker.sql`:
 
 - `ScrapingPage` (`scraping.pages`): one row per `(canonical_url, representation)`.
-  `latest_version_id` names the newest observed raw response.
+  `latest_version_id` names the newest observed raw response. `extraction_queued_*`
+  (version id, config key, time) name the last extraction job simpl_scraping queued for
+  the page, all set or all NULL; simpl_scraping writes them, nobody else should.
 - `ScrapingPageVersion` (`scraping.page_versions`): immutable. It stores a reference to
   the object holding the response (bucket, key, version id, stored SHA-256 and size),
   never the body. The database rejects UPDATE.
@@ -2154,6 +2158,9 @@ async with db.session_scope() as session:
 
 Identical content reuses the existing version. The latest pointer only moves forward
 in `observed_at` order, so a late commit of an older fetch cannot roll a page back.
+`PageObservation.extraction_queued` carries the page's last queued extraction job
+(`ExtractionQueued`, or None), read from the row the observation locked;
+`record_extraction_queued` replaces it in the caller's transaction.
 
 Pages and versions may be deleted. Deleting a page deletes its versions; deleting the
 version `latest_version_id` names moves the pointer to the newest remaining raw
