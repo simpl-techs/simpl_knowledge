@@ -283,8 +283,8 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   (2% by the deployment's default), starts `gcp_graphia_teacher_flow` and returns without
   waiting for it; the teacher's deployment also runs every 30 minutes, each run asking
   nothing after `work_for_minutes` (25), so the slice's pending documents drain whether
-  or not an extraction ran. That flow (`flows/graphia_teacher_flow.py`) labels blind the entities
-  (the teacher's ner step) of a random slice of documents, each drawn alone at
+  or not an extraction ran. That flow (`flows/graphia_teacher_flow.py`) labels blind the entities, forms and
+  facts (the teacher's joint step, on every source) of a random slice of documents, each drawn alone at
   `slice_rate` (a site's document is one landing chunk for both variants, whose `site_documents` is
   `chunk`), parks each document the teacher fails on
   (`kg_label_failures`, asked again only by a run with `retry_failed`, optionally on
