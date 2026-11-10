@@ -220,6 +220,20 @@ changes the active scope (200, only the fields given; 400 `invalid_setting`),
 `GET /skill[?customer_id=]` the planner's prediction skill pooled per measure and per
 customer and pattern. No skill gate before emission: the strategy is scored from use.
 
+## Graph explorer service (`simpl-graph-explorer`)
+
+Graphia's extractions read back as small graphs, for admins: its own Cloud Run service (europe-west3, beside the row store bucket), built from this image and started on `simpl_api.graph_explorer.app:app` (`APP_MODULE`, set by `cloudbuild.yaml`). It keeps about 3 GB of the Graphia log's and the sales datasets' indexes in memory (prewarmed at startup, 15 to 40 s), which simpl-api's instances have no room for. The domain logic is simpl_core's (`graphia`, `search.graphia_sources`); the service only holds it open.
+
+Routes, under `/api/v1/admin/graph-explorer`, `require_admin` on each (a staff agent's ticket is refused):
+
+- `POST /search` `{text, kinds?, company_ids?, hosts?, languages?, per_kind, limit}`: the sources best matching a text, fused across the seven collections; each hit names its Graphia `source` and `document`.
+- `POST /resolve` `{text}`: the companies and leads a typed name, domain or URL names.
+- `POST /graph` `{sources? and/or doc_keys? | company_id | lead_id, per_kind, limits, locations, variant_name}`: the capped graph (`simpl_core.graphia.models.Graph`, with `timings_ms`; `truncated.seed_runs` when the seeds' runs were read up to `limits.seed_run_rows`), and for a company or a lead the sources it read (`identified`, with `capped`: the kinds whose read stopped at 5,000 rows). A company or a lead without sources gives an empty graph.
+- `GET /documents?doc_key=&variant_name=`: one document's passage (text and spans); 404 when the variant has no current run of it.
+- `GET /health` (no auth, counts only): database, prewarm, ontologies, tables' age, Lance cache size, peak RSS.
+
+`variant_name` defaults to the variant Graphia serves (`graphia-v2-nuextract-joint`). The tables stay at the version they were opened at for 5 minutes; a request after that reloads the ontologies (`knowledge_graph.ontology_version`), then opens a new set of tables (runs first) and swaps it in once all are open. The dashboard calls the service from its server (`/api/admin/graph-explorer/*` route handlers with the admin's Supabase token), never from a browser: there is no CORS.
+
 ## Website signals
 
 Technical signals of company websites as typed columns, for outreach and ICP filters in plain SQL (ENG-958; migrations `20261030210000_website_tables.sql`, `20261102190000_company_website_view.sql` and `20261110120000_website_archived_snapshot_date.sql`). They are not the ICP website signals above, which search page text in the landing index. simpl_scraping writes both tables; simpl_api only defines them. They stay empty until simpl_scraping's `website_signals` and `website_crawl_facts` configs are active. Read them as `service_role` or simpl_api's database login; `anon` and `authenticated` hold nothing. The column comments are the contract; this is the short form.
