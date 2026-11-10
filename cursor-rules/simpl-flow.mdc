@@ -313,7 +313,7 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   (2 vCPU, 4 GiB): no model, no server, no model key. One run at a time. Where each
   dataset lives and which flow writes it:
   `docs/knowledge-graph-storage.md`.
-- `gcp_graphia_identity_flow` (no schedule, started by hand, plain image) runs the identity
+- `gcp_graphia_identity_flow` (every hour at :15 UTC, plain image) runs the identity
   service's micro-batches over the runs the extraction log gained, every variant's (the
   registry read through a read-only connection, nothing writes `sales.*`; the uncertain
   band to the pending link requests), then those requests settled by models
@@ -322,8 +322,13 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   nothing, its decisions kept as `dry-run:`; `identity_batches` caps the run's micro-batches, the next run goes on from the watermark), then as asked the next graph generation of a variant's runs
   (`generation`, `variant`, `publish`), then the published generation's entity promotion
   into the golden zone the matcher's `entity` predicate reads (`promote`,
-  `promotion_config`; migrations 153 and 154). Identity's state is still in Postgres (`er_*`) until this pipeline is reworked. One run
-  at a time.
+  `promotion_config`; migrations 153 and 154), then, with `measure` or once
+  `measure_every_hours` have passed since a run last measured, a measurement of the run's
+  generation (built for it, unpublished unless `publish`): each entity type's verdict on
+  the teacher's span labels and each relation type's on its fact labels, recorded as a
+  `measured` promotion run that writes no golden row (migration 187). The schedule runs
+  with `links_limit` 800 and `measure_every_hours` 24. Identity's state is still in Postgres (`er_*`) until this pipeline is reworked. One run
+  at a time (`CANCEL_NEW`).
 - `gcp_open_graph_flow` (no schedule, started by hand) labels LinkedIn posts with
   llmgraph (LangChain's `LLMGraphTransformer`) once per teacher, as training data. A
   teacher is a model in one llmgraph mode, listed in
