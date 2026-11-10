@@ -451,6 +451,11 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   `min_company_score`; claimed connections, a missing LinkedIn id and exclusive-mode
   assignment still exclude them. Only the uuids are read out of the clause. simpl_api's
   company import writes it when a user adds a list to an existing target.
+- In `exclusive` mode, `icp_match_fallback` companies are dealt like signals: one read
+  for every seller's open slots, then one company per seller per round, in rank order
+  (since 2.5.289). Before, the first seller in `opportunity_recipient` order was filled
+  to their limit first, so a short verified supply left the others with nothing.
+  `shared` mode still fills each seller on their own.
 - A Customer company (lead status 10) is parked like Monitoring (Raff, 2026-10-28): its
   signals are monitoring signals and can bring it back as a fallback opportunity, never
   recycled. Next to a connection that vetoes the company (Non sales, Meeting Booked or
