@@ -237,6 +237,12 @@ A host that runs such a read needs the `row-store` extra and `ROW_STORE_URI`. Th
 live validation checks the columns and their declared types against the table in the
 store, as it checks a database table.
 
+A dataset version spread over shards (`row_store.dataset_configs.shards` above 1) has no
+`{dataset}__v{version}` table: its rows are in `{dataset}__s{k:02d}__v{version}`, one
+table a shard. A `data_producer` cannot read it yet. Code reads it with
+`ShardedTable(config, dataset, version, shards)` and writes it with
+`ShardedDataset(store, spec, shards)`.
+
 **A `data_consumer` writes to the database, or to a Parquet dataset.** With
 `source: parquet`, `table` names a Parquet dataset the host registered
 (`parquet_dataset`, below) and each write is one part file of the walk's rows, or, inside
