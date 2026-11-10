@@ -2671,7 +2671,8 @@ async for batch in searcher.query_rows({"host": hosts, "uses_https": False}):
 - A kind whose ledger is a queue with a record (`IndexLedger(db, table,
   record=IndexRecord(...))`) is walked page by page against the record:
   `ListingWalk(listing=...)` for a kind listed by key (every company's job offers:
-  `marking.job_offer_listing`), `sales_datasets.positions_walk.PositionsWalk` for every
+  `marking.job_offer_listing`, every offer whatever its age; the conversation scope's
+  keep one year), `sales_datasets.positions_walk.PositionsWalk` for every
   lead's positions (a page of leads, each with the company the product's rule gives;
   a lead with none stays out). An existing ledger moves onto a queue and its record with
   `move_ledger(db, source="schema.table", queue=ledger)`, the kind paused: stored rows
