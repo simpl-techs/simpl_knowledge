@@ -99,7 +99,8 @@ async with VercelSandboxProvider(config.vercel) as provider:
   only GET, HEAD and OPTIONS to public addresses, checked after DNS (loopback and the
   CDP port included, which the firewall cannot see), in every tab, popup, frame and
   worker, plus page script's reads by POST from any public host that is not refused,
-  until anything is typed (D83 widened by G25, below),
+  until anything is typed (D83 widened by G25, below), plus requests that send to a
+  CAPTCHA service or Cloudflare's challenge path (no permit, no body check; below),
   and browserd removes `WebSocket`, `WebSocketStream`, `WebTransport` and
   `RTCPeerConnection` from every page, frame and worker, because WebSockets never reach
   the filter. `act.py` refuses to act when the daemon is not running, refuses any click,
@@ -229,9 +230,9 @@ result.answer.text  # UntrustedText: the sub-agent read pages nobody checked
   and every page field is on one line. `CodeTaskResult.summary` and
   `BrowseTaskResult.answer` are `UntrustedText`; output files and downloads are
   untrusted bytes to store, never to run or render on a server.
-- **Results**: `outcome` (`TaskOutcome`: done, output_missing, submit_asked, bot_check,
-  step_cap,
-  time_cap, loop_stopped, model_failed, sandbox_failed, browser_failed) with `detail`, the files,
+- **Results**: `outcome` (`TaskOutcome`: done, output_missing, submit_asked, step_cap,
+  time_cap, loop_stopped, model_failed, sandbox_failed, browser_failed; `bot_check` was
+  removed in 0.5.0) with `detail`, the files,
   the check verdicts, the step log (`StepRecord`: action, short detail and result, model
   and sandbox time), `model_usage` (requests and tokens), `usage` (`SandboxUsage` from
   `destroy()`) and `image_digest`, the exact image the sandbox ran (`sha256:...`, as
@@ -239,6 +240,7 @@ result.answer.text  # UntrustedText: the sub-agent read pages nobody checked
   `sandbox.task.*_finished` log lines; `None` when the provider reports none). `DONE` means the checks passed and every checked file or
   `DownloadCompleted` download came back; `output_missing` names the ones that did not.
   The step log is returned, never stored here (D7). A browse result also has
+  `captcha_requests` (CAPTCHA traffic browserd let through, below),
   `blocked_requests` (how many requests browserd blocked) and `blocked_top`: its 10
   largest groups as `BlockedRequests` (host, method, reason, count; the host comes from
   the page, so untrusted). When the browser stopped, `detail` holds browserd's exit line
@@ -264,7 +266,18 @@ result.answer.text  # UntrustedText: the sub-agent read pages nobody checked
   refused list (G25), before anything was typed in the task, with a
   readable body of at most 64 KB and no personal-data or card shape, at most 300 bodies
   checked per task (passed or not). Sites such as HubSpot load their prices that way. A GET, HEAD or OPTIONS with a
-  body goes through the same check. `result.read_posts` counts them; nothing is logged. Our code refuses any click,
+  body goes through the same check. `result.read_posts` counts them; nothing is logged.
+  A second exception (2026-11-10), so a bot check can be passed: a request page script
+  sends (XHR or Fetch, never a form's own post) to a CAPTCHA service's endpoint
+  (reCAPTCHA under www.google.com/recaptcha/ or www.recaptcha.net/recaptcha/,
+  api.hcaptcha.com, Turnstile's challenges.cloudflare.com, Arkose's
+  `<company>-api.arkoselabs.com`; not the vendors' own sites) or to Cloudflare's
+  `/cdn-cgi/challenge-platform/h/<letter>/` on any site passes with no permit and no
+  body check, before or after typing, if its host is public and not refused and its
+  path holds no `;` or encoded slash, backslash or dot. `result.captcha_requests`
+  counts those of a CAPTCHA service or a challenge step, not Cloudflare's passive bot
+  detection. A free press whose permit went unused while such a request went out is
+  recorded as maybe sent. Our code refuses any click,
   typing or download on an element that sends a form (a submit or image input, a submit
   button, or anything inside one) before it reaches the browser, and act.py refuses it
   again at click time. Typed text loses its line breaks, so Enter is never pressed. URLs
@@ -293,9 +306,13 @@ result.answer.text  # UntrustedText: the sub-agent read pages nobody checked
   switch ...". A click on a switch, tab or box adds what it reads now to the step's
   result. A regional redirect (zendesk.com to zendesk.de, de.example.com, /de/) is named
   in the step and never counts as a loop (G18); another host or path of the site
-  (app.example.com, /go/pricing) is not one. A bot check on the open page (its title or
-  first text, or a refused request to a CAPTCHA service's host and path beside almost no
-  text) ends the task `BOT_CHECK`, with fixed words in `detail` (G26).
+  (app.example.com, /go/pricing) is not one. A bot check or CAPTCHA on the open page
+  (its title or first text, or CAPTCHA traffic beside almost no text), on any site,
+  adds a note to the prompt: the sub-agent may try to pass it (click its checkbox when
+  the page lists one) or wait for it to clear, and must never report the site's
+  content from it. Until 0.5.0 one on the task's own site ended the task `BOT_CHECK`
+  (G26). A CAPTCHA checkbox drawn in another site's frame is not in the page the
+  sub-agent reads, so mostly only a challenge that clears by itself is passed.
 - **Screenshots as files** (phase 7, D87): with `allow_downloads`, the sub-agent also
   gets `screenshot(name, full_page=False)`. The PNG (the screen, or the page down to
   6,000 px and 1,280 px wide; at most 2 MB, else at half scale, else refused; a name
@@ -312,8 +329,9 @@ result.answer.text  # UntrustedText: the sub-agent read pages nobody checked
   go under browserd's one-request permit, which checks the body at the wire; a submit
   the owner must approve ends the task `SUBMIT_ASKED` with `result.ask` (`SubmitAsk`:
   the page, the form's fields and exact values, the rules, a PNG screenshot); refused
-  ones (accounts, logins and codes, payments, CAPTCHAs, posting on social and comment
-  sites) press nothing. `result.submits` holds a `SubmitRecord` per try, for the
+  ones (accounts, logins and codes, payments, posting on social and comment sites)
+  press nothing; a form with a CAPTCHA is judged by the other rules (rule R3, which
+  refused it, was removed in 0.5.0). `result.submits` holds a `SubmitRecord` per try, for the
   audit: values only for free submits. After the owner's press, the host calls
   `run_form_submit(ask, provider, ...)`: a new box, no model, the approved values
   filled, sent only when the form still hashes as the owner saw it; the outcome is
