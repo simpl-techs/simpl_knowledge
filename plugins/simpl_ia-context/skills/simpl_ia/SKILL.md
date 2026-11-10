@@ -328,9 +328,9 @@ Rules that follow from what a decision model is:
   caller whenever it prefers a tool it cannot fill: put a language model behind
   it. Decision and chat members mix freely; one name may appear once per API.
 - Transient failures (408, 429, 5xx, a dropped connection) are retried twice,
-  within 2 s when a member follows and within 30 s when none does: a turn can be
-  two requests, and a failure on the second is terminal, where no member could
-  take it.
+  within 2 s when a member follows and within 30 s when none does. A turn can be
+  two requests; a second that still fails hands the whole step to the member
+  behind, which answers it from the start.
 - Answers report a dated snapshot of the model asked for, or of what a `-latest`
   alias resolved to. A chain with **a `-latest` alias beside the release it
   resolves to** must pass `attempt_log` to `make_agent`: by name the two are
