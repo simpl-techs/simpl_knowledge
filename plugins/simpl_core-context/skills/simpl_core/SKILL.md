@@ -511,7 +511,8 @@ on the text are unaffected), carrying `agent_id`, `failure`, the call's live
 attempt trail and `kind`, from `classify_producer_failure`: `thread` (every
 answer was unusable), `rejected` (the provider refused the request: 400, 413,
 422), `infrastructure` (5xx, 429, 408, 401, 403, 404, a transport error, a
-deadline, a cancelled attempt, the call ceiling) or `unclassified` (attempts
+deadline, a cancelled attempt, the call ceiling, a reply the client could not read
+as a completion: `UnexpectedModelBehavior`) or `unclassified` (attempts
 that disagree, an empty trail, anything unknown). It is code, not a model: each
 attempt is read by its recorded outcome, its exact error class and, for an HTTP
 error, the `status_code: NNN,` prefix of its message, and the call is a kind
