@@ -1814,7 +1814,9 @@ The strategy layer plans; the outreach walk does. They meet only in core tables
   branch's identity (`services.strategy.people_reads.PeopleReads.request_for_branch`) and
   the branch waits (`people_read`). `services.strategy.people_search_runs.run_people_searches(db,
   operations=DatabaseLinkedInOperations(db), now=...)` runs the queue on the sellers'
-  extensions: every profile read becomes a `sales.lead` with a current `lead_experience` at
+  extensions, one company people search per keyword (`search_company_people`, paced as
+  `company_people_search`; the search autopilot runs, not the global `people_search` capped
+  at three results): every profile read becomes a `sales.lead` with a current `lead_experience` at
   the company (autopilot's `AutopilotLeadService.bulk_upsert_from_linkedin`), and the company
   is reviewed at once (`people_read`). People at a company are those leads, whoever read them
   (the dossier lists them with the headline read). A role read within 30 days (failed within
