@@ -525,6 +525,13 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   (`pipelines/opportunities/question_scope.py`); signals are still scored, saved and watched.
   simpl_api answers the questions at 22:00 UTC; the flow only reads them. ICPs without one
   are untouched.
+- A company someone came to the customer's team **inbound** from (a connection with
+  `origin = 'inbound'`, claimed or not, not released, read on its own `company_id`) is
+  never proposed to an ICP list, neither new, recycled nor as a match fallback, named
+  companies included (Raff, 2026-11-11): that person is already interested, so nobody
+  pitches their colleagues (`connection_scope.came_in_inbound_sql`,
+  `CameInInboundRepository` for signals; the run summary logs `came_in_inbound_count`).
+  Signals are still scored, saved and watched.
 - Opportunity sources (`opportunity.icp_signal_opportunities.source_type`): `new_signal`,
   `recycled_fallback` (a company the customer already worked, proposed again; called
   `fallback_monitoring` before 2.5.69), `icp_match_fallback`, `manual`. With the
