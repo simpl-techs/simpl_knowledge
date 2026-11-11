@@ -336,8 +336,9 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   judges merge candidates for the types the merge config does not switch off: names and
   their Nebius embeddings (row-store datasets `er_names`, `er_name_vectors`), nearest
   names, the teacher's merge row (ledger `graphia_teacher_root` version 9, migration 189)
-  and an audit per type. It writes edges and questions only; identity applies them. One
-  run at a time (`CANCEL_NEW`).
+  and an audit per type kept across runs (`er_audit`: precision, recall and the
+  auditor's agreement with itself, read on 95% lower bounds). It writes edges, questions
+  and audits only; identity applies them. One run at a time (`CANCEL_NEW`).
 - `gcp_open_graph_flow` (no schedule, started by hand) labels LinkedIn posts with
   llmgraph (LangChain's `LLMGraphTransformer`) once per teacher, as training data. A
   teacher is a model in one llmgraph mode, listed in
