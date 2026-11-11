@@ -317,8 +317,10 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   registry read through a read-only connection, nothing writes `sales.*`; the uncertain
   band to the pending link requests), then those requests settled by models
   (`resolve_links`, `er.resolution`: applied only at `nuextract_min_confidence` and
-  `teacher_min_confidence`; `links_dry_run` with `links_limit` asks both models and applies
-  nothing, its decisions kept as `dry-run:`; `identity_batches` caps the run's micro-batches, the next run goes on from the watermark), then as asked the next graph generation of a variant's runs
+  `teacher_min_confidence`, NuExtract's only on a proposal tied to the documents beyond
+  the name; `links_dry_run` with `links_limit` asks both models and applies
+  nothing, its decisions kept as `dry-run:`; `recheck_links` decides the links the
+  models applied before again, kept, moved or undone, `recheck_dry_run` deciding only; `identity_batches` caps the run's micro-batches, the next run goes on from the watermark), then as asked the next graph generation of a variant's runs
   (`generation`, `variant`, `publish`), then the published generation's entity promotion
   into the golden zone the matcher's `entity` predicate reads (`promote`,
   `promotion_config`; migrations 153 and 154), then, with `measure` or once
