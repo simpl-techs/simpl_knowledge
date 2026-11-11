@@ -1776,9 +1776,13 @@ The strategy layer plans; the outreach walk does. They meet only in core tables
 
 - **Plans** (`sales.company_plan`, one row per version, and `sales.plan_branch`) are
   written only through `services.strategy.plan_writer.PlanWriter.write`, which runs the
-  deterministic `plan_check.check_plan` first (staleness, a 14-day commitment horizon,
-  patterns, account caps, one branch per person, refusals, identities) and returns the
-  refusals instead of writing.
+  deterministic `plan_check.check_plan` first (staleness per person, a 14-day commitment
+  horizon, patterns, account caps, one branch per person, refusals, identities, the exit)
+  and returns the refusals instead of writing. A `PlanDraft` with `close=True` (no branch)
+  closes the company (`not_worth_it`) and drops its review; one with `rest_until` (no
+  committed branch) rests it until then; any other plan wakes a resting company. The next
+  review is the earliest of the plan's date, an intent's date less the commitment horizon,
+  and a callback date a person at the company gave (`PlanWriter.callbacks_ahead`).
 - **Directives** (`sales.outreach_directive`) are what the walk reads:
   `repositories.strategy.directive.OutreachDirectiveRepository.open_for_ulc(ulc_id)`.
   One live directive per identity and person; content never changes (a newer one has
@@ -1788,10 +1792,21 @@ The strategy layer plans; the outreach walk does. They meet only in core tables
   `trigger_data` carries `directive_id` and `epoch`.
 - **Facts** go back as `outreach_events` the walk writes: `directive.acknowledged` and
   `directive.cannot_follow` (with `directive_id` and `epoch`), `lead.declined` (with
-  `decline_class`), `lead.referral.named`, plus the existing replies, acceptances and
-  `call.scheduled`. `services.strategy.plan_facts.PlanFacts.scan` reads them and moves
-  directives, branches and the review queue (`sales.strategy_review`). The walk never
-  writes a directive, a branch or a plan.
+  `decline_class`), `lead.referral.named`, `lead.callback.requested` (with `callback_at`,
+  an ISO 8601 date or date and time), `lead.opening.found` (with `text`), plus the
+  existing replies, acceptances and `call.scheduled`
+  (`models.strategy.facts.StrategyFact`). `services.strategy.plan_facts.PlanFacts.scan`
+  reads them and moves directives, branches and the review queue (`sales.strategy_review`).
+  The walk never writes a directive, a branch or a plan.
+  - A decline, an opt-out and a booked call end what they end at once and are reviewed at
+    the end of the window; a referral, a directive that cannot be followed or expired, and
+    a finished people read re-plan at once (`models.strategy.review.REPLAN_AT_ONCE`) and
+    are claimed first (`StrategyReviewRepository.claim_due`: those, then first plans, then
+    the rest). A callback is due on its date, an opening at the end of the window.
+  - `stop_when: refusal` fires only on a `refusal` or `opt_out` decline, from anyone at the
+    company; a softer decline stops nobody else's branch.
+  - A material fact holds back only the branches on the person it is about (the emitter's
+    `held_back`); nothing pauses a whole company.
 - **Entry**: a company offered to a seller of a customer with an active
   `sales.pool_scope` enters `sales.pool_company` and gets a review
   (`services.strategy.pool_entry`). `emits_directives = false` is shadow.
@@ -1848,9 +1863,9 @@ The strategy layer plans; the outreach walk does. They meet only in core tables
     predictions come from the live branch, so a replan keeps its directive. A change is a
     new branch; its directive supersedes the old one, keeps the chain's
     `touches_counted_from` and waits for approval again when its class needs one. A
-    directive re-created on a carried branch (after a company pause) finds its predecessor
-    through the branch lineage: it keeps the budget start, and the approval when content
-    and class are unchanged.
+    directive re-created on a carried branch finds its predecessor through the branch
+    lineage: it keeps the budget start, and the approval when content and class are
+    unchanged.
   - A directive still awaiting approval never opened: whatever ends it withdraws it
     (`models.strategy.directive.ended_state`). Each fact runs in its own savepoint; one that
     raises is logged (`strategy.fact_failed`) and passed.
