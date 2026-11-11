@@ -1,6 +1,6 @@
 ---
 name: git-workflow
-description: Our team's conventions for branches, commits, pull requests, and version bumps. ALWAYS consult before any git branch create/switch, commit, PR, or version change. Every PR bumps the version — PATCH by default, MINOR/MAJOR only with written justification. Agents must stay on the already-checked-out branch unless the user explicitly approves a new branch in the current turn. Also covers contributors (people outside engineering, team `contributors`), who always go through a PR, and the green/yellow/red risk lanes on their PRs.
+description: Our team's conventions for branches, commits, pull requests, and version bumps. ALWAYS consult before any git branch create/switch, commit, PR, or version change. Every PR bumps the version — PATCH by default, MINOR/MAJOR only with written justification. Agents must stay on the already-checked-out branch unless the user explicitly approves a new branch in the current turn. Also covers contributors (people outside engineering, team `contributors`), who always go through a PR, and the green/yellow/red risk lanes on their PRs. Also covers what an agent does after a simpl_api merge (Google deploys it; the agent only watches and never starts or retries a deploy).
 ---
 
 # Git workflow
@@ -54,6 +54,16 @@ Types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`, `build`, `ci`
 - Under ~400 lines gets same-day review; split bigger PRs.
 - Every PR bumps the version (below); reviewers do not approve without it.
 - Agents: after a merge you ran (only when the user asked for it) succeeds, delete the PR's branches. Remote: GitHub deletes it on merge ("Automatically delete head branches" is on in every active repo); if it is still there, `git push origin --delete <head>`. Tracking ref: `git fetch --prune`. Local: `git branch -D <head>`, only if the branch is not checked out (here or in another worktree) and its tip equals the PR head (`gh pr view <n> --json headRefOid`); a checked-out branch stays, say so. Never delete `main`, `dev`, `staging` or release branches (e.g. the head of a `dev` → `main` PR). Do not use `gh pr merge --delete-branch`: it checks out the base branch when you are on the PR branch.
+
+## Agents: simpl_api deploys itself
+
+Every push to simpl_api `main` starts its Cloud Build trigger, which builds the image and deploys the Cloud Run service `simpl-api`. After a merge, Google does the release. The agent only watches it.
+
+- Never start, retry or re-run a simpl-api deploy (`gcloud builds triggers run`, `gcloud builds submit`, `gcloud run deploy`, a build retry). Never change the service, its traffic or its revisions.
+- Watch the check run `rmgpgab-simpl-api-…` on the merge commit (`gh api repos/simpl-techs/simpl_api/commits/<sha>/check-runs`): about 15 minutes. Then confirm the serving revision runs the new version.
+- If the check fails, tell the user, with the build's error line. Do not try again on your own.
+
+Why: on 2026-11-11 agents retried simpl-api deploys on top of the automatic ones. The releases were already failing because the project's Cloud Run CPU quota in europe-west4 was full, and every extra deploy only added another failed revision (Raffaele, 2026-11-11).
 
 ## Contributors and risk lanes (people outside engineering)
 
