@@ -3443,7 +3443,8 @@ passage = await document_passage(reads, ontologies, doc_key, variant_name=...)
   merged, anchored, unplaced, pending; per relation type edges, folded, loops; the
   merge groups), and `promotion` (the bars, and each entity and relation type shown or
   why not: `type_off`, `type_unmeasured`, `type_below_precision`, or `not_measured`
-  when no run measured it). `units` maps each unit to its node after identity
+  when no run measured it; each with its precision and the 95% lower bound the bar
+  reads, `precision_lower`). `units` maps each unit to its node after identity
   (`node_id`: the canonical entity, else the unit itself).
 
   ```python
