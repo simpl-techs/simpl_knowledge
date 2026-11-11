@@ -410,7 +410,8 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   flow's result reports those companies as `requeued`. Read `error` sessions as real
   failures.
 - `generate_opportunities_flow` works only ICPs someone receives, as defined by
-  `sales_view.opportunity_recipient`: an active assignee, not on vacation, of a customer
+  `sales_view.opportunity_recipient`: an active assignee, not on vacation and not an
+  observer (`sales.user_observer`, set by SimpL staff), of a customer
   whose `metadata.is_active` is not `false`, of the ICP owner's customer (also active)
   or a SimpL identity with an open `sales.identity_loan` on that ICP for a customer on
   active pay per call. Each run deletes the non-manual
