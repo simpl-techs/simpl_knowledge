@@ -3140,6 +3140,23 @@ hits = await search.best_per_company(
   matched `any`, are one grouped BM25 search per list of groups (no candidate check);
   phrases or `all` take the checked path, which reads every candidate's text.
 
+### Company passages (`search.company_passages`)
+
+Each company's passages for a question, read the way simpl_api's feature check reads them
+(moved here from `simpl_api/services/feature_check/passages.py` and `code.py`, so simpl_flow's
+opportunity verifier reads the same evidence). `PassageFinder.find(question, companies,
+vectors)` takes `CheckedCompany` rows (id, name, site host, and `about`: what SimpL's company
+database says, which the finder does not read) and returns, per company, up to
+`CLOSEST_PASSAGES` passages by meaning across website and posts, up to `KEYWORD_PASSAGES` more
+holding the question's words (BM25), then its site's code lines holding the question's
+markers. Searches are grouped, `COMPANIES_PER_SEARCH` (256) companies at a time, at most 4 in
+flight per process. `embed(question)` embeds once per collection and, with a `CodeReader` and a
+`markers` writer, writes the code markers (`write_markers(question, client)`, the caller's
+model). `passage_finder(db, marker_client=None)` opens one on the production collections and,
+with a marker client, on the active `landing_markup` dataset (`ROW_STORE_URI`); without a row
+store it reads text and posts only (logged `company_passages.code_off`). Needs the `search`
+extra; `NEBIUS_API_KEY` and the Milvus settings.
+
 ### Sales datasets (`sales_datasets`) and text anonymization (`anonymization`)
 
 What Graphia reads about the companies we hold outreach conversations with, as row
