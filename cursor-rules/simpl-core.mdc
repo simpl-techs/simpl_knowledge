@@ -4467,6 +4467,52 @@ Every insert, update or delete of a `reply_confidence_settings` row writes one `
 
 **Grants.** The table (`SELECT, INSERT, UPDATE, DELETE`) and `reply_confidence_settings_for`, `reply_confidence_authorization`, `reply_confidence_send_block`, `reply_confidence_return_to_review`, `reply_confidence_queued_counts`, `reply_confidence_what_if`, `reply_confidence_settings_overview` (`EXECUTE`) are granted to `service_role` only; `PUBLIC`, `anon` and `authenticated` have nothing, and the internal helpers (leading underscore) and trigger functions are granted to nobody. simpl_api and simpl-outreach connect as the owner. The functions are `SECURITY DEFINER` with `search_path = pg_catalog` and run as the role that applied the migration (`postgres`), which `reply_confidence_settings_overview` needs to read `auth.users` past its row-level security.
 
+## Company locations (`services.location`)
+
+`sales.company.location_id` points at a `geolocation.locations` row, keyed by its unique
+`original_location` text. `LocationLinker` finds or creates that row without calling
+anything outside the database (a stub; simpl_flow's `gcp_location_parser_flow` geocodes it
+later), and `LocationInputParser.clean` makes the key from a free text.
+
+- `LocationLinker().resolve_location_id(location=..., session=...)` (and
+  `resolve_location_ids`): the row of the bare text. Unchanged.
+- `LocationLinker().resolve_location_id_for_country(location=..., country=...,
+  session=...)` (0.8.360): the `location_id` for a company whose country is known (a code
+  or a name). A bare locality ("Cambridge", "Milan") can name a row geocoded to another
+  country, so:
+  - the row of the text qualified with the country's name ("Milano, Italy") links unless
+    it was geocoded to another country;
+  - else the bare text's row links only when it was geocoded to the company's country (a
+    bare row not geocoded yet, or with a country no reader knows such as the geocoder's
+    "n/a", could be anywhere);
+  - else the qualified text's stub is created (a row with the same text inserted meanwhile
+    is reused) and its id returned;
+  - None when there is nothing to link, or the qualified text already has a row in another
+    country.
+
+  With no country, or one no reader knows, the bare text links as `resolve_location_id`
+  links it, wherever its row is. It inserts on the caller's session; the caller commits.
+- The same rules as pure functions, for callers that read and write the rows themselves
+  (simpl_scraping's `company_profile` profile, inside an agent-framework pipeline), from
+  `simpl_core.services.location`: `location_key` (the cleaned text), `country_iso3` (ISO-3
+  from a code or a name), `iso3_from_alpha2` (ISO-3 from an alpha-2 code only),
+  `qualified_location_key(location, iso3)`, `location_keys(location, countries)`
+  (qualified keys first, then the bare text), `may_link_place(place_country, iso3,
+  qualified=...)` and `place_to_link(location, iso3, places)` (`places`: each key's row
+  country as read; returns the key to link or the key to create).
+- The qualified text adds pycountry's common name ("South Korea"), else its ISO short
+  `name` ("Saint Helena, Ascension and Tristan da Cunha"). The name is kept once only when
+  the text already has it as a whole comma-separated part, in any case: "Cambridge, United
+  Kingdom" stays, "Cambridge, UK" becomes "Cambridge, UK, United Kingdom".
+- Country names and codes are read once, in `simpl_core.utils.countries`
+  (`country_alpha2`, `country_names`, `COUNTRY_ALIASES`): pycountry's codes and names, plus
+  the names people and the geocoder write that pycountry lacks ("Russia", "The Gambia",
+  "Vatican City", "São Tomé and Príncipe"). `utils.lead_timezone` and
+  `LocationInputParser.extract_components` (which part of a text is the country) read
+  through it; add a name there, once.
+- `CompanyWriteService.create`/`update` still link a written `location` by its bare text
+  and set `location_id` from it, whatever `location_id` the payload carries.
+
 ## Common pitfalls
 
 - Do not duplicate autopilot, CRM, email, or report logic in app repos before checking whether `simpl_core` already owns it.
