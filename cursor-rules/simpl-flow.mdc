@@ -327,8 +327,18 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   generation (built for it, unpublished unless `publish`): each entity type's verdict on
   the teacher's span labels and each relation type's on its fact labels, recorded as a
   `measured` promotion run that writes no golden row (migration 187). The schedule runs
-  with `links_limit` 800 and `measure_every_hours` 24. Identity's state is still in Postgres (`er_*`) until this pipeline is reworked. One run
+  with `links_limit` 800, `measure_every_hours` 24 and `merge_every_hours` 24: once a day,
+  before the generation, same-meaning names of the mergeable types are merged under the
+  newest `knowledge_graph.er_merge_config` (every type off in `v1`; migration 188), and
+  the micro-batches place a later spelling of a merged name by its loose form with no
+  call. Identity's state is still in Postgres (`er_*`) until this pipeline is reworked. One run
   at a time (`CANCEL_NEW`).
+- `gcp_graphia_merge_flow` (daily at 02:30 UTC, plain image, 4 vCPU / 16 GiB) finds and
+  judges merge candidates for the types the merge config does not switch off: names and
+  their Nebius embeddings (row-store datasets `er_names`, `er_name_vectors`), nearest
+  names, the teacher's merge row (ledger `graphia_teacher_root` version 9, migration 189)
+  and an audit per type. It writes edges and questions only; identity applies them. One
+  run at a time (`CANCEL_NEW`).
 - `gcp_open_graph_flow` (no schedule, started by hand) labels LinkedIn posts with
   llmgraph (LangChain's `LLMGraphTransformer`) once per teacher, as training data. A
   teacher is a model in one llmgraph mode, listed in
