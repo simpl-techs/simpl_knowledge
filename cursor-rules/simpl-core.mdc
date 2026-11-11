@@ -2951,6 +2951,11 @@ report.clean, report.differences, report.summary()
   when a condition needs them; pass `sites=BuiltSites.of(sources)` to reuse them. The
   check's other side; a test asks every operator of `OPERATORS` and every field of
   `SITE_FIELDS` through both.
+- **`site_match(condition, rows, *, today)`** (`row_match`, 0.8.352): one site judged on
+  its rows as the website facts dataset holds them (`MATCH_COLUMNS`: a day as a
+  `date`, lowercased texts as built), for readers of the row store (simpl_flow's
+  opportunity matcher v2). A `SiteMatch` or None; a test asks it for the same sites as
+  `WebsiteFactsSearch` on every kind of test and on today's signals' shapes.
 
 - **The condition** (a signal filter's condition, `collection: "website_facts"`; every
   part given must hold, at least one):
@@ -3277,8 +3282,11 @@ definitions into it. Moved from simpl_flow `pipelines/opportunities_v2/dsl.py`
 (0.8.343); simpl_flow's evaluator still holds its own copy until it imports this one.
 
 - `opportunity_matcher.dsl`: `IcpSpec`, `SignalSpec`, the `Predicate` tree (`company`,
-  `similar`, `text`, `fact`, `entity`, `job_offers`, `all`/`any`/`not`, `min_matches`,
-  `within_days`), `spec_hash`. New in core: `Company.location` (by `geolocation`
+  `similar`, `text`, `fact`, `entity`, `job_offers`, `rows`, `website_facts`,
+  `all`/`any`/`not`, `min_matches`, `within_days`), `spec_hash`. `website_facts`
+  (0.8.352) holds a website facts condition in its own grammar (`technologies`,
+  `site`, `keywords`, `keyword_match`), checked by
+  `search.website_facts.parse_condition`; `.parsed()` gives the parsed condition. New in core: `Company.location` (by `geolocation`
   names), `size_min`/`size_max` (the company's own bracket), `linkedin_size`,
   `linkedin_urls`, `unknown`, `description_regex` (RE2); `IcpSpec.include_ids`
   (candidates optional when given); `job_offers` with a row-level `where`
@@ -3296,9 +3304,9 @@ definitions into it. Moved from simpl_flow `pipelines/opportunities_v2/dsl.py`
 - `python -m simpl_core opportunity_specs_report [--json PATH] [--connection-mode
   session]`: what converts and why the rest does not. Read-only.
 
-Does NOT: write specs (simpl_flow's matcher run will, through its spec store), evaluate
-predicates (simpl_flow `opportunities_v2/evaluate.py`), or read headcount, funding,
-Crustdata, articles, positions or website facts signals (refused: not in matcher v2).
+Does NOT: write specs (simpl_flow's matcher run does, through its spec store) or
+evaluate predicates (simpl_flow `opportunities_v2/evaluate.py`). An article signal with
+no `embedded_text` is refused (matcher v2 embeds the text, never a stored vector).
 
 ### Search over Graphia's sources (`search.graphia_sources`)
 
