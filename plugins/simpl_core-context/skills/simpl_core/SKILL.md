@@ -2918,6 +2918,15 @@ report.clean, report.differences, report.summary()
   `technology_names` is the listing behind simpl_api's `list_website_technologies` and
   the Sales Domain agent's, moved here from simpl_api (which imports it). See "Signal proposals" under the Sales
   Domain approval queue.
+- **Field groups** (0.8.359): each `SiteField` has a `group` (`FieldGroup`), and
+  `FIELD_GROUPS` maps each group to its label in display order: Security, Mobile & UX,
+  SEO, Freshness, Server, Performance, Crawl. Display data only, for a list a person or
+  an agent picks a field from (the Sales Domain skill; simpl_api's catalog route and the
+  dashboard's signal form once they read it): show the groups in `FIELD_GROUPS` order and the fields in
+  `SITE_FIELDS` order within each group. `SITE_FIELDS` keeps its order, which is the
+  dataset's and the collection's, so groups change no index. A reader built against an
+  older simpl_core may meet a group it does not know: show its fields anyway (under
+  their key or an "Other" heading), never drop or refuse them.
 - **What the follow pass sees, and what waits for the sweep** (0.8.304): the follow pass
   reads finished `website_signals` jobs through `extraction_jobs_succeeded_idx`, so the
   page writer's changes (content, technologies) reach the index within minutes. A
