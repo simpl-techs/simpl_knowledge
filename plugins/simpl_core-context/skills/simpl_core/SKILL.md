@@ -1810,9 +1810,21 @@ The strategy layer plans; the outreach walk does. They meet only in core tables
   `sales.pool_scope` enters `sales.pool_company` and gets a review
   (`services.strategy.pool_entry`). `emits_directives = false` is shadow.
 - **Jobs** for simpl_flow to deploy: `services.strategy.jobs.admit_offers`,
-  `scan_facts`, `reconcile_directives`, `observe_outcomes` (scoring: `sales.branch_outcome`,
-  `scoring.prediction_skill` per customer, pattern and measure, with N and the base rate)
-  and `report_health` (overdue or failed reviews alert).
+  `scan_facts`, `reconcile_directives`, `observe_outcomes` (scoring, below) and
+  `report_health` (overdue or failed reviews alert).
+- **Scoring** (`services.strategy.scoring`, 0.8.357): `observe_outcomes` writes one
+  `sales.strategy_outcome` row per person tried once the try's 30 days have passed, never
+  earlier, whatever happened to the branch: `directive` (a strategy directive opened on the
+  person; a directive opened inside an earlier try's window on the same connection belongs
+  to it) or `history` (a thread of a customer with an active scope that no directive led,
+  from its first outbound touch, within 180 days: the customer's own base). Each row has the
+  try's shape (objective, purpose, the first move made and its channel) and the first
+  acceptance, reply, decline and booked call in the window. A positive reply is a reply with
+  no decline, known only when the window started after the walk began writing declines
+  (`declines_recorded`). `outcome_rates` gives N and the rates per customer, source and
+  shape; `prediction_skill` scores the planner's four predictions per customer and pattern
+  against the customer's own history rate (`SkillRow.base_rate`), `pooled_prediction_skill`
+  across all. `sales.branch_outcome` is retired: nothing reads or writes it.
 - **Ask tags and the exchange guard**: `journey_log.ask_objective`, `ask_purpose`,
   `directive_id`, `plan_branch_id` (migration `20261104g_journey_log_ask_tags.sql`,
   stamped by the walk's persist step). `services.strategy.ask_guard.exchange_ask_allowed`
@@ -1878,11 +1890,8 @@ The strategy layer plans; the outreach walk does. They meet only in core tables
     timeout expires, one on a shadow or ended scope or a closed company withdraws.
   - An opt-out or a refusal ends the person's live directives on every identity, and gives
     back the other identities' threads with their queued rows cancelled.
-  - Pattern support counts only `branch_outcome` rows observed on a directive
-    (`observed_on = 'directive'`) for the full window or with an event; shadow branches are
-    observed on the customer's own outreach (`observed_on = 'standard'`) and score
-    predictions only; one on a person nobody contacted gets `observed_on = 'nobody'`, which
-    only takes it off the queue. A measure counts a branch only when observed long enough.
+  - Pattern support counts the customer's `directive` outcomes per branch pattern (every
+    row is a full window); a branch planned in shadow, refused or timed out is no try.
   - Reconcile takes the least recently reconciled companies first
     (`pool_company.last_reconciled_at`); branches only on open companies of active emitting
     scopes. A plan's next review is never sooner than the scope's review window.
