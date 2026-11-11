@@ -1,6 +1,6 @@
 # simpl internal libraries catalog
 
-Auto-generated at `2026-11-11T23:01:46.377Z`. Do not edit by hand: every library sync regenerates it, or run `node scripts/ci/generate-catalog.js`.
+Auto-generated at `2026-11-11T23:03:53.769Z`. Do not edit by hand: every library sync regenerates it, or run `node scripts/ci/generate-catalog.js`.
 
 Each entry summarizes an integration plugin (`*-context`). Install the plugin in Claude Code for the full SKILL. Until then, use this file to decide whether a library fits the current task.
 
@@ -44,7 +44,7 @@ Each entry summarizes an integration plugin (`*-context`). Install the plugin in
 ## simpl_foundry-context
 
 - **Skill**: `simpl_foundry`
-- **Summary**: Model training for simpl: run tracking in Postgres, recipes and dataset snapshots, Batch and Cloud Run jobs, sweeps ranked on a held-out split, and a promotion step that writes a recipe patch and activates nothing.
+- **Summary**: Model training for simpl: run tracking in Postgres, recipes and dataset snapshots, Batch, Cloud Run and Leonardo jobs, sweeps ranked on a held-out split, and a promotion step that writes a recipe patch and activates nothing.
 - **When to use**: Any code that trains a model, logs metrics or artifacts of a training run, declares a recipe or an evaluator, launches a training job or a sweep, or reads run, experiment or evaluation data. Also when adding a new kind of data source for recipes.
 - **Required when**: Model training at simpl is recorded through simpl_foundry. No ad hoc run tables, no untracked training jobs.
 - **Install full context (Claude Code)**: `/plugin install simpl_foundry-context@simpl`
