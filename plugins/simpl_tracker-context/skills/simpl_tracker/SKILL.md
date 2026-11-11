@@ -284,7 +284,10 @@ Each day's credits per service and credit go to `cost_tracking.load_gcp_billing_
 (`gcp_billing_credit`); a day whose credits do not add up to its bill lines' credits is
 reported. `gcp_credit_coverage(from, to)` gives per service the cost before credits,
 what startup-program credits (`PROMOTION`) and other credits covered, and what was
-billed: the cost page reads it. Credit balance and expiry are not in the export.
+billed: the cost page reads it. `gcp_credit_totals_usd(from, to)` gives the same window
+in USD at each bill line's rate (cost before credits, credits, billed), so infrastructure
+in USD minus its credits is what was paid. `gcp_resource_credits(from, to)` is `gcp_cost_by_resource`
+plus each row's credits and billed amount in EUR (the resource-day's credit share). Credit balance and expiry are not in the export.
 
 ```bash
 doppler run --config dev -- python -m simpl_tracker.jobs.gcp_billing_sync [--since 2026-07-01] [--apply]
