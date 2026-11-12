@@ -1664,6 +1664,46 @@ never deletes the surplus dummy lead either — it folds it through
 and `conversation_participant.participant_id` is polymorphic with no FK at all,
 so a plain delete destroys connections and orphans participants, silently.
 
+A company merge can be undone when it goes through `ReversibleCompanyMerge(session)`
+(`simpl_core.services.dedup.reversible_merge`). It merges through `CompanyMergeService`
+only when the merge would only move rows, and records everything it changed in
+`sales.company_merge` and `sales.company_merge_step` (migration
+`20261112170000_company_merge_journal.sql`, applied before the first such merge):
+
+```python
+merges = ReversibleCompanyMerge(session)
+checked = await merges.check(source_id, target_id)  # .reversible, .reasons, .references
+merge_id = await merges.merge(source_id, target_id, by="graphia-identity", proof={"page": page})
+result = await merges.undo(merge_id, by="admin:<uuid>")  # UndoResult; .report() for logs
+```
+
+`merge` raises `MergeNotReversible(reasons)` and changes nothing when the merge would
+drop or fold anything: a reference row that would collide with one of the target's, an
+owner with a conversation on both companies, more than one placeholder lead on a side,
+the source's placeholder lead referenced by anything (it would be merged, not deleted),
+a pending LinkedIn enrichment request on both, or a reference table with rows to move
+and no primary key. Putting those back would replay what their triggers did when the
+rows were made, so they are left to `CompanyMergeService` and a person.
+
+`undo` runs once (`ValueError` "was undone"), and refuses whole when the source's id is
+taken again ("exists again"). It gives the target back the fields it took, each only
+when unchanged since the merge (`target_fields_restored`), re-inserts the source with
+its own id and its own placeholder lead, moves back each row that still points at the
+target, and restores the claims and the wish lists it rewrote. A row changed since is
+left as it is and counted in `left_as_they_are`. Data written to the target after the
+merge stays there.
+
+`merge_page_twins(session, pages, by=, dry_run=True)`
+(`simpl_core.services.dedup.company_twins`) merges registry twins by their LinkedIn
+company page (the `/company/<name>` part, e.g. `"example-works"`). `page_rows` reads
+every row on the page in every spelling, and on the numeric page of the id its rows
+hold; `judge_company_twins` decides: exactly one row holds a `company_linkedin_id`, so
+it survives and the rows with none are its twins. A page with several ids, or none, is
+`unproven` and merges nothing. A name is never proof. Each twin merges reversibly in its
+own savepoint; one that is not reversible is `skipped` with its reasons and the run goes
+on. `dry_run` checks only, and reports what each merge would move. `TwinReport.counts()`
+gives pages, merged, skipped and unproven; `merged` entries carry the `merge_id`.
+
 Lead merges preserve customer scope: `sales.lead_contact` rows keep their
 `scope` and `user_id`, are never promoted from `user` to `global`, and are
 deduplicated only within a single scope and owner. One customer's privately
