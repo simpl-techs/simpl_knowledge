@@ -324,14 +324,17 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   (`generation`, `variant`, `publish`), then the published generation's entity promotion
   into the golden zone the matcher's `entity` predicate reads (`promote`,
   `promotion_config`; migrations 153 and 154), then, with `measure` or once
-  `measure_every_hours` have passed since a run last measured, a measurement of the run's
-  generation (built for it, unpublished unless `publish`): each entity type's verdict on
+  `measure_every_hours` have passed since a run last measured, a measurement: of the
+  run's generation when it builds one, else of the generation it would build now, read
+  straight from the log and identity's tables without building or writing it
+  (`promotion.job.record_log_measurement`, the same report): each entity type's verdict on
   the teacher's span labels and each relation type's on its fact labels, recorded as a
-  `measured` promotion run that writes no golden row (migration 187). The hourly
-  schedule runs with `links_limit` 800 and `merge_every_hours` 24 and does not measure:
-  `gcp_graphia_measurement_flow` (daily at 03:45 UTC, 8 vCPU / 32 GiB) runs the same flow
-  with `place` false (no placement, links or lock) and `measure`, since the generation no
-  longer fit the hourly job (4 h, 16 GiB) after its catch-up and links. Once a day,
+  `measured` promotion run that writes no golden row (migration 187; of no generation,
+  migration 194). The hourly schedule runs with `links_limit` 800 and `merge_every_hours`
+  24 and does not measure: `gcp_graphia_measurement_flow` (daily at 03:45 UTC once its
+  schedule is switched on, 4 vCPU / 16 GiB) runs the same flow with `place` false (no
+  placement, links or lock) and `measure`, no `generation`: building a whole generation to
+  measure it took over 4 h and 16 GiB on 2026-11-12. Once a day,
   before the generation, same-meaning names of the mergeable types are merged under the
   newest `knowledge_graph.er_merge_config` (every type off in `v1`; migration 188), and
   the micro-batches place a later spelling of a merged name by its loose form with no
