@@ -332,8 +332,8 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   the teacher's span labels and each relation type's on its fact labels, recorded as a
   `measured` promotion run that writes no golden row (migration 187; of no generation,
   migration 194). The hourly schedule runs with `links_limit` 800 and `merge_every_hours`
-  24 and does not measure: `gcp_graphia_measurement_flow` (daily at 03:45 UTC once its
-  schedule is switched on, 4 vCPU / 16 GiB) runs the same flow with `place` false (no
+  24 and does not measure: `gcp_graphia_measurement_flow` (daily at 03:45 UTC, 4 vCPU /
+  16 GiB; about 6 minutes) runs the same flow with `place` false (no
   placement, links or lock) and `measure`, no `generation`: building a whole generation to
   measure it took over 4 h and 16 GiB on 2026-11-12. Once a day,
   before the generation, same-meaning names of the mergeable types are merged under the
