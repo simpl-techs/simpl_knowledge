@@ -2757,6 +2757,15 @@ async for batch in searcher.query_rows({"host": hosts, "uses_https": False}):
     commit rewrites.
   - **Index types:** use BTREE, BITMAP and NGRAM only; zone map, bloom filter and FM
     indexes don't survive compaction on such a table.
+- **Reading a whole table: no filter, a fragment part per reader (0.8.368).** A
+  filtered `scan` goes through the scalar indexes, which fetch each matching row on
+  its own: one request a row on GCS. 400 owners' posts across 922 fragments took
+  26,105 requests and 38 s for 4,569 rows (2026-11-12). Read every row with
+  `scan(columns, include_deleted=True, version=v, fragments=part)`, drop tombstones
+  and unwanted rows in memory, and give each reader a part of
+  `await dataset.fragment_ids(version=v)`: one version, read once between them.
+  pylance's `to_batches` ignores a `fragments` argument; `scan` passes it to the
+  scanner.
 - A `DatasetSpec` can declare `ngram_indexes` (string columns) for substring filters;
   `Dataset.scan(where=...)` takes a Lance SQL string such as
   `"contains(markup, 'pricing')"` to use them, since Arrow expressions cannot express a
