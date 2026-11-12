@@ -328,8 +328,11 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   `measure_every_hours` have passed since a run last measured, a measurement of the run's
   generation (built for it, unpublished unless `publish`): each entity type's verdict on
   the teacher's span labels and each relation type's on its fact labels, recorded as a
-  `measured` promotion run that writes no golden row (migration 187). The schedule runs
-  with `links_limit` 800, `measure_every_hours` 24 and `merge_every_hours` 24: once a day,
+  `measured` promotion run that writes no golden row (migration 187). The hourly
+  schedule runs with `links_limit` 800 and `merge_every_hours` 24 and does not measure:
+  `gcp_graphia_measurement_flow` (daily at 03:45 UTC, 8 vCPU / 32 GiB) runs the same flow
+  with `place` false (no placement, links or lock) and `measure`, since the generation no
+  longer fit the hourly job (4 h, 16 GiB) after its catch-up and links. Once a day,
   before the generation, same-meaning names of the mergeable types are merged under the
   newest `knowledge_graph.er_merge_config` (every type off in `v1`; migration 188), and
   the micro-batches place a later spelling of a merged name by its loose form with no
