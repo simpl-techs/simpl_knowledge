@@ -37,9 +37,12 @@ poetry add "simpl-core[agent-framework] @ git+https://github.com/simpl-techs/sim
 poetry add "simpl-core[mailbox] @ git+https://github.com/simpl-techs/simpl_core.git@main"
 poetry add "simpl-core[parquet] @ git+https://github.com/simpl-techs/simpl_core.git@main"
 poetry add "simpl-core[decks] @ git+https://github.com/simpl-techs/simpl_core.git@main"
+poetry add "simpl-core[foundry] @ git+https://github.com/simpl-techs/simpl_core.git@main"
 ```
 
 The `mailbox` extra (aioimaplib, aiosmtplib, google-cloud-kms, dnspython) is what an `imap` email connection needs at runtime; see "Email on other providers (IMAP/SMTP)". Nothing imports it at `import simpl_core.services.email`.
+
+The `foundry` extra (`simpl_foundry`) is what `agent_framework.experiment_tools` and `row_store.source_reader` import. `import simpl_core`, `simpl_core.agent_framework` and `simpl_core.row_store` need neither of them.
 
 Base `simpl-core` installs `simpl-ia` (same pin as other platform repos) so `import simpl_ia` works in the venv. The `agent-framework` extra adds `simpl-ia[agents]` (pydantic-ai) for `simpl_core.agent_framework` and `simpl_ia.agents`; that submodule is not imported at `import simpl_core`.
 
@@ -2473,10 +2476,16 @@ await posts.build_index("vector")            # sections of a declared vector or 
   never reads past an open commit. Registering a projection with `applied_seq = 0` and
   running it is a rebuild.
 - **A reader without the spec opens the table by name.** `StoredTable(config,
-  "sales_posts__v2")` gives `schema()` and `read(columns, where=...)`: live rows only,
-  `where` a pyarrow expression. It never writes, so it takes no lease and needs no
-  catalog. The agent framework's `data_producer` reads the row store through it
-  (`source: row_store`). `read(..., limit=n)` reads at most `n` matching rows.
+  "sales_posts__v2")` gives `schema()`, `read(columns, where=...)` and `version()`: live
+  rows only, `where` a pyarrow expression; with `pinned=True` all three see the version
+  it first opened. It never writes, so it takes no lease and needs no catalog. The agent
+  framework's `data_producer` reads the row store through it (`source: row_store`).
+  `read(..., limit=n)` reads at most `n` matching rows.
+- **A `simpl_foundry` recipe reads the row store as a source.**
+  `row_store.source_reader.RowStoreReader` is the `row_store` kind of the
+  `simpl_foundry.sources` entry point group: `{row_store: {dataset, version}, columns:
+  [...], where: [...]}` reads the live rows of `{dataset}__v{version}` under
+  `ROW_STORE_URI`, at one Lance version. Needs the `row-store` and `foundry` extras.
 - **A serving process keeps its tables on one Lance session.** `PinnedTables(config,
   names, session=lance.Session(...))` opens one pinned `StoredTable` per name as a set,
   in `names`' order, before any of them is read (`await tables.table(name)`);
@@ -4661,6 +4670,210 @@ A host running its own agent loop (simpl_ops) offers the same `code_task` /
 `browse_task` callables and wraps its run in `bind_sandbox_tool_context(...)`. Guide:
 `docs/agent_framework/13-sandboxes.md`.
 
+## Experiment tools for agents
+
+`simpl_core.agent_framework.experiment_tools` lets an agent read a trainer's code and plan,
+run and watch experiments of a `simpl_foundry` recipe. It needs the `agent-framework` and
+`foundry` extras, and the package does not re-export it. Importing it registers
+`experiment_code`, `experiment_plan`, `experiment_submit`, `experiment_progress`,
+`experiment_results`, `experiment_diff`, `experiment_leaderboard`, `experiment_stop` and
+`experiment_notes` in `ToolRegistry` (`EXPERIMENT_TOOL_IDS`); list them in an agent's
+`available_tools`. Bind what the model must not choose around its run
+(`simpl_core.agent_framework.experiment_context`):
+
+```python
+with bind_experiment_tool_context(
+    ExperimentToolContext(recipes={"example": path}, database=settings)
+):
+    ...
+```
+
+A candidate is `{"overrides": {...}, "patch": "<unified diff from the repository root>",
+"base": "<experiment hash>", "hypothesis": "<what it should do and why>"}`, all but
+`overrides` optional. A refusal is a result (`{"status": "refused", "reason": ...}`), not
+an exception. Recipes, sweeps and what they run are `simpl_foundry`'s: see its docs.
+
+**Where jobs run** (`experiment_placement`). The context's `target` (`batch`, `cloud_run`,
+`leonardo`; `local` for tests), `compute` (the options `simpl_foundry launch` takes:
+`gpus`, `cpus`, `memory_gb`, `hours`, `nodes`, `queue`) and `files_only` are resolved by
+`simpl_foundry.targets.destination`, as `launch` and `sweep run` resolve them: a recipe's
+`compute` section with the project's settings, or its own `resources` section. What it
+refuses (an unset setting, a request the platform cannot give) is a refusal naming it. One
+trial costs what the resolved job asks for: `max_hours` x GPUs on Batch and Cloud Run, the
+allocation's hours x GPUs x 4 attempts on Leonardo (a time limit requeues a job up to
+3 times). On Leonardo the context needs `leonardo` (`LeonardoAccess`: the settings and the
+SSH login), and each sweep is checked there (`check_launch`: the image of the code's lock)
+before it is queued. `created_by` names the submitter of every sweep (`campaign:<id>`).
+
+**Where unreviewed code may run.** A patch or a base trains code no person read, which can
+use everything its job holds and reaches. `experiment_plan` and `experiment_submit` refuse
+such a candidate, before its text reaches git, unless the context has `allow_patches` and
+its jobs run:
+
+- on Cloud Run, files-only, as the project's files-only account: no secret, no database
+  login, and with the network settings no internet;
+- on Leonardo: the job sees only its own run's files and reaches no internet.
+
+Never on Batch (its GPU containers run privileged on their VM), never on the local target,
+never in a job that holds secrets. `experiment_results` scores a finished sweep in the
+host's process only with `evaluate=True` (off by default), which `allow_patches` rules out:
+such a host scores sweeps with simpl_foundry's evaluation job or under its own account.
+
+**The patch gate** (`experiment_patch`) runs before a patched candidate is planned or
+submitted: at most `MAX_PATCH_CHARS` (30,000) characters; only files of the recipe's
+`code_surface`, never the evaluator's (`EVALUATOR_CODE` and its entry point's module); no
+link or submodule; and no Python it adds that starts a process (`subprocess`,
+`os.system`, ...), opens a network connection (`socket`, `urllib`, `requests`, ...),
+reads the environment (`os.environ`, `os.getenv`, `dotenv`, cloud credential libraries) or
+runs code built at run time (`eval`, `exec`, `importlib`, ...), import aliases resolved. It
+is hygiene, not a sandbox: a determined patch can hide such a call, so what protects is the
+job that runs it, remote, under an account set apart, with no secret and no network.
+
+`experiment_code` reads the trainer's package: without `path` it lists its files (paths
+from the repository root, each `changeable` when the code surface allows a patch and
+`evaluator` for the evaluator's), with `path` it returns up to 16,000 characters from
+`start_line` and `next_start_line` when there is more. `base` reads that experiment's
+commit instead of the current code. It reads the files of the experiment's code manifest
+through git, never the file system: any other path, a link and a submodule are refused.
+
+`experiment_progress` and `experiment_stop` take a `sweep_id` and act only on the sweeps the
+context's own submissions queued (`ExperimentToolContext.sweeps`); any other is refused.
+`experiment_progress` is a query: each trial's run status, attempt, last step, heartbeat age
+while running, and the last, lowest and highest value of up to 20 training metric keys of
+the run's summary (`system/` keys left out). Never a series, never a row, never a held-out
+score. `experiment_stop` ends the sweep's unfinished runs through `cancel_sweep`, on any
+target (`{"status": "stopped", "runs_ended": n}`); on a sweep that has ended it changes
+nothing (`"ended"`). Stopping gives no budget back. Without a working Leonardo login,
+submitting to and stopping on Leonardo are refusals that tell the model to ask a person to
+log in; reading stays allowed.
+
+`ExperimentToolContext.max_scored` caps how many experiments the context's submissions may
+queue to be scored on the held-out split (`scored` holds them); `recent_cap`
+(`RecentCap(max_experiments, days)`) caps how many experiments of the recipe were scored on
+its objective's split within the last `days`, across all campaigns
+(`EvaluationRepository.experiments_scored`), new ones included. Past either a submission is
+refused and reading stays allowed. With `notes` (a campaign's `CampaignNotes`), every
+submitted candidate needs a `hypothesis` (20 to 2,000 characters), a candidate whose change
+the notes show rejected is refused, and each experiment a submission queues is noted.
+`experiment_notes` is refused without notes.
+
+### Experiment campaigns
+
+`simpl_core.agent_framework.experiment_campaign` runs one or more agents that improve a
+recipe over rounds of sweeps: the ledger agent `experiment_campaign_planner` (config key
+`experiment_campaign_root`, authored in that package's `agent_policy.yaml`), whose only
+tools are the nine above. The recipe needs `budget` and `objective`, and a `compute` or a
+`resources` section the target can run.
+
+```bash
+python -m simpl_core experiment_campaign path/to/recipe.yaml --rounds 4 \
+    [--agents explore,refine] [--on batch|cloud_run|leonardo] [--gpus N] [--cpus N] \
+    [--memory-gb N] [--hours H] [--nodes N] [--queue Q] [--files-only] [--allow-patches] \
+    [--scoring here|evaluator_job|elsewhere] [--max-scored N] [--max-scored-recently N] \
+    [--recent-days 30] [--max-hours 24] [--poll-minutes 1] [--max-wait-minutes 60] \
+    [--parallel 4] [--work-dir DIR] [--config-version V]
+```
+
+- **Agents**: `--agents` (`CampaignSettings.agents`) gives each agent's focus, one to four of
+  `improve` (the default, alone), `explore` (changes nobody tried) and `refine` (small steps
+  around the base); they are named `<focus>_<n>`. Each round calls them in turn, so an agent
+  sees what the ones before it submitted that round. They share one budget, the sweeps and
+  the notes; an identical candidate never trains twice (its seeds are covered).
+- **A turn** is one `execute_agent` call. Its inputs carry the state: the agent, its focus
+  and the campaign's agents, the recipe, the round and how many there are, the GPU hours
+  left and what one trial reserves (what its resolved job asks for), the candidates that may
+  still be scored, `jobs` (the target, whether jobs write files only, and who scores), the
+  objective, each search-surface key with what it allows and its
+  declared value, whether code patches are allowed and the code surface, the base (the
+  experiment to build on, with its mean), a count of the notes by outcome, the notes
+  written this round so far, and each sweep with its status and counts of trial states and
+  run statuses. The planner answers `reasoning`, `decision` (`submitted`, `waiting`,
+  `stop`), the `sweeps` it submitted and `built_on`, the experiment it built on.
+- **Notes** (`agent_framework.experiment_notes`, one row per experiment a submission
+  queued): the hypothesis, round, agent, base, overrides, patched paths and the hash of the
+  change (the lines the patch adds and removes and the settings that differ from the
+  base's). Scores are read from `training` when the notes are read, never copied. Each
+  experiment is judged at the round of its first note against the best experiment kept
+  before that round, starting from the recipe's best when the campaign started: `kept` when
+  it beats it by more than the objective's noise band, `rejected` otherwise, `pending`
+  until scored; the best kept one is the `base`. A rejected change is refused when proposed
+  again, whatever its base.
+- **Where trials train**: `--on` (`CampaignSettings.target`), else the recipe's
+  `compute.platform` when it is `batch`, `cloud_run` or `leonardo`, else `batch`; the size
+  options replace the compute section's fields (`CampaignSettings.compute`). `--files-only`
+  runs every job with no database login and no secret.
+- **Code changes**: with `--allow-patches` (`CampaignSettings.allow_patches`) candidates may
+  carry a patch or a base, and **every** job of the campaign runs files-only, so reviewed and
+  unreviewed candidates never share a job that holds secrets. It needs `--on cloud_run`
+  (files-only, as the files-only account) or `--on leonardo`, a recipe with a sealed split
+  (`Recipe.sealed_split`: an `acceptance_rule` on another held-out split than the
+  objective's), and `--scoring` other than `here`; each is refused at start otherwise.
+  Without it, patches are refused.
+- **Scoring** (`--scoring`, `CampaignSettings.scoring`): `here` scores finished trials in the
+  campaign's process when `experiment_results` reads them (refused with patches);
+  `evaluator_job` submits simpl_foundry's evaluation job on Cloud Run (`sweep evaluate
+  --on cloud_run`) for a sweep once its trials' runs have all ended, once (a failed
+  submission is retried at the next poll, 3 times at most); `elsewhere` scores nothing: a
+  person or a schedule runs `sweep evaluate`, and the campaign waits.
+- **Held-out caps**: `--max-scored` (`CampaignSettings.max_scored`) is how many candidates the
+  campaign may have scored on the held-out split; `--max-scored-recently N` with
+  `--recent-days D` (`CampaignSettings.recent_cap`) how many experiments of the recipe may
+  have been scored on the objective's split in the last D days, by any campaign or person.
+  Past either, new submissions are refused with the reason, and results, notes and the
+  leaderboard stay readable.
+- **Before round one** the campaign refuses (`CampaignRefused`, exit 2) what could never
+  run: a setting the resolution needs and lacks, named; one trial over the whole budget; the
+  patch conditions above; the evaluation job's settings; and on Leonardo its settings and a
+  working SSH login.
+- **Between rounds** plain code reads the campaign's sweeps every poll and calls no model.
+  For jobs that write files only (files-only, or on Leonardo, where the courier copies them
+  to the artifact root) it first applies their new verified log pieces with
+  simpl_foundry's following sync, under the host's database settings and log secret, so
+  `experiment_progress` shows epochs about a minute behind; a run whose log cannot be applied
+  is logged and the campaign goes on. With `evaluator_job` it then submits the evaluation
+  jobs that are due. It goes on when a sweep or a run changes status, a trial changes state
+  (scored included) or a run logs a later step, after `--max-wait-minutes` otherwise, and at
+  once when no sweep is open.
+- **It stops** when every agent of a round decides `stop`, after the last round, when the
+  budget left cannot pay for one trial, or at `--max-hours`. Ctrl-C stops it at once (exit
+  130). It never ends a sweep: those still running are printed and stay running. It prints
+  the base its notes name.
+- **What an agent cannot do**: act on data, the evaluator or a held-out row, write a score
+  or a note itself, run a command, or read a file outside the trainer's package.
+- **Audit**: each turn is a `node_runs` row (`node_id` `experiment_campaign_planner`,
+  `step` `round_<n>`, `correlation_id` the campaign's id, `route` the decision, `scope`
+  the recipe, the agent and its focus), and under it the call's `agent_runs` row and one
+  `tool_call_runs` row per tool call; a note names its turn's `node_run_id`. Every sweep, its runs and
+  the experiments and snapshots they create name the campaign as `created_by`
+  (`campaign:<id>`).
+- **Environment**: the platform database (the ledger, the audit and the notes) and the
+  `training` schema from the Supabase variables (`DatabaseSettings()`), the model keys of
+  the default resolver (`OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`), and what the target needs,
+  named in simpl_foundry's README:
+  - `batch`, `cloud_run`: Docker with the registry's credentials, Application Default
+    Credentials, `SIMPL_TRAINING_REGISTRY`, `SIMPL_TRAINING_REGION`,
+    `SIMPL_TRAINING_SERVICE_ACCOUNT`, and `SIMPL_TRAINING_ARTIFACT_ROOT` for a recipe with no
+    artifact root; files-only (and so with patches) also `SIMPL_TRAINING_FILES_ONLY_ACCOUNT`
+    and `SIMPL_TRAINING_LOG_SECRET`, and `SIMPL_TRAINING_NETWORK` with
+    `SIMPL_TRAINING_SUBNETWORK` for jobs with no internet;
+  - `leonardo`: `SIMPL_LEONARDO_HOST`, `SIMPL_LEONARDO_ACCOUNT`, `SIMPL_LEONARDO_DIR`, a valid
+    SSH login, the image (`simpl_foundry image build <recipe> --on leonardo`), and
+    `SIMPL_LEONARDO_GCS_KEY`, the courier's key there: a campaign is refused at its start
+    without it, as nothing would arrive until a person runs `simpl_foundry collect`;
+  - `--scoring evaluator_job`: `SIMPL_TRAINING_EVALUATOR_ACCOUNT` with the registry and the
+    region, Docker, and a checkout whose evaluator package matches its commit.
+  The notes need migration `20261105c_experiment_notes.sql`.
+- **What a person still does**: score sweeps when no evaluation job is configured
+  (`simpl_foundry sweep evaluate`), log in to Leonardo again when the login lapses (the
+  campaign keeps reading meanwhile), and promote (`simpl_foundry sweep promote`, which
+  alone reads the sealed split, then a pull request).
+- **Publishing the planner** is a new ledger version, as for any document: `simpl_core
+  af_config_migrate --yaml src/simpl_core/agent_framework/experiment_campaign/agent_policy.yaml
+  --dest migrations/ --config-key experiment_campaign_root --version <n> --parent <n-1>
+  --prefix <migration number> --summary "..." --activate` (`--parent 0` for the first), then
+  a person applies the seed. Until a version is active, the command fails with `LookupError`.
+  The document's entries are at version 3.
+
 ## What this library does NOT do
 
 - Does not expose the HTTP API. That is `simpl_api`.
@@ -4668,6 +4881,7 @@ A host running its own agent loop (simpl_ops) offers the same `code_task` /
 - Does not own generic ORM primitives. That is `simpl_orm`.
 - Does not own tracking/logging helpers. That is `simpl_tracker`.
 - Does not run sandboxes or their sub-agents. That is `simpl_agent_sandbox`; the framework only offers its tasks as agent tools.
+- Does not train models. That is `simpl_foundry`; the framework only offers its experiments as agent tools, and the row store is one of its recipe sources.
 - Does not score or orchestrate the Reply Confidence gate (the confidence, the threshold, the decision). That is simpl-outreach; `simpl_core` owns only its settings table, the SQL functions and triggers around it, and the send-time check.
 
 ## Where to go next
