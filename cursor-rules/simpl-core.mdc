@@ -2405,8 +2405,11 @@ await posts.build_index("vector")            # sections of a declared vector or 
   always merge, and a backlog of them merges over successive runs. It also heals, best
   effort, one segment over those caps a run (built before them, or of unknown size):
   rebuilt from its fragments' rows as capped pieces, which frees the fragments
-  compaction held for it (`MaintenanceResult.segments_healed`; a failure is
-  `heal_error` and the rest of the run goes on). It drops indexes
+  compaction held for it. With none, it rebuilds instead the oldest run of
+  commit-sized segments stranded behind a larger, newer one (a merge of the newest
+  segments never reaches them) into one, within the same caps
+  (`MaintenanceResult.segments_healed`; a failure is `heal_error` and the rest of the
+  run goes on). It drops indexes
   the spec no longer plans and builds a missing one per run (a new index reads its
   whole column).
   Its memory does not depend on fragment size or row width either: compaction reads
