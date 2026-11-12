@@ -321,7 +321,7 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   `teacher_min_confidence`, NuExtract's only on a proposal tied to the documents beyond
   the name; `links_dry_run` with `links_limit` asks both models and applies
   nothing, its decisions kept as `dry-run:`; `recheck_links` decides the links the
-  models applied before again, kept, moved or undone, `recheck_dry_run` deciding only; `identity_batches` caps the run's micro-batches, the next run goes on from the watermark; `company_groups` decides organizations by rules version 4, the registry's rows of one company read as one and linked by what our data holds of them, off until its shadow report holds), then as asked the next graph generation of a variant's runs
+  models applied before again, kept, moved or undone, `recheck_dry_run` deciding only; `identity_batches` caps the run's micro-batches, the next run goes on from the watermark; `company_groups` decides organizations by rules version 4, the registry's rows of one company read as one and linked by what our data holds of them; on in the hourly schedule), then as asked the next graph generation of a variant's runs
   (`generation`, `variant`, `publish`), then the published generation's entity promotion
   into the golden zone the matcher's `entity` predicate reads (`promote`,
   `promotion_config`; migrations 153 and 154), then, with `measure` or once
@@ -331,8 +331,8 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   (`promotion.job.record_log_measurement`, the same report): each entity type's verdict on
   the teacher's span labels and each relation type's on its fact labels, recorded as a
   `measured` promotion run that writes no golden row (migration 187; of no generation,
-  migration 194). The hourly schedule runs with `links_limit` 800 and `merge_every_hours`
-  24 and does not measure: `gcp_graphia_measurement_flow` (daily at 03:45 UTC, 4 vCPU /
+  migration 194). The hourly schedule runs with `links_limit` 800, `merge_every_hours`
+  24 and `company_groups`, and does not measure: `gcp_graphia_measurement_flow` (daily at 03:45 UTC, 4 vCPU /
   16 GiB; about 6 minutes) runs the same flow with `place` false (no
   placement, links or lock) and `measure`, no `generation`: building a whole generation to
   measure it took over 4 h and 16 GiB on 2026-11-12. Once a day,
