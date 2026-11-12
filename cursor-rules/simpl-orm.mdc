@@ -73,13 +73,20 @@ connection per scope to Supavisor and ignore every dial below.
 | Setting | Default | Applies to |
 | --- | --- | --- |
 | `pool_min_size` | 10 | asyncpg only — connections kept warm |
-| `pool_max_size` | 20 | both — the ceiling, and what SQLAlchemy retains |
+| `pool_max_size` | 20 | both — the ceiling, and what SQLAlchemy retains unless `sqlalchemy_pool_size` is set |
+| `sqlalchemy_pool_size` | unset | SQLAlchemy only — its own ceiling and retained set; unset means `pool_max_size` |
 | `pool_timeout` | 30.0 | both — seconds a checkout waits for a free connection |
 
 `pool_min_size` reaches asyncpg alone, because a SQLAlchemy `QueuePool` has no
 floor to set: it opens connections lazily and keeps `pool_size` of them. The
 engine is therefore sized from `pool_max_size` with no overflow, so the ceiling
 is unchanged and every connection under it is retained rather than re-opened.
+
+A process that uses one surface far more than the other sets
+`sqlalchemy_pool_size` below `pool_max_size`: the engine keeps every
+connection it opened up to its size, so an ORM surface used in a few places
+would otherwise hold the raw surface's whole ceiling after one burst. simpl-ops
+runs `pool_max_size=32` with `sqlalchemy_pool_size=8` (ENG-1148).
 
 Lower `pool_timeout` when the caller has a deadline of its own — a lease to
 renew, a request to answer. A checkout that waits past that deadline has
