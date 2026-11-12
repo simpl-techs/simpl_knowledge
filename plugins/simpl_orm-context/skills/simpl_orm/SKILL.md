@@ -73,7 +73,7 @@ connection per scope to Supavisor and ignore every dial below.
 | --- | --- | --- |
 | `pool_min_size` | 10 | asyncpg only — connections kept warm |
 | `pool_max_size` | 20 | both — the ceiling, and what SQLAlchemy retains |
-| `pool_timeout` | 30.0 | SQLAlchemy only — seconds a checkout waits for a free connection |
+| `pool_timeout` | 30.0 | both — seconds a checkout waits for a free connection |
 
 `pool_min_size` reaches asyncpg alone, because a SQLAlchemy `QueuePool` has no
 floor to set: it opens connections lazily and keeps `pool_size` of them. The
@@ -83,9 +83,12 @@ is unchanged and every connection under it is retained rather than re-opened.
 Lower `pool_timeout` when the caller has a deadline of its own — a lease to
 renew, a request to answer. A checkout that waits past that deadline has
 already lost the work it was waiting for, and queueing longer only deepens the
-contention it is queued behind. It raises `sqlalchemy.exc.TimeoutError`, which
-`session_scope()` re-raises wrapped in `TransactionError` (reachable through
-`__cause__`). Treat it as backpressure and shed the work: it is a statement
+contention it is queued behind. On the SQLAlchemy side it raises
+`sqlalchemy.exc.TimeoutError`, which `session_scope()` re-raises wrapped in
+`TransactionError` (reachable through `__cause__`); on the asyncpg side
+`acquire()` raises `simpl_orm.exceptions.PoolTimeoutError`, with asyncpg's
+`TimeoutError` as its `__cause__`. Before 0.2.3 an asyncpg checkout waited
+with no limit. Treat it as backpressure and shed the work: it is a statement
 about concurrency, not a transient fault, so retrying it in place adds load to
 a pool that is already full.
 
