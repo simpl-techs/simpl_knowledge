@@ -1703,6 +1703,13 @@ own savepoint; one that is not reversible is `skipped` with its reasons and the 
 on. `dry_run` checks only, and reports what each merge would move. `TwinReport.counts()`
 gives pages, merged, skipped and unproven; `merged` entries carry the `merge_id`.
 
+`merge_page_twins_each(db, pages, by=, dry_run=True)` does the same with a
+`DatabaseManager`, each twin in its own transaction, committed as soon as it is merged.
+Use it for any batch: a merge moves rows across dozens of tables and takes seconds, so
+one transaction over many twins holds their locks and the database's vacuum horizon for
+the whole batch (2026-11-12: 182 merges in one transaction took 36 minutes).
+`merge_page_twins` stays for a caller that must merge inside its own transaction.
+
 Lead merges preserve customer scope: `sales.lead_contact` rows keep their
 `scope` and `user_id`, are never promoted from `user` to `global`, and are
 deduplicated only within a single scope and owner. One customer's privately
