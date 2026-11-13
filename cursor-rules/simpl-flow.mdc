@@ -205,6 +205,11 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   simpl_api marked `checking` in `opportunity.icp_company_verdict`, migration 119) and
   `customer_id` (cost attribution). It runs the nightly verification on them, assigns
   nothing, and writes each verdict (`pass`, `reject`, `skipped`) with its reason.
+- Flow runs on Compute Engine VMs: work pool `simpl-gce-pool` (type `compute-engine`,
+  `simpl_flow.workers.compute_engine`) runs each flow run on its own VM, deleted after
+  it; job variables `machine_type`, `spot`, `max_run_hours` replace Cloud Run's `cpu`,
+  `memory`, `timeout`. `gcp_opportunity_matcher_flow` runs there
+  (`docs/compute-engine-worker.md`).
 - `gcp_opportunity_matcher_flow` (no schedule, started by hand) is the new ICP, signal
   and opportunity matcher, in shadow: Postgres and today's opportunity pipeline are
   untouched. It matches `icp_ids` (every ICP with an active definition when none) under
