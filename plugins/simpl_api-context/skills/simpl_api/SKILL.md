@@ -246,6 +246,10 @@ Routes, under `/api/v1/admin/graph-explorer`, `require_admin` on each (a staff a
 
 `variant_name` defaults to the variant Graphia serves (`graphia-v2-nuextract-joint`). The tables stay at the version they were opened at for 5 minutes; a request after that reloads the ontologies (`knowledge_graph.ontology_version`), then opens a new set of tables (runs first) and swaps it in once all are open. The dashboard calls the service from its server (`/api/admin/graph-explorer/*` route handlers with the admin's Supabase token), never from a browser: there is no CORS.
 
+## Agent-run job (`simpl-api-agent-run`)
+
+Agent runs longer than the time between two simpl-api deploys run as executions of this Cloud Run job (europe-west4, built from this image, `python -m simpl_api.jobs.agent_run <kind> ...`), which a deploy of the service does not stop. Today one kind: the shortlist agent's automatic builds (`SHORTLIST_RUN_JOB` on simpl-api). The service still claims each run under its locks and starts the execution with the claim's identity; the execution re-reads the claim, runs it once and exits. Unset, off Cloud Run, or when the launch fails, the run stays in the service process. A failed run is the service's to try again (`--max-retries 0`).
+
 ## Website signals
 
 Technical signals of company websites as typed columns, for outreach and ICP filters in plain SQL (ENG-958; migrations `20261030210000_website_tables.sql`, `20261102190000_company_website_view.sql`, `20261110120000_website_archived_snapshot_date.sql`, and `20261111210000_website_dns_certificate_columns.sql` with its two index files `20261111210100` and `20261111210200`). They are not the ICP website signals above, which search page text in the landing index. simpl_scraping writes both tables; simpl_api only defines them. They stay empty until simpl_scraping's `website_signals` and `website_crawl_facts` configs are active. Read them as `service_role` or simpl_api's database login; `anon` and `authenticated` hold nothing. The column comments are the contract; this is the short form.
