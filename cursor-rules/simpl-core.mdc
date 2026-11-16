@@ -3061,8 +3061,8 @@ report.clean, report.differences, report.summary()
   production (2026-11-08).
 - **`matching_hosts(db, condition, hosts, *, today, sites=None)`**: what a parsed
   condition matches in Postgres, by the condition's own rules: most site tests in SQL
-  (`SITE_TESTS`, one per operator), versions and `LOWERCASED_FIELDS` texts on the site
-  row as the index builds it (`BUILT_ROW_TESTS`, `version_prefixes`), technology tests
+  (`SITE_TESTS`, one per operator), versions on the site row as the index builds it
+  (`BUILT_ROW_TESTS`, `version_prefixes`), technology tests
   per row (version prefix by `version_prefixes`, `required` / `covers`), keywords
   through `KeywordFilter` on the rows' keyword texts. It reads the built rows itself
   when a condition needs them; pass `sites=BuiltSites.of(sources)` to reuse them. The
@@ -3070,7 +3070,7 @@ report.clean, report.differences, report.summary()
   `SITE_FIELDS` through both.
 - **`site_match(condition, rows, *, today)`** (`row_match`, 0.8.352): one site judged on
   its rows as the website facts dataset holds them (`MATCH_COLUMNS`: a day as a
-  `date`, lowercased texts as built), for readers of the row store (simpl_flow's
+  `date`), for readers of the row store (simpl_flow's
   opportunity matcher v2). A `SiteMatch` or None; a test asks it for the same sites as
   `WebsiteFactsSearch` on every kind of test and on today's signals' shapes.
 
@@ -3095,16 +3095,15 @@ report.clean, report.differences, report.summary()
     (each category when no names). No test for a technology being absent.
   - `site`: at most 20 tests (`MAX_SITE_TESTS`) on the site row, by field kind
     (`SITE_FIELDS`, `OPERATORS`): `is` (yes/no); `in`, `not_in` (one value);
-    `starts_with` (`server_version`, `php_version`, whole parts); `has_any`, `has_all`,
+    `starts_with` (`php_version`, whole parts); `has_any`, `has_all`,
     `lacks` (lists); `before`, `after` (`YYYY-MM-DD`); `lt`, `gt`, `between`
     (`[low, high]`, inclusive). A text or list value must be one some site holds now
-    (`server_software` lowercased) and fit its slot in Zilliz (128 bytes for a
+    and fit its slot in Zilliz (128 bytes for a
     one-value fact, 256 for a list item, 512 for a technology name); a fact no site
-    holds at all (today `insecure_cookies`, nothing writes it) is refused as not
-    collected yet. A list held empty (`[]`) counts as collected: it says nothing was
+    holds at all is refused as not collected yet. A list held empty (`[]`) counts as collected: it says nothing was
     found.
   - `keywords`: words or phrases (`KeywordFilter` rules) in the keyword text of the
-    site's rows (a technology's name and categories; the site's server, clue names and
+    site's rows (a technology's name and categories; the site's clue names and
     languages). `keyword_match: "all"` is site-wide: each keyword must be somewhere on
     the site, in any of its rows, not necessarily the same one (a website signal's
     "all" needs every keyword in one chunk).
@@ -3128,12 +3127,11 @@ report.clean, report.differences, report.summary()
     categories and its own rules' `cats`, picked out by jsonb path; a payload `format`
     other than 1 raises), kept a minute (`CATEGORIES_TTL_S`), as the extractors reload
     rules;
-  - small vocabularies (`VOCABULARY_FIELDS`: TLS errors, fetch outcomes, crawl
-    statuses, estimate sources, clue lists, security headers): the distinct values
+  - small vocabularies (`VOCABULARY_FIELDS`: TLS errors, fetch outcomes, estimate
+    sources, clue lists, security headers): the distinct values
     `sales.website` holds, one scan (30 s timeout; ~2 s on 160k synthetic rows), kept
     an hour (`VOCABULARY_TTL_S`);
-  - free text (`FREE_TEXT_FIELDS`: `server_software`, `languages`,
-    `insecure_cookies`): only the named values, looked up on every check in one
+  - free text (`FREE_TEXT_FIELDS`: `languages`): only the named values, looked up on every check in one
     statement (a filtered read per fact, 10 s timeout; ~0.1 s on 160k synthetic rows).
 
   The kept lists are per database and process. Once held, a list is served past its
