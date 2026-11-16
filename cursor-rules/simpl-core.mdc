@@ -2359,6 +2359,85 @@ The `osint` schema is OSINT research's request ledger (`simpl_core.models.osint`
   revision never changes, each must be the previous one plus 1 (two writers collide on the
   unique key), and none follows a final one.
 
+**OSINT policies** (`simpl_core.services.osint`): one versioned document per policy key in
+`osint.policy`, of kind person, company or topic (research) or fetch or crawl. The seed
+migration's header explains every key.
+
+- **Models** (`services/osint/policy.py`): `parse_policy_document(kind, document)` returns a
+  `PersonPolicy`, `CompanyPolicy`, `TopicPolicy` (all `ResearchPolicy`), `FetchPolicy` or
+  `CrawlPolicy`, or raises pydantic's `ValidationError` naming each key at fault.
+  - **Defaults:** every key has one, its kind's value in `POLICY_DEFAULTS`
+    (`services/osint/policy_defaults.py`, version 1 as seeded). They resolve a stored
+    version and fill keys added later; objects merge key by key, a list or
+    `er.signal_weights` given replaces the default whole. Versions are stored resolved
+    (every key, `schema_version` included). `merge_policy_document(kind, base, document)`
+    merges a partial document over a whole one the same way.
+  - **Strict:** an unknown or misspelled key is refused, and so is a value of another type.
+    The rules between keys hold on the resolved document: among them
+    `claim.reclaim_after_s < finish_window_s`, a retention that outlasts
+    `pages_due_s + finish_window_s`, engines only from `SUPPORTED_SEARCH_ENGINES` (yahoo,
+    yandex; the search code imports the same constant), query templates with only
+    `QUERY_PLACEHOLDERS[subject_type]`, the subject's name as one quoted phrase and no `OR`
+    or `|`, every question named by a query, `vat_code` never in `er.hard_keys`, and for
+    fetch `server_wait.max_s < pages_due_s` (crawl: `server_wait` null). So are the
+    database's limits: seconds and `claim.max_attempts` at most 2,147,483,647,
+    `retention_days` at most 24,855, `max_text_chars` at most 100,000, and never
+    `page_text` as a research `extraction_profile`. A daily budget of 0 is valid.
+  - **Immutable:** a parsed policy is frozen to the leaves (tuples, read-only mappings).
+  - **A key added later** must get a default that reproduces the behaviour before it
+    existed (on its model field, or in `POLICY_DEFAULTS` for every kind when it differs by
+    kind), so every stored version keeps passing: the active one, those running requests
+    pinned, the rollback targets. Never make a new key required, never change a value in
+    `POLICY_DEFAULTS`, and bump `schema_version` when a model change must tell old
+    documents from new ones.
+- **Load** (`services/osint/policy_loader.py`): keep one `PolicyLoader` per process.
+  - `await loader.load(session, policy_key, kind)` returns the active version as a
+    `LoadedPolicy` (`id`, `policy_key`, `kind`, `version`, typed `document`; its type
+    narrows with a literal `kind`), or `PolicyNotActive(policy_key)` when the key has no
+    active version. It raises `InvalidPolicyError` when the version is of another kind or
+    its model refuses it: on every load, never a fallback. Each key's result, a refusal
+    included, is cached 60 s, so an activation reaches every process within 60 s with no
+    deploy, and a broken policy costs one read per window and raises the same exception
+    each time.
+  - `await loader.load_version(session, policy_id)` returns the version a request pinned,
+    read and validated once per process (versions never change); `LookupError` when it
+    does not exist.
+  - Pin `LoadedPolicy.id` on the request (`request.policy_id`). For T3: `PolicyNotActive`
+    cannot be stored as a refused request row, because `request.policy_id` is NOT NULL, so
+    the submit refuses without writing a row.
+- **Write** (`services/osint/policy_repository.py`, on the caller's session, never commits):
+  `add_version(policy_key=, kind=, document=, created_by=)` appends the key's next version,
+  inactive and resolved over the kind's defaults, under a per-key advisory lock; `activate(policy_key=, version=)`
+  makes it the key's one active version and returns an `Activation` (`policy`, `previous`,
+  `changed`). Both refuse a document its model refuses and a host list
+  (`search.excluded_host_lists`) with no host in `osint.host_list`; `add_version` also
+  refuses a key that already holds another kind. A version's content never changes.
+- **Stop a kind** by activating a version whose daily budget is 0
+  (`budget.max_requests_per_customer_per_day` for research,
+  `budget.max_pages_per_customer_per_day` for fetch and crawl). There is no deactivation,
+  as for simpl_scraping's resource policies. **Roll back** by re-activating an older
+  version.
+- **Command line** (writes are a dry run, rolled back, unless `--yes`; exit codes 0 done,
+  1 refused, 2 usage, 3 database error):
+
+  ```bash
+  python -m simpl_core osint_policy show [--key person]
+  python -m simpl_core osint_policy validate --kind person --file person_v2.json
+  python -m simpl_core osint_policy add --key person --kind person --file person_v2.json \
+      --by jackie.wang@thesimplplatform.io [--yes]
+  python -m simpl_core osint_policy activate --key person --version 2 [--yes]
+  ```
+
+  `add` takes a partial file: the keys it leaves out come from the key's active version
+  (resolved, as stored), or from `POLICY_DEFAULTS` when no version is active; objects merge
+  key by key, a list or `er.signal_weights` given replaces the active value whole. Its dry
+  run prints the new version as a diff against the active one, which then shows only what
+  the file changes (the whole resolved document when none is active). `show --key` prints
+  the active document as the loader resolves it. `add` requires `--by`, stored as
+  `created_by`. As for simpl_scraping's resource policies, nothing records who activated a
+  version: `activate` takes no `--by`, and each write with `--yes` logs one plain line (key,
+  versions; for `add`, `created_by`). Activating in production needs Jackie's yes.
+
 `simpl_core.models.scraping_research` defines the four scraping tables OSINT research and
 the scraper share. Other packages read them, so simpl_core owns and migrates them, as it
 owns pages and page versions: `migrations/20261112100200_scraping_research_tables.sql`
