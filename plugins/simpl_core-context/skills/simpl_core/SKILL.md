@@ -2264,6 +2264,119 @@ not deleted with the rows.
 
 `simpl_scraping`'s queue schema depends on these migrations being applied first.
 
+### OSINT research contracts
+
+The `osint` schema is OSINT research's request ledger (`simpl_core.models.osint`,
+`migrations/20261112100000_osint_research_schema.sql`, seeds in
+`20261112100100_osint_policy_seeds.sql`):
+
+- `OsintRequest` (`osint.request`): one research, fetch or crawl request.
+  - **Submit, in order:** (1) read the row by `(customer_id, idempotency_key)`: a retried
+    submit finds the first request and writes nothing; (2) research: the answer cache. A
+    hit is the customer's latest research request for the same `subject_key` and question
+    set (`request_customer_subject_idx`) with status `done` whose every question's highest
+    revision is final with `fresh_until > now()`; the submit returns its id and writes
+    nothing, and the ask is not recorded nor counted in the daily budget. A failed, timed
+    out or running request is no hit; (3) research: time out an expired in-flight twin
+    with the same in-flight key; (4) `INSERT ... ON CONFLICT DO NOTHING` with no conflict
+    target (a target of `(customer_id, idempotency_key)` would raise on the in-flight
+    index), then read back by idempotency key, then by the in-flight key
+    `(customer_id, subject_key, questions)`. If neither finds a row (the twin finished in
+    between), start over. A second caller who shares an in-flight research request gets
+    that request and writes nothing; its own idempotency key is not stored.
+  - The request pins an `osint.policy` version of its kind (person, company, topic, fetch,
+    crawl) and sets `pages_due_at` and `deadline_at`. What admission writes never changes,
+    except `lead_id` and `company_id`, which follow merges.
+  - **Claims:** the database enforces each kind's state machine and the claims: a new
+    `claim_token` only before `deadline_at`, on an open row, never from a holder younger
+    than `reclaim_after_s`; each claim adds 1 to `attempt_count`, capped at
+    `max_attempts`. SKIP LOCKED does not skip a committed claim, so every claim query
+    filters `finished_at IS NULL AND deadline_at > now() AND attempt_count < max_attempts
+    AND (claim_token IS NULL OR claimed_at <= now() - make_interval(secs =>
+    reclaim_after_s))`: one row the database refuses makes a batch claim raise. A long
+    pass renews with `UPDATE ... SET claimed_at = now() WHERE claim_token = <its token>`.
+  - **What resets `attempt_count`:** only a release with `attempt_count = 0` after the
+    pass committed at least one event or a forward status move. A hand-back
+    (`searching -> queued`, `resolving -> waiting_for_pages`, claim cleared) is not
+    progress and keeps the count, as does a crash, an error or an empty pass. The search
+    pass, the relay and the answer pass share the one count, so a relay pass that made
+    progress also clears a search pass's failures; the deadline still bounds them.
+  - **What the claim fences:** `append_request_events` refuses any token but the row's.
+    A status UPDATE, a `research_answer` insert or a `research_source` verdict is fenced
+    only inside the transaction of a fenced append, or with `AND claim_token = <token>`.
+    A writer without a claim (the submit, the timeout) appends with a NULL token, which
+    works only while no claim is on the row: the timeout clears the claim in the update
+    that times the request out. A staff review (`page_reviewed`) holds no claim, so it is
+    refused while a pass holds one and the review tool retries it.
+  - **The relay claims only what has something new**, never every open request on a
+    timer: an inbox row whose state has no event yet (anti-join on the event's
+    `dedup_key`; the migration header maps inbox states to keys, and `queued`/`seeded`
+    have none), an extracted page with no `page_resolved`, crawl pages past
+    `relayed_crawl_sequence`, or an open request whose `pages_due_at` has passed and whose
+    row has not been written for 20 s (`updated_at <= now() - interval '20 s'`, so a
+    hand-back is not claimed again on the next tick; `request_open_idx` serves that scan).
+    Woken by `pages_due_at`, the pass ends the wait with what is there: research
+    `waiting_for_pages -> resolving` and partial answers (still `queued`: `failed`), a
+    crawl `seeded -> ready` with its pages, a fetch `timed_out`. The table's fillfactor
+    is 70, so claims, renewals, releases and `last_sequence` updates stay HOT.
+  - **Timeouts:** the worker times out expired requests on every 5 s tick, through
+    `request_open_idx`, with an update conditional on `finished_at IS NULL`. Nothing
+    waits for a daily sweep: an expired research request keeps its in-flight twin out
+    until it is timed out.
+- `RequestEvent` (`osint.request_event`): each request's numbered, append-only event log.
+  - Write it only with `SELECT osint.append_request_events(request_id, claim_token, events)`:
+    the caller's claim token (NULL only for a writer that holds no claim, the submit and the
+    timeout), which must be the row's, so a pass whose claim was taken over cannot write;
+    and a JSON array of `{"type", "dedup_key", "payload"}`, each payload at most 4,096 bytes
+    of JSON text (`octet_length(payload::text)`).
+  - It locks the request row (`FOR NO KEY UPDATE`, the lock any update of the row takes)
+    to the commit, so sequences are gap-free in commit order, and updating the request
+    before appending in the same transaction cannot deadlock with another append.
+  - It drops events whose `dedup_key` the request has, sets `request.last_sequence` (the
+    only way it moves), and refuses to run outside READ COMMITTED.
+  - A `status_changed` event gives `payload.to` and no `dedup_key`: the function assigns
+    `status:<to>:<n>` (the n-th visit to that status). It drops a status event that
+    repeats the latest logged status (two sweepers, a retried transaction), so one move
+    is one event and a real second visit after a hand-back is still logged, and it
+    refuses a batch whose last status event is not the row's current status: append a
+    status event only in the transaction whose `UPDATE ... RETURNING` moved the row.
+  - A direct insert, update or delete is refused.
+- `ResearchAnswer` (`osint.research_answer`): append-only revisions per question. A written
+  revision never changes, each must be the previous one plus 1 (two writers collide on the
+  unique key), and none follows a final one.
+
+`simpl_core.models.scraping_research` defines the four scraping tables OSINT research and
+the scraper share. Other packages read them, so simpl_core owns and migrates them, as it
+owns pages and page versions: `migrations/20261112100200_scraping_research_tables.sql`
+(applied after simpl_scraping's `034`, whose `scraping_app` role it grants). The extraction
+job reason `research` they are extracted with is simpl_scraping's
+(`088_extraction_jobs_research_reason.sql` there).
+
+- `ResearchInbox` (`scraping.research_inbox`): the outbox from `osint.request` to the
+  scraper, one row per URL a request wants (unique per request), written in the
+  transaction that writes the request. Kinds `research`, `fetch`, `crawl`; research rows
+  carry `facts_needed_until` and rows that asked for text `text_needed_until` (facts or a
+  text that expire before it count as missing, so the page is extracted again). The scraper
+  moves it through `ResearchInboxStatus`, only forward along its kind's path, and
+  `RESEARCH_INBOX_TERMINAL` states are final; `extraction_job_id` names the extraction
+  that answers it.
+- `ResearchFact` (`scraping.research_fact`): per extraction of a page version with a
+  profile version, one `kind = 'page'` row (url, host, identity keys, names, page date,
+  context windows) and one row per fact (kind, fields, quote of at most 500 characters),
+  each with its own `delete_after`.
+- `ResearchPageText` and `ResearchCrawlPage`: the text of a page version, one row per
+  extraction job (read it by the inbox row's `extraction_job_id`), and the pages of one
+  crawl (`sequence`, the relay's watermark). The drainer writes a crawl page only once its
+  outcome is final and, when the crawl asked for text, once its text exists; a stored page
+  of such a crawl names exactly one of its text's `extraction_job_id` and a
+  `text_failure_reason` (`not_html`, `text_job_failed`, `too_large`, or `text_timed_out`
+  when the crawl ended with the text job unfinished), so a page without text keeps its
+  page version and the crawl can still end ready (a trigger checks it against the
+  crawl's inbox row). A ready fetch that asked for text likewise has exactly one of
+  `extraction_job_id` and `text_failure_reason` on its inbox row.
+
+No foreign key crosses between `scraping` and `osint`: `request_id` is a plain id.
+
 ### Object storage
 
 `simpl_core.object_storage` talks to S3-compatible storage (Wasabi, AWS S3, MinIO) over
