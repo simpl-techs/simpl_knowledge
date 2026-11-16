@@ -4593,6 +4593,10 @@ later), and `LocationInputParser.clean` makes the key from a free text.
   through it; add a name there, once.
 - `CompanyWriteService.create`/`update` still link a written `location` by its bare text
   and set `location_id` from it, whatever `location_id` the payload carries.
+- `JobOfferWriteService.bulk_create` writes an offer it already holds (by `job_id`) only
+  for the fields whose value differs, and not at all when none does (0.8.385). A uuid
+  given as text and a timestamp given for a date column compare as the column loads
+  them. Its second count is still every offer the batch matched, written or not.
 
 ## Common pitfalls
 
