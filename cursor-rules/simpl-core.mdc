@@ -1707,16 +1707,28 @@ company page (the `/company/<name>` part, e.g. `"example-works"`). `page_rows` r
 every row on the page in every spelling, and on the numeric page of the id its rows
 hold; `judge_company_twins` decides: exactly one row holds a `company_linkedin_id`, so
 it survives and the rows with none are its twins. A page with several ids, or none, is
-`unproven` and merges nothing. A name is never proof. Each twin merges reversibly in its
-own savepoint; one that is not reversible is `skipped` with its reasons and the run goes
-on. `dry_run` checks only, and reports what each merge would move. `TwinReport.counts()`
-gives pages, merged, skipped and unproven; `merged` entries carry the `merge_id`.
+`unproven` and merges nothing. A name is never proof, but a name that fits neither the
+page nor the other rows stops a merge (`name_fits_page(name, page)`, `names_alike(a, b)`:
+one holds the other's letters, a word in common, or one abbreviates the other, legal
+forms set aside: "unicatt" is Università Cattolica, "nber" the National Bureau of
+Economic Research; a page name under four characters or all digits fits anything): a
+page whose id row fits neither its page nor any twin's name is `unproven` (2026-11-13,
+"Comune di Venezia" merged into a row named "SpaceX" on the city-of-venice page), and a
+twin that fits neither the page nor the survivor's name is `skipped`. Each twin merges reversibly in
+its own savepoint; one that is not reversible is `skipped` with its reasons and the run
+goes on. `dry_run` checks only, and reports what each merge would move.
+`TwinReport.counts()` gives pages, merged, skipped, unproven and failed; `merged` entries
+carry the `merge_id`.
 
 `merge_page_twins_each(db, pages, by=, dry_run=True)` does the same with a
 `DatabaseManager`, each twin in its own transaction, committed as soon as it is merged.
 Use it for any batch: a merge moves rows across dozens of tables and takes seconds, so
 one transaction over many twins holds their locks and the database's vacuum horizon for
-the whole batch (2026-11-12: 182 merges in one transaction took 36 minutes).
+the whole batch (2026-11-12: 182 merges in one transaction took 36 minutes). A twin's
+statements may run `MERGE_STATEMENT_TIMEOUT` (10 minutes, `SET LOCAL`); a twin whose merge
+or page read still fails is rolled back alone, listed in `failed` with the error and
+logged (`company_twins.merge_failed`), and the batch goes on (2026-11-16: one merge cut
+at two minutes moving 1,556 job offers failed a whole identity run).
 `merge_page_twins` stays for a caller that must merge inside its own transaction.
 
 Lead merges preserve customer scope: `sales.lead_contact` rows keep their
