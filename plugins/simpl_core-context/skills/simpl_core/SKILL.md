@@ -2214,8 +2214,9 @@ Three small public surfaces back `simpl_scraping`; any consumer may read them.
 `migrations/20260915_scraping_page_deletion.sql`,
 `migrations/20261105_scraping_extraction_publications_unlogged.sql`,
 `migrations/20261105b_scraping_drop_page_versions_storage_object_idx.sql`,
-`migrations/20261110_scraping_drop_extraction_publications_config_idx.sql` and
-`migrations/20261110b_scraping_pages_extraction_marker.sql`:
+`migrations/20261110_scraping_drop_extraction_publications_config_idx.sql`,
+`migrations/20261110b_scraping_pages_extraction_marker.sql` and
+`migrations/20261112160000_scraping_drop_extracted_entities.sql`:
 
 - `ScrapingPage` (`scraping.pages`): one row per `(canonical_url, representation)`.
   `latest_version_id` names the newest observed raw response. `extraction_queued_*`
@@ -2228,10 +2229,11 @@ Three small public surfaces back `simpl_scraping`; any consumer may read them.
   extraction job. The table is unlogged: a Postgres crash or a backup restore empties
   it, so treat a receipt as a recent record, never as proof a version was extracted
   (the extraction job's status is that record). A read replica cannot read it.
-- `ScrapingExtractedEntity` (`scraping.extracted_entities`): the latest validated state
-  per `(entity_type, entity_key)`. That pair is the unique key `data_consumer` sinks
-  name in `conflict_on`, and `source_observed_at` is the column for an `update_where`
-  guard.
+
+`ScrapingExtractedEntity` is gone (0.8.381), and `20261112160000` drops
+`scraping.extracted_entities`, archived to Parquet first. simpl_scraping's README says
+where the archive is and how to read it. What the product used of it is in
+`sales.company`.
 
 The repositories take an `AsyncSession` and never commit, so a caller can record an
 observation inside its own transaction:
