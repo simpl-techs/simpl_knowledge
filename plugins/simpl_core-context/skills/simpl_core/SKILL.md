@@ -3284,7 +3284,7 @@ report.clean, report.differences, report.summary()
 ```json
 {"collection": "website_facts",
  "technologies": {"names": ["WordPress"], "categories": ["CMS"], "match": "any",
-                  "version_prefix": "4.", "risk": "vulnerable", "min_severity": "high"},
+                  "version_prefix": "4.", "risk": "past_eol"},
  "site": [{"field": "uses_https", "op": "is", "value": false},
           {"field": "estimated_last_update", "op": "before", "value": "2022-01-01"},
           {"field": "security_headers", "op": "lacks", "value": ["strict-transport-security"]}],
@@ -3294,9 +3294,14 @@ report.clean, report.differences, report.summary()
   - `technologies`: one technology row passes every test given: `names` (exact, e.g.
     `"Apache HTTP Server"`), `categories` (any of; the active rules' categories),
     `version_prefix` (whole parts: `8.1` finds 8.1 and 8.1.x, not 8.10; needs `names`),
-    `risk` `past_eol` (end of life before today) or `vulnerable` (with `min_severity`
-    low < medium < high < critical). `match: "all"` needs a passing row for each name
-    (each category when no names). No test for a technology being absent.
+    `risk` `past_eol` (end of life before today), the only risk. `risk: "vulnerable"`
+    and `min_severity` were removed (0.8.390): most known vulnerabilities the data held
+    were wrong or meaningless to a seller. `parse_condition` refuses a condition that
+    still names either with `NO_VULNERABILITIES`, so a stored signal holding them is
+    unreadable: the readers of stored signals (summaries, the duplicate check, the
+    matcher's conversion) log or refuse it and go on. `match: "all"` needs a passing
+    row for each name (each category when no names). No test for a technology being
+    absent.
   - `site`: at most 20 tests (`MAX_SITE_TESTS`) on the site row, by field kind
     (`SITE_FIELDS`, `OPERATORS`): `is` (yes/no); `in`, `not_in` (one value);
     `starts_with` (`php_version`, whole parts); `has_any`, `has_all`,
@@ -3379,7 +3384,9 @@ report.clean, report.differences, report.summary()
   `url`, `technologies` (10 of the matched, `MAX_TECHNOLOGIES`, the worst first:
   highest `max_severity`, then end of life passed, then by name (`worst_first`);
   each with version, categories, `eol_date`, `max_severity`, `vulnerability_count`,
-  up to 10 `vulnerability_ids`, `last_seen_at`, `seen_on_url`, `evidence`),
+  up to 10 `vulnerability_ids`, `last_seen_at`, `seen_on_url`, `evidence`; the three
+  vulnerability values stay until simpl_api drops their columns, though no condition
+  tests them any more),
   `technologies_matched` (how many matched), `site` (the tested facts), `keywords` (the
   texts that held them). One read per table by primary key, hosts and names sent as
   arrays: a page of any size is a few parameters.
