@@ -151,14 +151,18 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   site fingerprinted again), unless the row sets `sweep: false` (website facts until
   go-live). The sweeps wait on Postgres; until 2.5.251 they ran in the maintenance
   deployment's nightly run, and a loaded database made that run outlast its one-hour
-  job (2026-11-06). Each sweep logs `search_index_maintenance.sweep_started` as it
-  starts, and its summary when it ends. A run can still name `datasets` and `sweeps` itself (`sweeps` runs a sweep
+  job (2026-11-06). A run that only sweeps (`datasets: []`) goes by
+  `search_index_sweeps` in its alerts, logs and failure (`run_job`): its failure streak
+  reads "search_index_sweeps: the last N runs failed", and the maintenance deployment's
+  stays `search_index_maintenance`. Each sweep logs `<job>.sweep_started` as it starts,
+  and its summary when it ends. A run can still name `datasets` and `sweeps` itself (`sweeps` runs a sweep
   its row turns off), and index `checks` (`CHECKS`: `website_facts`), which only a run
   that names them runs, last, posting with `announce_checks` only. A new kind adds a
   spec to `KINDS` (`search_index_runtime`; a kind with no vector is named there like
   `website_facts`), a sweep to `SWEEPS` and a check to `CHECKS` if it needs them.
   A sweep, dataset or check that fails does not stop the others; the run then fails
-  naming each one (`MaintenanceFailed`). A row the code cannot read (a kind it does not know,
+  naming the run and each step (`MaintenanceFailed`: "search_index_sweeps failed: sweep
+  posts: ..."). A row the code cannot read (a kind it does not know,
   dims that do not fit its kind, an unknown setting) is left out and the rest are
   maintained; the first run of each hour posts the rows left out to #data-lake
   (`announce_skipped_configs`, gated by `health_alert_due`), and every run returns them
