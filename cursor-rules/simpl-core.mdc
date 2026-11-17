@@ -3416,8 +3416,10 @@ to `sales.post` / `sales.post_repost` (no trigger, no index): `PostSearchScanner
 them and marks rows of `sales.post_search_index` (simpl_flow
 `migrations/065_post_search_index.sql`) pending. `discover()` (every run) adds ids above
 the cursor in `sales.post_search_scan`; `sweep()` (nightly) re-marks posts whose
-`updated_at` moved, reposts whose tracked columns changed, rows whose source is gone,
-and records built from a changed post (`depends_on`). `PostSearchIndexer.run_batch`
+record columns changed (among those whose `updated_at` moved, compared by
+`sales.post_search_post_hash`, simpl_flow migration 200), reposts whose tracked columns
+changed, rows whose source is gone, and records built from a changed post
+(`depends_on`). `PostSearchIndexer.run_batch`
 claims them, builds records (`build_record`), embeds each distinct text once
 (`NebiusPostEmbedder`), commits, and settles the rows. The
 Zilliz collection follows through `posts_projection_runner`.
