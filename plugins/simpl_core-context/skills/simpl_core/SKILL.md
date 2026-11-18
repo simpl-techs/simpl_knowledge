@@ -2868,9 +2868,33 @@ search. The seed migrations' headers explain every key (`20261112100100`, `20261
 
 **OSINT requests** (`simpl_core.services.osint.requests`, plan T3): submit and read
 research, fetch, crawl and search requests. There are no HTTP endpoints (simpl_api#897 was
-closed): SimpL services and agents call `OsintRequests` directly, in process, with a
-database login that may use `osint` (today only `service_role`). It admits and reads; the
-research worker runs every request.
+closed): SimpL services and agents call `OsintRequests` directly, in process, on the
+service's own database login. It admits and reads; the research worker runs every request.
+
+- **The login's access** (`migrations/20261118160000_osint_caller_role.sql`): grant the
+  calling service's login the role `osint_caller` (`GRANT osint_caller TO <login>`, in
+  production with Jackie's yes, once the service calls research). The role may submit and
+  read, never do the worker's writes:
+  - `osint.policy` SELECT; `osint.request` SELECT, INSERT, UPDATE (every event moves the
+    row's `last_sequence`, and a submit that finds a run past its deadline ends it);
+    `osint.request_event` SELECT, INSERT, through `osint.append_request_events` (EXECUTE);
+    `osint.request_submission` SELECT, INSERT;
+    `osint.search_call` and `osint.research_source` SELECT; `scraping.research_inbox`
+    SELECT, INSERT (fetch and crawl); `scraping.research_crawl_page`, `scraping.pages` and
+    `scraping.page_versions` SELECT (page metadata of every page, since research may reuse
+    the landing crawl's copy; never text).
+  - Not granted: `osint.host_list`, `osint.profile_platform`, `osint.er_label`,
+    `scraping.research_fact`, and any other UPDATE or DELETE.
+  - Each of those tables has row-level security, and the role's rule lets every row through.
+    A login with grants but no rule reads zero rows and gets no error, so give a login the
+    role, never the table grants alone.
+- **What the login needs besides:** SELECT on `sales.customer`, `sales.lead` and
+  `sales.company` (admission checks the customer, lead or company exists and is no
+  placeholder; service logins have it already), and a Wasabi read key for the page bucket to
+  read the pages a request returns (`services/osint/pages.py`).
+- **Tests:** a login holding only the role submits and reads every kind
+  (`tests/services/osint/test_osint_caller_role.py`); callers test against
+  `FakeOsintRequests` and `WorkerSimulator` (below).
 
 ```python
 from simpl_core.services.osint.policy_loader import PolicyLoader
