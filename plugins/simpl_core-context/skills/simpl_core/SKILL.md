@@ -3158,9 +3158,12 @@ row, its id, its connection or its seller. Modules in `simpl_core.services.osint
   `Passage.post_id`, since the index holds no link for it), `index_key`, `host`, `title`,
   `date` (a post's day; landing pages have none), `snippet`, `author_company_id` /
   `author_lead_id` (who wrote a post's text), `score`, `question`, `identity`.
-  - `identity` is `unresolved` unless a hard key the policy lists proves it (`matched`,
-    `hard_key`, `key`): a landing page on the company's granted host (`landing_host`) or
-    under its granted registrable domain (`registrable_domain`); a post the subject wrote
+  - `identity` is `unresolved` unless a hard key the policy lists proves it `same`
+    (`status` `same`, `method` `hard_key`, `key`; a research page's identity words,
+    `IdentityStatus` and ER's `Method`, never `different`, `unknown`, `rule` or `judge`;
+    an unresolved hit names no method or key): a landing page on the company's granted
+    host (`landing_host`) or under its granted registrable domain (`registrable_domain`);
+    a post the subject wrote
     (the index's author is the subject; a page's plain repost of it is that post), or one
     it reposted (a company on its own page, a person with a comment of theirs); a post
     tagging one of the subject's pages in `sales.post.mentions`; a company passage. A name
