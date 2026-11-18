@@ -3104,7 +3104,7 @@ row, its id, its connection or its seller. Modules in `simpl_core.services.osint
   `NameForms`; `None` for a company subject, whose names are its `company`'s, and for a
   name with no letter or digit), `company` / `employers` (`ResolvedCompany`: `names`,
   `websites` (its own host), `linkedin_url`; never a stand-in alias's name or site),
-  `identity_keys`, `profiles`, `topic`, `records` (`RecordKey`s: table and key only),
+  `identity_keys`, `profiles`, `topic`, `records` (`RecordKey`s: table and key only, from `record_keys.py`),
   `resolved_at`. T5 builds queries from it, T11a matches hard keys against it.
   - `NameForms`: `name`, `surname_first` (a tuple: the first given name moved to the end,
     and for three words or more the first two, "Rossi Maria Grazia"), `accent_free`,
@@ -3128,6 +3128,9 @@ row, its id, its connection or its seller. Modules in `simpl_core.services.osint
   resolves the subject again by the columns' ids (not saved: no claim). `None` before a
   save, when the company or lead subject was deleted, or when the surviving row is refused
   (logged, `osint.subject_reload_refused`).
+- **Record keys** (`record_keys.py`): `RecordTable` and `RecordKey`, apart from `records.py`, which
+  imports SimpL's search packages: `subject.py` imports only this module, so the subject models
+  load where the search stack is not installed (simpl_scraping's research worker).
 - **Records** (`records.py`): a `RecordRef` is `table` (`RecordTable`), `key` (the row's key
   columns as text), the `fields` a caller shows and `flags` (`RecordFlag`); never a copy of
   the row. Every read is by key or an indexed column:
