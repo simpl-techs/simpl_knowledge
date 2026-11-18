@@ -1263,6 +1263,243 @@ A lead whose company is unknown waits on its own stand-in company (origin
 `move_parked_lead`), with a pending claim `LeadPlaceholderReconciler` tries on every pass
 (current experience, then the claim's company evidence). Run the reconciler, and it moves
 the lead with its connections and runs once one resolves.
+
+### Checked examples and replay (entity resolution, phase 1)
+
+The entity resolution service (plan: `entity-resolution-service-plan-2026-11-17.md` in the
+workspace) measures every name stage against **checked examples**: mentions whose true
+company a key gave apart from the name. The first source is a LinkedIn post's company
+tag where Graphia read an organization at the tag's place in the text.
+
+```python
+from simpl_core.graphia.log import LogReads
+from simpl_core.graphia.tag_examples import build_tag_examples, tagged_post_ids
+from simpl_core.services.dedup.checked_examples import CheckedExampleStore
+from simpl_core.services.dedup.replay import ReplayStore, replay
+
+post_ids = await tagged_post_ids(db, percent=0.5, limit=20_000, seed=1)
+build = await build_tag_examples(db, LogReads(config), variant_name=..., post_ids=post_ids)
+run = await replay(stage, list(build.examples.values()), run_id=..., replayed_at=...)
+run.report()  # overall, by method, by segment: precision and recall with Wilson bounds
+```
+
+- A stage is any object with `name`, `version` and
+  `async answer(examples) -> {example_id: ReplayAnswer}` (`NameStage`). It reads the
+  example's name and context, never its truth.
+- Outcomes: `right`, `right_company` (a twin the stage grouped with its choice), `wrong`,
+  `missed` (settled on none), `escalated` (settled nothing).
+- Examples (`er_checked_examples`) and outcomes (`er_replay_outcomes`) are row store
+  datasets: they grow with data. One name in five is held out (`split`).
+- Checked examples lean to clean names (a tag writes the page's own name): their precision
+  is an upper bound for free text.
+- `simpl_core.utils.proportions.wilson_lower_bound` is the interval every switch reads.
+
+### The resolution contract (entity resolution, build item 2)
+
+`simpl_core.services.dedup.resolution` is the one contract every consumer will call to ask
+"which company or person is this". Nothing calls it yet: consumers move onto it at the end
+of the build, and until then today's resolvers are its only stage.
+
+```python
+from simpl_core.services.dedup.models import CompanyIdentityClaim
+from simpl_core.services.dedup.resolution import (
+    ConsumerPolicy, EntityKind, Mention, PolicyRepository, ResolutionService,
+)
+
+mention = Mention("crm_pull", row_id, EntityKind.COMPANY,
+                  company=CompanyIdentityClaim(linkedin_url=page))
+policy = await PolicyRepository(db).active("crm_pull") or ConsumerPolicy(consumer="crm_pull")
+service = ResolutionService()
+resolutions = await service.resolve([mention], policy, session=session)  # query
+same = await service.verify(mention, "company:<id>", session=session)    # query
+placed = await service.place(mention, policy, session=session, source="crm_pull")  # command
+```
+
+- A **mention** is one consumer's knowledge of one entity: a `CompanyIdentityClaim` or
+  `LeadIdentityClaim`, names, the document's companies, passages. `mention_id` is stable
+  per (consumer, kind, `source_ref`).
+- An **answer** is a typed verdict: `is`, `part_of`, `absent`, `several`, `not_an_entity`,
+  `unknown`, with the method that reached it (`hard_key`, `stored_name`, `rule`, `scorer`,
+  `judge`, `research`) and the entity as `company:<id>` / `lead:<id>`. There is no human
+  verdict.
+- `answer_from_outcome` reads today's outcomes: a hard-key match is `is` by `hard_key`; a
+  lead matched by name within its company is `is` by `rule`; the same person at another
+  company than the one asked about is `is` with `scope = out`; `blocked` is `absent`;
+  `ambiguous` is `unknown`.
+- A **consumer policy** (`ConsumerPolicy`) says which methods it accepts (always
+  `hard_key`; add `rule` to take name-within-company lead matches), whether a miss gets a
+  placeholder, and whether an out-of-scope `is` is linked or refused. Policies are versioned
+  in `resolution.policy`: `PolicyRepository.publish` adds the next version and makes it the
+  active one; a version never changes.
+- A **switch** (`off`, `shadow`, `on`) per mechanism and segment (`company/graphia`) lives in
+  `resolution.config`; a segment without its own row takes its nearest parent's, else
+  `off`. Only an `on` answer the policy accepts is applied; the others are kept on
+  `Resolution.answers`. `stage.identifiers` is always on.
+- `place` writes only what `CompanyPlacementService` / `LeadPlacementService` write today,
+  and never creates for an out-of-scope `is` or beside an answer the policy does not
+  accept: those come back `escalated`.
+- Requires migration `20261118120000_resolution_schema.sql` before anything reads policies or
+  switches.
+
+### Links, the name index and the known path (entity resolution, build item 3)
+
+The net of links lives in the row store; nothing here is in Postgres, and nothing runs yet.
+
+```python
+from simpl_core.services.dedup.resolution.links import Link, LinkKind, LinkOrigin, LinkStore
+from simpl_core.services.dedup.resolution.name_index import CompanyNameIndex
+from simpl_core.services.dedup.resolution.net import NetReader, NetStage
+from simpl_core.services.dedup.resolution.rollup import roll_up
+
+links, names = LinkStore(store), CompanyNameIndex(store)
+await links.record([link], now=now, run_id=run_id)    # a fact from one source
+known = await NetReader(names, links).paths(mentions)  # every path each mention reached
+ups = await roll_up(entities, RollUp.OWNER, links=links, at=date.today())
+```
+
+- **Links** (`er_links`): `is`, `names`, `part_of`, `same`, `goes_with`. A link a key made
+  (origin `key`) is `trusted`; one a rule or the judge made is `weak`; a refuted one is
+  `ended` and stays. `Link.key` is the fact and its source: `record` writes a fact from one
+  source once, keeps a held link's state, and refuses one whose fact and source were ended.
+  `end` ends links, naming the decision.
+- **Name keys** (`name_keys`), moved from Graphia: `main_key` (legal forms out, accents
+  folded), `sorted_tokens`, `joined`, `acronym`; `person_key`. Both sides of a lookup use
+  them.
+- **Name index** (`er_company_name_index`): a company's own forms (name, the name before a
+  tagline, its LinkedIn vanity name, its site's label) and its learned names from `names`
+  links. `build_company_name_index(db, dataset, row_version=, since=)` reads the registry's
+  changes; `sweep_removed_companies` tombstones companies the registry no longer holds;
+  `index_learned_names` writes the learned ones. `er_person_name_index` holds a person at
+  an employer (`build_person_name_index`).
+- **Known path** (`net`): a company mention enters by its names; a brand's name reaches its
+  owner as `part_of`; trusted `same` links move a path to the company kept, three steps at
+  most; a weak link's far end is one more candidate; a name reaching more than
+  `CROWDED_KEY` companies is not followed. `KnownPaths.independent(entity)` counts paths that
+  share no link or source; `contradicted` says trusted paths disagree. `NetStage` only gives
+  candidates.
+- **Roll-up** (`rollup`): `exact`, `owner`, `domestic_ultimate` (with a `CountryLookup` such
+  as `registry_countries(db)`), `group`, over trusted `part_of` links that hold at the date;
+  a company with several owners, a loop or `MAX_DEPTH` stops the walk. `ancestors` gives
+  every company above one.
+- No backfill: relations and names come only from the service's own decisions, which are
+  re-checked. A data set the product does not maintain (a vendor's one-off import) is never
+  loaded as links.
+
+### Candidates for a company name (entity resolution, build item 4)
+
+The registry rows a company mention may be, with what the rules read of each. Moved from
+Graphia's retrieval, company groups and registry reads. It only reads.
+
+```python
+from simpl_core.services.dedup.resolution.candidates import (
+    CompanyCandidates, NameQuery, found_on_paths,
+)
+
+candidates = CompanyCandidates(db)
+query = NameQuery(mention_id, mention.names, companies=document_company_ids)
+in_request = await candidates.by_name([query])             # Postgres only
+in_worker = await candidates.of_found([query], {mention_id: found_on_paths(known)})
+```
+
+- `by_name` asks the registry for each name in any letter case (`lower(name)`), by its
+  letters and digits, by its main key with each legal form after it (kept only when the
+  row's main key is the name's: "Example Ceramics" reaches "Example Ceramics S.r.l."), and
+  as a LinkedIn page when no row has the name. `of_found` takes what the name index found
+  (`net.NetReader`) and reads those rows by id.
+- Each `Candidate` carries how it was found (`found_by`: `name`, `joined`, `legal_form`,
+  `page`, `document`, or the name index's `registry:<form>` / `names:<kind>` and `same`),
+  its LinkedIn identity, country (alpha-3), size and followers.
+- The document's own companies are always candidates (`document`), first.
+- `company_groups.group_rows` puts rows of one company in one group: one page, one site,
+  sister sites; two LinkedIn pages stay apart; a bare or misnamed row joins the one group
+  of its name. `lead_row` picks a group's row to link.
+- Where a mention's rows are two companies or more, or its name is short, each row gets
+  its `strength`: what our data holds of it (connections, posts, job offers, people),
+  each count capped (`registry.row_strength`).
+
+### Rules, triage and tags (entity resolution, build item 4)
+
+Graphia's rules version 6 as stages of the contract, each with its own switch, sharing one
+read of the candidates per mention. Nothing calls them yet.
+
+```python
+from simpl_core.services.dedup.resolution.rules import (
+    CandidateCache, DocumentCompanyRule, DominantRowRule, LookupStage, NetCandidates,
+    RegistryCandidates, TriageStage, UniqueExactRule, class_segment,
+)
+
+cache = CandidateCache(RegistryCandidates(CompanyCandidates(db)))  # NetCandidates in a worker
+stages = [IdentifierStage(session), TriageStage(), LookupStage(cache),
+          DocumentCompanyRule(cache), UniqueExactRule(cache), DominantRowRule(cache)]
+resolutions = await run_stages(stages, mentions, switches=board, policy=policy,
+                               segment=class_segment)
+```
+
+- `stage.triage`: a place or a generic noun (`name_classes.GENERIC_NAMES`) with no
+  identifier is `not_an_entity`.
+- `stage.lookup`: ranked candidates (same name, same words in another order, strength,
+  followers); a document's company whose name shares nothing with the mention's is
+  dropped. It only narrows.
+- `rule.document_company`: one company the document is tied to has the name (0.98).
+- `rule.unique_exact`: one company has the name, of the language's country or large, and
+  no site the mention gives contradicts it; common words need a large row, a short name a
+  large row our data holds well (0.95).
+- `rule.dominant_row`: our data holds one of several namesakes clearly more (0.9).
+- Answers carry the method `rule` (a policy must accept it) and the rule in `reasons`;
+  `rules.HOLDS_FOR_KEY` names the rules whose verdict holds for every mention of the name.
+- `class_segment` reads switches per name class (`company/<class>/<consumer>`):
+  `name_classes.name_traits` gives `generic`, `common_words`, `short` or `specific`.
+- Tags (`resolution.tags`): `post_tags` reads `sales.post.mentions` (company and person
+  tags); `tagged_page(kind, text, tags, passages)` gives the one page a mention is written
+  at, and its identity claim, so a tagged name reaches stage 2 as an identifier. Written
+  at two pages, it gives none.
+
+### The name's profile and the people ladder (entity resolution, build item 4)
+
+- **Profile** (`resolution.profile`): `NameProfiles(index, links).of(names)` gives each
+  name's `NameProfile`: the companies keys confirmed it on (trusted `names` links), those
+  a link of it was ended on, and how many registry companies carry it. `safe` (one
+  company, none ended elsewhere), `contested` (two or more), `no_entity` (generic) or
+  `open`. `StoredNameStage` (`stage.stored_name`) answers a safe name `is` (or `part_of`
+  for a brand) by `stored_name`, a contested one `several`. No name is safe until the
+  confirm flow writes trusted names.
+- **People** (`resolution.people`):
+  - `OwnSideStage(session)` (`stage.own_side`): a user's address `is` `user:<id>`
+    (`EntityKind.USER`, an answer's entity only); another address on the customer's
+    domains is `not_an_entity`. Both by `hard_key`; neither is ever a lead.
+  - `NameAtEmployerRule(people)` (`rule.name_employer`): a full name and the claim's
+    `company_id` link the one lead who worked there (`RegistryEmployerPeople(db)` for a
+    request, `IndexEmployerPeople(store)` for a worker); two are candidates.
+  - `PipelineMatchStage(session)` (`rule.pipeline_match`): the one lead the customer's
+    seats work, by first and last name at that company or the work address's site
+    (`ingestion.pipeline_match.find_pipeline_lead`, unchanged).
+- `ResolutionService.verify` also calls a person `different` when the lead's stored
+  LinkedIn profile is not the one the mention gives (`profiles_contradict`).
+
+### Cases and decisions (entity resolution, build item 5)
+
+`resolution.cases.CaseStore(store)`, in the row store; nothing runs yet.
+
+```python
+cases = CaseStore(store)
+held = await cases.register(mentions, now=now, run_id=run_id)  # open_case for a worker
+decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution.by,
+                                    mention_id=m.mention_id, chain=chain_to(known, answer.entity),
+                                    read=resolution.candidates, now=now, run_id=run_id)
+```
+
+- A case (`er_cases`) is (kind, name key, partition). `partition_of`: `global` for a
+  specific company name; a short, common-word or generic one, and a person's name, only
+  inside a customer, an author company or a country, else alone.
+- `register` attaches each named mention (`er_case_mentions`) once and counts it as
+  support. `of_mentions` reads cases without writing.
+- `decide` appends a decision (`er_decisions`, id made from its inputs, superseding the
+  case's last) and one `er_link_uses` row per link of its chain; a closing verdict
+  decides the case, `unknown` and `absent` leave it open. A reused answer is refused.
+  `decisions(case_ids)` reads the history; `standing_on(link_keys)` the decisions that
+  followed each link.
+- `HeldVerdictStage` (`stage.held`, stage 3): a decided case's verdict, `reused`, with its
+  decision id and method; a `several` or open case passes its candidates on.
 ### Email word lists
 
 Three tables in the `mappings` schema hold the words simpl_core's email checks
@@ -2281,25 +2518,151 @@ not deleted with the rows.
 
 The `osint` schema is OSINT research's request ledger (`simpl_core.models.osint`,
 `migrations/20261112100000_osint_research_schema.sql`, seeds in
-`20261112100100_osint_policy_seeds.sql`):
+`20261112100100_osint_policy_seeds.sql`, changed by `20261117100000_osint_request_changes.sql`,
+`20261117100400_osint_keep_what_research_found.sql` and, for search and internal requests,
+each request's policy key and purpose, every submit's record and entity resolution's words
+for a page's identity, `20261118130000_osint_search_requests.sql` with its seeds
+`20261118130100` (search) and `20261118130200` (version 2 of each request policy, for the
+real callers)).
 
-- `OsintRequest` (`osint.request`): one research, fetch or crawl request.
-  - **Submit, in order:** (1) read the row by `(customer_id, idempotency_key)`: a retried
-    submit finds the first request and writes nothing; (2) research: the answer cache. A
-    hit is the customer's latest research request for the same `subject_key` and question
-    set (`request_customer_subject_idx`) with status `done` whose every question's highest
-    revision is final with `fresh_until > now()`; the submit returns its id and writes
-    nothing, and the ask is not recorded nor counted in the daily budget. A failed, timed
-    out or running request is no hit; (3) research: time out an expired in-flight twin
-    with the same in-flight key; (4) `INSERT ... ON CONFLICT DO NOTHING` with no conflict
-    target (a target of `(customer_id, idempotency_key)` would raise on the in-flight
-    index), then read back by idempotency key, then by the in-flight key
-    `(customer_id, subject_key, questions)`. If neither finds a row (the twin finished in
-    between), start over. A second caller who shares an in-flight research request gets
-    that request and writes nothing; its own idempotency key is not stored.
+**Four rules (Jackie, 2026-11-17)** shape the ledger:
+
+1. **A customer only enforces limits** (daily budgets, seat views). It never separates
+   information: no per-customer copy, no per-customer read filter. Every customer reads
+   every request. `customer_id` is on `osint.request` (and `osint.search_call`) for
+   budgets only, as a plain uuid with no foreign key: **T3 checks at submit that the
+   customer exists**, since that is where the id comes in from outside.
+2. **Nothing research found is ever deleted:** no expiry, no sweep, no cascade from a
+   customer. A customer's delete works and leaves its research, whose requests keep the
+   deleted customer's id.
+3. **Facts don't expire.** `scraping.research_fact` has no `delete_after`
+   (`20261117100500`).
+4. **Postgres stores identifiers, not page text.** Research, fetch and crawl return page
+   version ids and where each page is stored (bucket, key), never its text: no request
+   asks for text (no `want_text`, `20261117100000`) and no table holds it
+   (`scraping.research_page_text` dropped, `20261117100600`).
+
+**Research is a retrieval tool (plan v10).** The basic research API returns identifiers:
+the found pages, references to SimpL's own records about the subject, index hits and
+profile reads. It builds no answers: there is no `research_answer` table and no
+`answer_updated` event; the caller does its own processing. A store of facts built from
+what research finds is later work. "Questions" (`request.questions`, a policy's
+`questions[]`) are the **fact kinds** extraction looks for; the names stay.
+
+- `OsintRequest` (`osint.request`): one research, fetch, crawl, profile_read or search request.
+  - **The customer is optional** (`20261118130000`): `customer_id` NULL is an internal
+    request (staff or a SimpL service asking for no customer). A source type listed in the
+    policy's `budget.internal_by_source_type` counts its internal requests in a bucket of
+    its own (requests or pages, and dollars); every other internal source type shares one
+    internal bucket under the per-customer caps (plan Q42 (a)). The idempotency key is
+    unique per customer and, through `request_internal_idempotency_key`, on its own among
+    internal requests.
+  - **`policy_key`** (`20261118130000`): the key of the policy version the request pins,
+    filled by the insert trigger from `policy_id` (callers never write it) and fixed. A
+    research request may run under any active policy of its subject type (an identity run
+    beside the news default), so the run in flight is one per `(subject_type, subject_key,
+    policy_key, questions)` (`request_research_in_flight_key`).
+  - **`purpose`** (`20261118130000`): why the request was made, a key the pinned policy's
+    `purposes` accept, set at submit and fixed; NULL only on a profile read (its parent's
+    purpose applies).
+  - **`RequestSubmission`** (`osint.request_submission`, `20261118130000`, service_role
+    only): one row per submit that admitted a request, whatever it found: `outcome`
+    `created`, `joined` (the run in flight) or `fresh` (a done run within freshness), with
+    `customer_id`, `source_type`, `source_id`, `purpose` and `idempotency_key`. The key is
+    unique per customer (`request_submission_customer_key`) and among internal submits
+    (`request_submission_internal_key`). A retried submit reads it and gets the request
+    its first submit got, whatever the outcome; the retry writes nothing. Not a budget
+    charge: budgets count `osint.request` rows. Requests written before the file have no
+    row (none exist in production).
+  - **search** (`20261118130000`): `submit_search` writes one, the research worker
+    runs it (T5's search: SimpL's landing index, then the web) and keeps its hits in
+    `osint.research_source` (`decision` `landing_index`, or `search_hit` for a web hit,
+    never fetched). Columns, search only and fixed at admission: `queries` (the caller's
+    order, trimmed, distinct, 1-2,048 characters each), `engines` (sorted; the policy's
+    when the caller names none), `timelimit` (`d`, `w`, `m`, `y` or NULL). States `queued ->
+    searching -> done | failed | timed_out`, `queued -> failed | timed_out`, and the
+    hand-back `searching -> queued`; no `refused` (a submit refuses without writing). No
+    inbox row. **One row per URL** (`research_source` is unique on `(request_id, url)`): a
+    URL several queries or engines find is kept once, by the first query and engine to find
+    it. The worker writes hits in the order it runs the searches (queries in the request's
+    order; for each, the landing index before the web; each call's hits by rank) with `ON
+    CONFLICT (request_id, url) DO NOTHING`, so the row's `search_call_id`, `engine` and
+    `rank` are the first find's and a call's `hits_kept` counts only the rows it wrote.
+  - **Submit, in order:** (1) read the submit's record by `(customer_id,
+    idempotency_key)`: a retried submit gets the request the first one got and writes
+    nothing; (2) research: the **fresh-facts rule**: any customer's latest research
+    request for the same `subject_type`, `subject_key`, `policy_key` and question list
+    (`request_subject_idx`, newest first) with status `done` and `finished_at` within the
+    policy's `freshness_days`. A hit is returned and recorded (`fresh`), not counted in the
+    daily budget. A failed, refused or running request is no hit; (3) research: time out
+    an expired in-flight twin with the same in-flight key, any customer's; (4) `INSERT ...
+    ON CONFLICT DO NOTHING` with no conflict target (a target of `(customer_id,
+    idempotency_key)` would raise on an in-flight index), then read back by idempotency
+    key, then by the in-flight key `(subject_type, subject_key, policy_key, questions)`,
+    across customers, for every subject type (`request_research_in_flight_key`). If none
+    finds a row (the twin finished in between), start over. A second caller who shares an
+    in-flight request, whichever customer, gets that request (`joined`); only its submit's
+    record is written. Every customer may read every request and its events; the run is
+    charged once, to the customer whose request started it (Q26).
+  - Research stores its question list in one spelling, sorted: a caller that names no fact
+    kind gets the policy's whole list. **No request asks for page text** (rule 4):
+    `osint.request` has no `want_text`, and no inbox row asks for text.
+  - **Nothing expires** (`20261117100400`): `osint.request` and `osint.search_call` have no
+    `delete_after`, and no sweep deletes a request, its events, sources or search calls.
+    Their `customer_id` has no foreign key, so a customer's delete (`simpl_api`'s
+    `delete_customer_cascade`) leaves them; the budget indexes on it stay
+    (`request_customer_kind_created_idx`, `search_call_customer_idx`).
+    `osint.er_label.customer_id` keeps its ON DELETE SET NULL.
+  - **profile_read is internal and automatic** (T24): a lead's profile on a profile
+    platform, read for its positions and activity; it writes no scraper inbox row.
+    - **No caller asks for one:** T3's public submit refuses kind `profile_read`. The
+      research search pass (T4/T5) starts one, as a child of a person research request
+      (`parent_request_id`, no action on delete: a parent with a read is never deleted),
+      when the person has a profile URL of an enabled platform, given in the request or
+      stored on the lead. A trigger holds that the parent is a person research request, of
+      any customer (runs are shared).
+    - **Platforms are data** (`ProfilePlatform`, `osint.profile_platform`: key, anchored
+      `url_pattern`, `canonical_form`, `is_enabled`; seeded `linkedin`,
+      `https://www.linkedin.com/in/<id>` as `normalize_lead_linkedin_url` writes it). A
+      read names its `profile_platform`; the trigger refuses an unknown or disabled
+      platform, a URL its pattern does not match, and a pinned policy other than
+      `profile_read_<platform>`. A new platform (Instagram, say) is a row, a policy key and
+      its readers' code, never a schema change.
+    - **The child read** has its own claims, deadline and reuse rule: any customer's ready
+      read of the same platform and `lower(url)` younger than the platform policy's
+      `reuse_max_age_s` is reused (`request_profile_read_reuse_idx`). Its budget is the
+      platform policy's daily cap per customer (and `by_source_type`), counted on its own
+      `customer_id` (usually the parent's), not the parent's research budget. It takes the
+      parent's `source_type` and `source_id`, the lead, the parent's `company_id`, and an
+      idempotency key from the parent (`profile_read:<parent id>:<platform>`). What it read
+      is kept by identifier (`raw_page_object_key`); facts built from it are later work.
+      The relay writes its progress into the parent's log (event type `profile_read`, dedup
+      key `profile_read:<child id>:<status>`); the parent does not wait for it.
+    - It carries `lead_id` (required at admission), the platform, `url` in the platform's
+      one spelling, the parent and optionally the company; no research, fetch or crawl
+      column. One read in flight per platform and `lower(url)`, across customers
+      (`request_profile_read_in_flight_key`): a second parent's pass, whichever customer,
+      gets the running one, so a seat view is never spent twice on one profile.
+    - **What the read did, by identifier** (T24 writes them; refused on every other kind):
+      `seat_user_id` (the `sales."user"` whose seat read the profile), `proxy_request_id`
+      (the `extension_proxy.request` the seat's read went through; the relay's "the seat's
+      answer has arrived" rule reads it) and `raw_page_object_key` (where the raw page is
+      stored; the page is not in Postgres). **For T24:** count a seat's light-move profile
+      views and its research reads in one place, against the seat's `view_daily_limit`
+      (account limits), with the policy's `max_views_per_seat_per_day` as research's share.
+      States: `queued -> reading | ready | refused | failed | timed_out`, `reading ->
+      ready | refused | failed | timed_out` (`reading` holds no claim; `queued -> ready`
+      reuses a read).
+    - **For T24:** claim a `reading` request only when a reader's answer has arrived or
+      its wait has ended (then move to the next reader in the policy's `readers`), never
+      to poll: every claim counts against `max_attempts`.
+  - A lead request (person research, profile_read) may carry a company in `company_id`: a
+    person's employer as research loaded it (the lead's own company; subjects are loaded by
+    id, never pinned), or the company a profile read was asked for. A change feed per
+    company is later work. The planner submits as `source_type` `planner`.
   - The request pins an `osint.policy` version of its kind (person, company, topic, fetch,
-    crawl) and sets `pages_due_at` and `deadline_at`. What admission writes never changes,
-    except `lead_id` and `company_id`, which follow merges.
+    crawl, profile_read) and sets `pages_due_at` and `deadline_at`. What admission writes
+    never changes, except `lead_id` and `company_id`, which follow merges.
   - **Claims:** the database enforces each kind's state machine and the claims: a new
     `claim_token` only before `deadline_at`, on an open row, never from a holder younger
     than `reclaim_after_s`; each claim adds 1 to `attempt_count`, capped at
@@ -2312,15 +2675,15 @@ The `osint` schema is OSINT research's request ledger (`simpl_core.models.osint`
     pass committed at least one event or a forward status move. A hand-back
     (`searching -> queued`, `resolving -> waiting_for_pages`, claim cleared) is not
     progress and keeps the count, as does a crash, an error or an empty pass. The search
-    pass, the relay and the answer pass share the one count, so a relay pass that made
+    pass, the relay and the resolving pass share the one count, so a relay pass that made
     progress also clears a search pass's failures; the deadline still bounds them.
   - **What the claim fences:** `append_request_events` refuses any token but the row's.
-    A status UPDATE, a `research_answer` insert or a `research_source` verdict is fenced
+    A status UPDATE or a `research_source` verdict is fenced
     only inside the transaction of a fenced append, or with `AND claim_token = <token>`.
     A writer without a claim (the submit, the timeout) appends with a NULL token, which
     works only while no claim is on the row: the timeout clears the claim in the update
-    that times the request out. A staff review (`page_reviewed`) holds no claim, so it is
-    refused while a pass holds one and the review tool retries it.
+    that times the request out. No human decides a page's identity: there is no staff
+    review and no `page_reviewed` event (`20261118130000`).
   - **The relay claims only what has something new**, never every open request on a
     timer: an inbox row whose state has no event yet (anti-join on the event's
     `dedup_key`; the migration header maps inbox states to keys, and `queued`/`seeded`
@@ -2329,9 +2692,9 @@ The `osint` schema is OSINT research's request ledger (`simpl_core.models.osint`
     row has not been written for 20 s (`updated_at <= now() - interval '20 s'`, so a
     hand-back is not claimed again on the next tick; `request_open_idx` serves that scan).
     Woken by `pages_due_at`, the pass ends the wait with what is there: research
-    `waiting_for_pages -> resolving` and partial answers (still `queued`: `failed`), a
-    crawl `seeded -> ready` with its pages, a fetch `timed_out`. The table's fillfactor
-    is 70, so claims, renewals, releases and `last_sequence` updates stay HOT.
+    `waiting_for_pages -> resolving` with the pages that arrived (still `queued`:
+    `failed`), a crawl `seeded -> ready` with its pages, a fetch `timed_out`. The table's
+    fillfactor is 70, so claims, renewals, releases and `last_sequence` updates stay HOT.
   - **Timeouts:** the worker times out expired requests on every 5 s tick, through
     `request_open_idx`, with an update conditional on `finished_at IS NULL`. Nothing
     waits for a daily sweep: an expired research request keeps its in-flight twin out
@@ -2354,33 +2717,97 @@ The `osint` schema is OSINT research's request ledger (`simpl_core.models.osint`
     refuses a batch whose last status event is not the row's current status: append a
     status event only in the transaction whose `UPDATE ... RETURNING` moved the row.
   - A direct insert, update or delete is refused.
-- `ResearchAnswer` (`osint.research_answer`): append-only revisions per question. A written
-  revision never changes, each must be the previous one plus 1 (two writers collide on the
-  unique key), and none follows a final one.
 
 **OSINT policies** (`simpl_core.services.osint`): one versioned document per policy key in
-`osint.policy`, of kind person, company or topic (research) or fetch or crawl. The seed
-migration's header explains every key.
+`osint.policy`, of kind person, company or topic (research), fetch, crawl, profile_read or
+search. The seed migrations' headers explain every key (`20261112100100`, `20261117100100`,
+`20261118130100`).
 
 - **Models** (`services/osint/policy.py`): `parse_policy_document(kind, document)` returns a
-  `PersonPolicy`, `CompanyPolicy`, `TopicPolicy` (all `ResearchPolicy`), `FetchPolicy` or
-  `CrawlPolicy`, or raises pydantic's `ValidationError` naming each key at fault.
+  `PersonPolicy`, `CompanyPolicy`, `TopicPolicy` (all `ResearchPolicy`), `FetchPolicy`,
+  `CrawlPolicy`, `ProfileReadPolicy` or `SearchPolicy`, or raises pydantic's
+  `ValidationError` naming each key at fault.
+  - **search** (`SearchPolicy`, key `search`, seeded version 1 inactive): `budget`
+    (`RequestBudget`: requests per customer per day, `by_source_type`, cost 0 while ddgs is
+    free), `engines` (at least one; a request may name only these), `landing_index`,
+    `max_queries` (a request with more is refused), `max_results_per_query`, and the common
+    keys. No `inbox_priority`.
+  - **crawl** (`CrawlPolicy`): `pages_per_crawl`, the most pages one crawl may take (25, the
+    scraper policy `research_crawl`'s `traversal.max_pages`; keep them equal). Added after
+    version 1, whose versions read it at 25. The daily page budget counts each crawl at the
+    active version's `pages_per_crawl` (or the pages its run admitted, when more) until its
+    inbox row finishes, then at the pages its run admitted, at least 1.
+  - **profile_read** (`ProfileReadPolicy`): **one policy key per platform,
+    `profile_read_<platform>`** (kind `profile_read`; seeded `profile_read_linkedin`
+    version 1, inactive). A platform's key must exist and be active for its reads to run.
+    Keys: `use_limits`, `budget` (the platform's own daily cap per customer, counted on
+    the child reads), `reuse_max_age_s`, `readers`, and the common keys (`source_types`:
+    the source types whose research may start a read). `readers` is an ordered list of
+    typed readers (`ProfileReader`, told apart by `type`): `seat`
+    (`max_views_per_seat_per_day`, `wait_s`; the seat's own view limit still applies) and
+    `olostep` (`timeout_s`). A new reader is a new type in code and a policy version, no
+    schema change. At least one reader, each type once, their waits and timeouts together
+    within `pages_due_s`. No `inbox_priority` (it writes no inbox row: that key is the
+    research, fetch and crawl kinds' only).
+  - **Per source type budgets** (research, profile_read and search):
+    `budget.by_source_type: {source_type: {max_requests_per_customer_per_day}}`, empty by
+    default. A listed source type's requests count against its own cap and the kind's, so
+    the kind's 0 still stops everything; every listed source type must be in
+    `source_types`. The planner's budget (`planner`) is a later policy version, no deploy.
+  - **Internal budgets per source type** (every kind):
+    `budget.internal_by_source_type: {source_type: {max_requests_per_day,
+    max_cost_usd_per_day}}` (fetch and crawl: `max_pages_per_day`), empty by default: a
+    listed source type's internal requests count in a bucket of their own, alone; the
+    others share the one internal bucket under the per-customer caps (the behaviour
+    before the key). Every listed source type must be in `source_types`.
+  - **Purposes** (every kind): `purposes`, the list a request's `purpose` must be in;
+    `null` by default, which takes any purpose (the behaviour before the key).
+  - **Version 2 seeds** (`20261118130200`, inactive): person, company, topic, fetch, crawl
+    and search take `staff_endpoint`, `cli`, `agent`, `planner` and `entity_resolution`,
+    with purposes `staff_review`, `agent_task`, `outreach_planning`, `entity_resolve`,
+    `entity_confirm`, `entity_recheck`, and internal buckets for `agent`, `planner` and
+    `entity_resolution` (research and search at the kind's per-customer cap in requests and
+    that cap times `max_cost_usd_per_request` in dollars, search 1 dollar; fetch and crawl
+    500 pages and 5 dollars). Activate them per key with the command line (Jackie's yes in
+    production). `profile_read_linkedin` keeps version 1 (readers per requester wait for
+    T24).
+  - Research's `freshness_days` is the fresh-facts window. No kind has a page text key:
+    Postgres keeps no page text.
+  - **Schema versions:** a stored version is never rewritten, so a key leaves through a
+    schema version. Version 1 (a document without `schema_version`: the T1 seeds) carried
+    `retention_days`, for research `anchor_required`, and for fetch and crawl
+    `want_text_default`, `max_text_chars` and `text_retention_days`; version 2
+    (`SCHEMA_VERSION`) has none of them, since nothing research finds expires, a subject is
+    loaded by its id, and Postgres keeps no page text. The model reads a version 1 document
+    with them dropped, and refuses a version 2 document that names one, as any unknown key.
+    New versions are stored resolved, at version 2; `profile_read_linkedin` is seeded at
+    version 2. The fetch and crawl seeds' `purpose` still says "with its text when asked",
+    as stored.
+  - **Reworded free texts:** the research defaults' `use_limits` start "Shared by every
+    customer" and the person's `who_may_be_researched` is "Any lead, by its id". No code
+    reads either, and every stored version holds them written out, so no stored version
+    changes; the T1 seeds keep "Requesting customer only" and "Anyone ... with at least
+    one anchor". The new wording reaches a new version only from the defaults:
+    `osint_policy add` merges its file over the key's active version, so a version added
+    over an active seed keeps the seed's wording unless the file names `use_limits` and
+    `who_may_be_researched`; with no version active it takes the defaults.
   - **Defaults:** every key has one, its kind's value in `POLICY_DEFAULTS`
-    (`services/osint/policy_defaults.py`, version 1 as seeded). They resolve a stored
+    (`services/osint/policy_defaults.py`, version 1 as seeded except the reworded free
+    texts, read at schema version 2).
+    They resolve a stored
     version and fill keys added later; objects merge key by key, a list or
     `er.signal_weights` given replaces the default whole. Versions are stored resolved
     (every key, `schema_version` included). `merge_policy_document(kind, base, document)`
     merges a partial document over a whole one the same way.
   - **Strict:** an unknown or misspelled key is refused, and so is a value of another type.
     The rules between keys hold on the resolved document: among them
-    `claim.reclaim_after_s < finish_window_s`, a retention that outlasts
-    `pages_due_s + finish_window_s`, engines only from `SUPPORTED_SEARCH_ENGINES` (yahoo,
+    `claim.reclaim_after_s < finish_window_s`, engines only from
+    `SUPPORTED_SEARCH_ENGINES` (yahoo,
     yandex; the search code imports the same constant), query templates with only
     `QUERY_PLACEHOLDERS[subject_type]`, the subject's name as one quoted phrase and no `OR`
     or `|`, every question named by a query, `vat_code` never in `er.hard_keys`, and for
     fetch `server_wait.max_s < pages_due_s` (crawl: `server_wait` null). So are the
-    database's limits: seconds and `claim.max_attempts` at most 2,147,483,647,
-    `retention_days` at most 24,855, `max_text_chars` at most 100,000, and never
+    database's limits: seconds and `claim.max_attempts` at most 2,147,483,647, and never
     `page_text` as a research `extraction_profile`. A daily budget of 0 is valid.
   - **Immutable:** a parsed policy is frozen to the leaves (tuples, read-only mappings).
   - **A key added later** must get a default that reproduces the behaviour before it
@@ -2398,6 +2825,8 @@ migration's header explains every key.
     included, is cached 60 s, so an activation reaches every process within 60 s with no
     deploy, and a broken policy costs one read per window and raises the same exception
     each time.
+  - `await loader.load_any(session, policy_key)` is `load` for a key of any kind: a caller
+    that refuses another kind itself (a research request's `policy_key`).
   - `await loader.load_version(session, policy_id)` returns the version a request pinned,
     read and validated once per process (versions never change); `LookupError` when it
     does not exist.
@@ -2412,7 +2841,7 @@ migration's header explains every key.
   (`search.excluded_host_lists`) with no host in `osint.host_list`; `add_version` also
   refuses a key that already holds another kind. A version's content never changes.
 - **Stop a kind** by activating a version whose daily budget is 0
-  (`budget.max_requests_per_customer_per_day` for research,
+  (`budget.max_requests_per_customer_per_day` for research, profile_read and search,
   `budget.max_pages_per_customer_per_day` for fetch and crawl). There is no deactivation,
   as for simpl_scraping's resource policies. **Roll back** by re-activating an older
   version.
@@ -2437,37 +2866,332 @@ migration's header explains every key.
   version: `activate` takes no `--by`, and each write with `--yes` logs one plain line (key,
   versions; for `add`, `created_by`). Activating in production needs Jackie's yes.
 
-`simpl_core.models.scraping_research` defines the four scraping tables OSINT research and
+**OSINT requests** (`simpl_core.services.osint.requests`, plan T3): submit and read
+research, fetch, crawl and search requests. There are no HTTP endpoints (simpl_api#897 was
+closed): SimpL services and agents call `OsintRequests` directly, in process, with a
+database login that may use `osint` (today only `service_role`). It admits and reads; the
+research worker runs every request.
+
+```python
+from simpl_core.services.osint.policy_loader import PolicyLoader
+from simpl_core.services.osint.requests import OsintRequests
+from simpl_core.services.osint.submissions import FetchSpec, RequestOrigin, ResearchSpec
+
+POLICIES = PolicyLoader()  # one per process: it caches the active policies 60 s
+requests = OsintRequests(db.session_scope, POLICIES)
+# One key per request: a key reused for another subject is refused. An agent's company
+# research is taken by version 2 of the company policy (20261118130200) once it is active.
+origin = RequestOrigin(customer_id=None, source_type="agent", purpose="agent_task",
+                       source_id=run_id,
+                       idempotency_key=f"run:{run_id}:research:company:{company_id}")
+admission = await requests.submit_research(origin, ResearchSpec(company_id=company_id))
+# admission.pages_due_at, .deadline_at (and .fresh_until for a fresh run): when to come back
+read = await requests.read(admission.request_id, after=cursor)   # never waits
+async for read in requests.follow(admission.request_id, max_wait_s=120):
+    ...  # each read with new events; stops when read.complete or the time is up
+heads = await requests.heads(open_request_ids)  # many states in one query
+```
+
+- **Submit** (`submit_research`, `submit_fetch`, `submit_crawl`, `submit_search`): one
+  transaction each, which returns an `Admission` (`request_id`, `kind`, `status`,
+  `outcome`, `retry_after_s`, `pages_due_at`, `deadline_at`, and for `fresh` `fresh_until`:
+  the done run's `finished_at` plus the policy's `freshness_days`) or raises
+  `RequestRefused` (`reason`, `detail`, and for a spent budget `limit`) with nothing
+  written. `RequestOrigin`: `customer_id` (None: internal; a given one must exist),
+  `source_type` (one of the policy's `source_types`), `source_id` (free), `purpose`
+  (required, key format: one of the policy's `purposes`, any while it lists none),
+  `requested_by_user_id`, `idempotency_key` (1-256, no control character; one per request:
+  name the subject in it, or use a fresh UUID per submit). Specs: `ResearchSpec` (a
+  `ResearchSubject`: exactly one of `lead_id`, `company_id`,
+  `topic=Topic(text, synonyms, exclude)`; plus `policy_key`, an active research policy of
+  the subject type, None for the subject type's own key; the question list is that
+  policy's whole list), `FetchSpec(url, max_age_s)`, `CrawlSpec(start_url, max_age_s)`
+  (`max_age_s` None: the policy's `default_max_age_s`), `SearchSpec(queries, engines,
+  timelimit)`. URLs must be http or https with a host. No text a request carries (key,
+  topic, query, word to exclude, URL) may hold a control character (`NO_CONTROL_CHARACTERS`
+  in `policy.py`; a query's tabs and newlines are folded to spaces first).
+- **Order** (`admission.py`): lock the budget bucket (policy kind and customer, or
+  internal); the idempotency key, read from `osint.request_submission` (`outcome`
+  `existing` when the retry asks for the same: research the same `subject_key` and
+  `policy_key`, fetch and crawl the same URL and `max_age_s`, search the same `queries`,
+  `engines` and `timelimit`, every kind the same `purpose`; a default left out is resolved
+  under the version the first submit pinned. It returns the request the first submit got,
+  created, joined or fresh, even when that run has failed or stopped being fresh since; a
+  key naming another kind, or asking for something else, is refused
+  `idempotency_key_reused`); the customer, the policy key's active version (of the
+  subject type's kind for research), its source types and purposes, then the kind's own
+  checks (research: the lead or company exists and is no placeholder, with #513's rule,
+  `SubjectResolver.refusal`, from the row alone); research: the fresh rule (`fresh`: any
+  customer's done request for the same subject, policy key and questions within
+  `freshness_days`) and the run in flight (`joined`; one past its deadline is timed out
+  `failed` there); the daily budget over the last 24 hours; the insert (`created`), its
+  first `status_changed` event and, for fetch and crawl, its inbox row; the submit's record
+  (`created`, `joined` or `fresh`). `fresh` and `joined` count nothing. A lost insert race is
+  read back by key, then by the in-flight key.
+- **Budgets:** a customer's requests count in its bucket: research and search in requests
+  (the kind's cap, and a source type's own cap from `by_source_type`); fetch in pages (one
+  each); crawl at the policy's `pages_per_crawl` until its inbox row finishes, then the
+  pages it admitted, at least 1. An internal request of a source type listed in
+  `budget.internal_by_source_type` counts in that source type's own bucket, alone: requests
+  (`max_requests_per_day`; fetch and crawl: pages, `max_pages_per_day`) and dollars
+  (`max_cost_usd_per_day`: a finished request at its `cost_usd`, a running one at least at
+  the policy's `max_cost_usd_per_request`). Every other internal source type shares one
+  internal bucket under the per-customer caps. A refusal for a spent budget carries
+  `limit` (`BudgetLimit`): `unit` (`requests`, `pages`, `usd`), `cap`, `used`, `window` (24
+  hours) and `retry_at` (when the oldest counted request leaves the window; None when none
+  was counted, a cap of 0).
+- **Refusals** (`RefusalReason`): `unknown_customer`, `not_found` (no lead or company has
+  the id), `placeholder` (a placeholder company or a Dummy lead: #513's own check),
+  `no_active_policy`, `policy_kind_refused` (a research `policy_key` of another kind),
+  `source_type_refused`, `purpose_refused`, `budget_spent`, `private_address` (a private,
+  loopback, link-local or otherwise non-public IP, `localhost`, `.local`, `.internal`,
+  `.home.arpa`, a one-label host or an all-digit last label; no DNS lookup, `addresses.py`
+  keeps simpl_scraping's `is_public_address` rule; `url_rejections` and excluded hosts are
+  the drainer's), `too_many_queries`, `engine_refused`, `idempotency_key_reused`. There is
+  no submit for `profile_read`.
+- **Read** (`read(request_id, after=0, limit=200, kind=None)`): one `REPEATABLE READ READ
+  ONLY` transaction; `RequestNotFound` for an id that is no request of `kind`. Every read
+  (`RequestRead`): status and reason, `final` (the stored status is final), `expired` (past
+  `deadline_at` while the stored status is not: no worker may claim it, so it has ended),
+  `complete` (final or expired, with no event left after `next_cursor`; `follow` stops
+  there), `policy_key`, `purpose`, the typed events after `after`, `next_cursor`,
+  `last_sequence`, `retry_after_s`. `ResearchRead`: `pages` (each hit to fetch or held by
+  the landing index: `state` pending, stored or failed with its `reason`, `page` =
+  `StoredPage` with `page_version_id`, `host`, `final_url`, `http_status`, `media_type`,
+  `charset`, `last_observed_at` (when the page was last fetched: a fetch's page and a web
+  hit from `research_inbox.observed_at`, else, and for landing-index and crawl pages,
+  `pages.latest_observed_at`, which may be of newer content when the page changed since),
+  `content_first_seen_at` (the version's `observed_at`: the scraper keeps one version per
+  content, so an unchanged page keeps it), `storage_bucket`, `storage_key`,
+  `stored_content_encoding`, `stored_sha256` and `content_sha256`; `identity`: `status` in
+  entity resolution's words, `same`, `different` or `unknown` (its two-way check,
+  `Verification`), or `unresolved` while nothing decided, with `decided_by` (`hard_key`,
+  `rule` or `judge`, ER's `Method` spellings; no human decides an identity) and the
+  `hard_key` that matched), `skipped_hits`, `resolved_subject` (#513's `ResolvedSubject`,
+  fields a newer worker added ignored; None until the worker writes it), and
+  `profile_reads` (its children and the reads its `profile_read` events name).
+  `FetchRead`: the inbox row's status and the page. `CrawlRead`: `counts` and the pages of
+  the `crawl_page` events after the cursor. `SearchRead`: every hit with its query and
+  source.
+- **Without events:** `heads(request_ids)` (at most 500, one query by primary key): a
+  `RequestState` per id (`status`, `final`, `expired`, `last_sequence`, `deadline_at`,
+  `policy_key`, `purpose`, times), an unknown id left out; read in full only the requests
+  whose `last_sequence` passed your cursor. `latest(subject, policy_key=None)`: the
+  subject's newest done run and the run in flight (not past its deadline), any customer's,
+  under one policy key or any (`LatestResearch`). `history(subject, limit=20)`: its runs,
+  newest first (1 to 100). All three write nothing and count against no budget.
+- **A page's content** (`services/osint/pages.py`): `StoredPageReader(session_scope,
+  store, bucket=store.config.bucket)` over simpl_core's `S3ObjectStore`.
+  `page_text(page_version_ids)` (at most 50) reads each version's object, checks
+  `stored_sha256`, gunzips per `stored_content_encoding`, checks `content_sha256`, and
+  returns `StoredPageText(page_version_id, text)` with `page_text()`'s output
+  (`search/landing/text.py`: title, visible lines, their block paths), in the order asked;
+  a body gone from storage reads as `text=None` (logged). `page_bytes(page_version_id)`
+  returns the body as fetched (`ObjectNotFoundError` when it is gone). The landing index
+  reads its pages the same way (`search.landing.sources.read_page_body`). simpl_core runs
+  in the caller's process, so **the calling host needs a read key for the scraper's page
+  bucket on Wasabi** (`ObjectStorageConfig.from_env` with the variables the host sets); no
+  session is held while objects download. A typed profile-read result waits for T24.
+- **Events, the worker's contract** (`events.py`, plan Q43): one model per event type
+  (`StatusChanged`, `HitsKept`, `PageStored`, `PageFailed`, `PageExtracted`,
+  `PageResolved`, `CrawlPage`, `CrawlProgress`, `ProfileRead`), written only through
+  `append_request_events(session, request_id, claim_token, events)`; each derives its
+  `dedup_key` from T1's map, and payloads carry ids and counts. Writes refuse a field the
+  model does not know; reads ignore it (a newer worker's), so one row never breaks every
+  read of its request. `research_source.er_verdict` holds `IdentityStatus`'s value
+  (`same`, `different`, `unknown`; NULL while unresolved) and `er_decided_by` a `DecidedBy`
+  (`hard_key`, `rule`, `judge`). A hard-key match writes `research_source.er_signals` as
+  `HardKeySignals(hard_key, value)`; a hard-key row with no `er_signals` reads as no hard
+  key. `resolved_subject` holds #513's `ResolvedSubject`; a landing-index hit's
+  `page_version_id` is set by the search step.
+- **Test doubles** (`services/osint/testing.py`), shipped with the package:
+  - `OsintRequestsApi`: the API as a `Protocol` (`submit_*`, `read`, `follow`, `heads`,
+    `latest`, `history`); type your dependency with it. `OsintRequests` implements it.
+  - `FakeOsintRequests(clock=FakeClock(), retry_after_s=1, pages_due_s=600,
+    finish_window_s=120, freshness=timedelta(days=1))`: in memory, for unit tests. The
+    same spec models and `RefusalReason` values (a private address and a reused key are
+    refused as the real API refuses them; queue any other refusal, with its `limit`, by
+    `refuse_next(reason, detail, limit=)`). `script(request_id, (seconds, event), ...)`, or
+    `script_next(...)` for the next request the code under test submits: each event shows
+    once `fake.clock.advance(...)` reaches it, and the status follows its
+    `StatusChanged` events; `follow` waits on the clock, so nothing really sleeps. Research
+    joins the run in flight and gets a fresh done one. `set_details(request_id, pages=...,
+    resolved_subject=..., hits=...)` sets what the worker's rows would fill.
+  - `WorkerSimulator(session_scope, bucket="osint-test-pages", store=None)`: **test
+    databases only, never production** (nothing research finds is deleted, so its rows
+    would stay). It writes what the research worker will write, through the real path:
+    `start` (research and search claim and move to `searching`; fetch and crawl are
+    seeded), `store_page(request_id, url, html=, title=)` (a page version in
+    `scraping.pages` and `scraping.page_versions` with a test bucket and key, and the
+    research hit and inbox row, the fetch's page or one more crawl page; uploaded too when
+    `store` is given, so `StoredPageReader` reads it), `add_hit` (a search hit),
+    `resolve_page` (a research page's identity), then `finish`, `fail(reason)` or
+    `time_out` (research has no `timed_out`: it fails with `RESEARCH_TIMED_OUT`). Events go
+    only through the typed models and `append_request_events`; the caller reads with the
+    real `read()` and `follow()`. It may drift from the real worker once that exists.
+
+`simpl_core.models.scraping_research` defines the three scraping tables OSINT research and
 the scraper share. Other packages read them, so simpl_core owns and migrates them, as it
 owns pages and page versions: `migrations/20261112100200_scraping_research_tables.sql`
-(applied after simpl_scraping's `034`, whose `scraping_app` role it grants). The extraction
+(applied after simpl_scraping's `034`, whose `scraping_app` role it grants), changed by
+`20261117100500_scraping_research_facts_kept.sql` and
+`20261117100600_scraping_drop_research_page_text.sql`. The extraction
 job reason `research` they are extracted with is simpl_scraping's
 (`088_extraction_jobs_research_reason.sql` there).
 
 - `ResearchInbox` (`scraping.research_inbox`): the outbox from `osint.request` to the
   scraper, one row per URL a request wants (unique per request), written in the
-  transaction that writes the request. Kinds `research`, `fetch`, `crawl`; research rows
-  carry `facts_needed_until` and rows that asked for text `text_needed_until` (facts or a
-  text that expire before it count as missing, so the page is extracted again). The scraper
-  moves it through `ResearchInboxStatus`, only forward along its kind's path, and
-  `RESEARCH_INBOX_TERMINAL` states are final; `extraction_job_id` names the extraction
-  that answers it.
+  transaction that writes the request. Kinds `research`, `fetch`, `crawl`. A research row
+  carries its `subject_type` and research profile and no retention: research facts are
+  kept (`20261117100500` dropped `facts_needed_until`). A fetch or crawl row has no
+  profile and no text columns: it asks for no text (`20261117100600` dropped
+  `retention_s`, `text_needed_until` and `text_failure_reason`, and the `page_text`
+  profile is refused on every row). The scraper moves it through `ResearchInboxStatus`,
+  only forward along its kind's path, and `RESEARCH_INBOX_TERMINAL` states are final; on a
+  research row, `extraction_job_id` names the extraction whose facts answer it. Finished
+  rows stay: T1's 30-day sweep is gone, and `20261117100500` dropped the index that
+  served it (`research_inbox_finished_idx`).
 - `ResearchFact` (`scraping.research_fact`): per extraction of a page version with a
-  profile version, one `kind = 'page'` row (url, host, identity keys, names, page date,
-  context windows) and one row per fact (kind, fields, quote of at most 500 characters),
-  each with its own `delete_after`.
-- `ResearchPageText` and `ResearchCrawlPage`: the text of a page version, one row per
-  extraction job (read it by the inbox row's `extraction_job_id`), and the pages of one
-  crawl (`sequence`, the relay's watermark). The drainer writes a crawl page only once its
-  outcome is final and, when the crawl asked for text, once its text exists; a stored page
-  of such a crawl names exactly one of its text's `extraction_job_id` and a
-  `text_failure_reason` (`not_html`, `text_job_failed`, `too_large`, or `text_timed_out`
-  when the crawl ended with the text job unfinished), so a page without text keeps its
-  page version and the crawl can still end ready (a trigger checks it against the
-  crawl's inbox row). A ready fetch that asked for text likewise has exactly one of
-  `extraction_job_id` and `text_failure_reason` on its inbox row.
+  profile version, one `kind = 'page'` row (url, host, identity keys, names, page date;
+  no page text: `20261117100600` dropped its context windows, so a judge reads the page
+  from its stored version) and one row per fact (kind, fields, quote of at most 500
+  characters, the one bounded copy of a fact's evidence).
+  **Kept:** no `delete_after` (`20261117100500`), so a fact id stays valid for anything
+  that names it later.
+- `ResearchCrawlPage` (`scraping.research_crawl_page`): the pages of one crawl
+  (`sequence`, the relay's watermark), written by the drainer once a page's outcome is
+  final; a stored page names its page version, never a text. A trigger refuses a page
+  whose inbox row is not a crawl. There is no page text table: a caller reads a page by
+  its page version's stored object.
 
 No foreign key crosses between `scraping` and `osint`: `request_id` is a plain id.
+
+### OSINT internal retrieval
+
+What SimpL already holds about a research subject (plan §4.1 step 3, task T4): the subject
+loaded by id, SimpL's records about it as references, and hits from SimpL's own search indexes as
+raw data. Free (no search vendor, no fetch); no tables of its own. A customer limits what
+research may do, never what it sees (2026-11-17): resolution and records are the same for
+every customer, the asking customer's own rows treated like anyone's. **References only to
+SimpL's shared tables; rows owned by a customer come back only as facts about the person,
+copied** (an address a seller saved, a "contact left" event), never as a reference to the
+row, its id, its connection or its seller. Modules in `simpl_core.services.osint`:
+
+- **Subject in** (`subject.py`): `parse_subject(subject_type, request.subject)` returns a
+  `CompanySubject` (`company_id`, required), a `PersonSubject` (`lead_id`, required) or a
+  `TopicSubject` (`text`, `synonyms`, `exclude`); strict (unknown keys, a missing or
+  malformed id and a value with no letter or digit refused, pydantic's `ValidationError`). **The id is the
+  subject** (2026-11-17): research never pins one from a name, a website, a LinkedIn URL,
+  an email or an employer; a caller that has only those finds the id first.
+- **Load** (`resolution.py`): `await SubjectResolver().resolve(session, subject)` returns a
+  `Resolution` (`subject: ResolvedSubject`, `records: tuple[RecordRef, ...]`, `facts:
+  PersonFacts | None` for a lead) or a `SubjectRefusal` (`reason`, `detail`). Reads only, on
+  the caller's session.
+  - `not_found`: no row has the id (never existed, deleted, or merged into another row: a
+    merge deletes the source, and its old id is not followed).
+  - `placeholder`: the row stands in for something else: a placeholder company
+    (`PARKING_COMPANY_ORIGINS`) or a Dummy lead (`origin = 'Dummy'`, a company's stand-in).
+  - Company: the row by key. Person: the lead by key; its employers are the companies of
+    its current roles (`LeadRepository.current_position_company_ids`: no end date or one
+    still ahead, open-ended first, then the latest started), placeholders left out, so a
+    recorded departure (`end_roles_at`) drops the company. `sales.lead.company_id` counts
+    only for a lead with no current role and no ended role there: a "contact left" reply
+    ends the roles but moves the lead only when its connection moves. Topic: nothing
+    loaded; the text and hints.
+- **`ResolvedSubject`**: `subject_type`, `lead_id` (always set for a person), `company_id`
+  (the company subject, or the lead's first employer), `names` (the person's
+  `NameForms`; `None` for a company subject, whose names are its `company`'s, and for a
+  name with no letter or digit), `company` / `employers` (`ResolvedCompany`: `names`,
+  `websites` (its own host), `linkedin_url`; never a stand-in alias's name or site),
+  `identity_keys`, `profiles`, `topic`, `records` (`RecordKey`s: table and key only),
+  `resolved_at`. T5 builds queries from it, T11a matches hard keys against it.
+  - `NameForms`: `name`, `surname_first` (a tuple: the first given name moved to the end,
+    and for three words or more the first two, "Rossi Maria Grazia"), `accent_free`,
+    `without_legal_form` (a company's name without the legal forms at its end, only when
+    two words or more are left: "AS Roma" and "Lavazza S.p.A." get none), `.variants`,
+    `.tells_a_person_apart` (two words or more: a first name alone is not searched for).
+  - `identity_keys`, from stored data only: `linkedin_urls` (the lead's profile or the
+    company's page), `company_linkedin_id`, `emails` (`identity_emails`: the lead's stored
+    addresses, never a role or automated mailbox, one the lead's rows give to another
+    person, or one another lead holds), `domain` (only when no other company has the host),
+    `registrable_domain` (only when the host is it), `vat_code`.
+  - `profiles`: `ProfileUrl(platform, url)` from the lead's stored data (today its LinkedIn
+    profile, `platform="linkedin"`, in the spelling `normalize_lead_linkedin_url` writes,
+    which the `linkedin` row of `osint.profile_platform` matches, simpl_core#510).
+- **Save it** (`subject_store.py`, never commits): `await save_resolved_subject(session,
+  request_id=, claim_token=, subject=)` writes `osint.request.resolved_subject` only while
+  `claim_token` holds the request (False otherwise); `lead_id` and `company_id` go to the
+  request's columns, which follow merges, and stay in the document; `updated_at` moves
+  (the table's trigger). `await load_resolved_subject(session, request_id)` returns the
+  saved subject while the columns match its ids; once a merge or a delete moved one, it
+  resolves the subject again by the columns' ids (not saved: no claim). `None` before a
+  save, when the company or lead subject was deleted, or when the surviving row is refused
+  (logged, `osint.subject_reload_refused`).
+- **Records** (`records.py`): a `RecordRef` is `table` (`RecordTable`), `key` (the row's key
+  columns as text), the `fields` a caller shows and `flags` (`RecordFlag`); never a copy of
+  the row. Every read is by key or an indexed column:
+  - company: `sales.company`, its `sales.company_alias` links (their ids only mark job rows
+    `at_employer`; the stand-in companies are not read), `sales.company_funding`,
+    `sales.company_headcount`, and its website signals `sales.website` /
+    `sales.website_technology` by host (the website facts index projects these two
+    tables, so one company's facts are read here, not searched);
+  - person: `sales.lead`, every `sales.lead_experience` row of the lead, its global email
+    rows of `sales.lead_contact`, and each employer's row and alias links.
+  - Person facts (`PersonFacts`, copies, never references): `saved_emails`, one
+    `SavedEmail(address, flags)` per address only sellers saved (`lead_contact` rows not
+    global, any customer's); `moves`, one `CompanyMove(old_company_id, new_company_id,
+    learned_on)` per "contact left" event (`sales_outreach.outreach_events`,
+    `lead.company.left`) on any connection to the lead. Nothing else of those rows is read:
+    no row or event id, connection, seller, source, outcome or reply text. Every address,
+    saved or global, feeds `identity_emails`.
+  - Job-history traps are flags, never dropped: `start_unknown` (1900-01-01 or no start),
+    `open_may_be_past` (every row with no end date: most are Crustdata's mid-2025 import),
+    `live_read` (`raw.source` is `profile_positions`: an extension read through SimpL's
+    LinkedIn proxy), `employer_lost` (no company), `at_employer` (a current employer or one
+    of its alias links). Addresses keep `bounced` and `another_persons_address`.
+- **Index hits** (`internal_search.py`): `InternalSearch(db, landing: LandingSearch, posts:
+  PostSearch, passages: PassageFinder | None = None)`, then `await search.hits(resolved,
+  hard_keys=policy.er.hard_keys, passage_questions=[...])` returns `InternalHit`s: `source`
+  (`landing_pages`, `posts`, `post_mentions`, `company_passages`), `relation`
+  (`own_site`, `mention`, `by_subject`, `reposted`, `tagged`, `passage`, `topic`), `url`,
+  `record` (a post's `RecordKey`, `sales.post` by `id`; a post passage's too, from
+  `Passage.post_id`, since the index holds no link for it), `index_key`, `host`, `title`,
+  `date` (a post's day; landing pages have none), `snippet`, `author_company_id` /
+  `author_lead_id` (who wrote a post's text), `score`, `question`, `identity`.
+  - `identity` is `unresolved` unless a hard key the policy lists proves it (`matched`,
+    `hard_key`, `key`): a landing page on the company's granted host (`landing_host`) or
+    under its granted registrable domain (`registrable_domain`); a post the subject wrote
+    (the index's author is the subject; a page's plain repost of it is that post), or one
+    it reposted (a company on its own page, a person with a comment of theirs); a post
+    tagging one of the subject's pages in `sales.post.mentions`; a company passage. A name
+    never is.
+  - The posts index's `post_id` is `sales.post.id`; a plain repost (`r:<id>` key) carries
+    the original's id, so its record names the original post, whose text it shows. Text,
+    links, authors and tags are read from `sales.post` by id; a quote's text is its comment
+    and then the quoted post's (by `reshared_post_id`), as the index holds it. An index hit
+    whose `sales.post` row is gone is skipped and logged
+    (`osint.internal_search.post_missing`).
+  - Each post comes back once (its reposts share the record; the subject's own relation
+    first), and each landing page once, as its best-ranked chunk (by URL).
+  - Company: its own site's pages naming it, one chunk per other site naming it or its
+    domain (phrases checked), its latest own posts (`sales.post`, reposts left out), posts
+    naming, tagging or reposted by it, and `PassageFinder`'s passages per passage question
+    (its site only when its host is a hard key). Person: one chunk per site naming them
+    (ranked and checked by the name alone), the employers' sites' pages naming them,
+    their own posts, posts naming, tagging or reposted by them; a one-word name is not
+    searched for, so such a lead gets only its own posts, its reposts and the posts
+    tagging it. Topic: landing pages and posts for the text and synonyms, minus
+    hits holding an excluded word; hybrid when the searches have `embed_query`,
+    keyword-only without.
+  - Post mentions have no index (`sales.post.mentions`, no GIN): the posts index finds the
+    candidates by the subject's names, their mentions are read by id, and a tag whose URL
+    is one of the subject's pages (slug decoded and case-folded, or the company page's
+    numeric id) matches. A tag under another text is missed.
+  - Wiring: keyword-only needs Zilliz alone (`LandingSearch(store, dims=...)`,
+    `PostSearch(store, dims=...)`); topics' dense half and passages need the Nebius
+    embedders (`embed_query=embedder.embed_query`; `PassageFinder(store, landing_embedder,
+    posts_embedder)`). Limits per search are module constants (`OWN_SITE_HITS`,
+    `MENTION_SITES`, `POST_CANDIDATES`, ...).
 
 ### Object storage
 
@@ -3042,7 +3766,9 @@ async for batch in searcher.query_rows({"host": hosts, "uses_https": False}):
 
 ### Landing search (`search.landing`)
 
-Company websites, as the crawl stores them, in the row store and a Zilliz collection
+Company websites, as the crawl stores them (`scraping.pages` rows of representation
+`default` only; OSINT research's copies, `research`, never enter the index or mark a site
+changed), in the row store and a Zilliz collection
 behind the `landing_pages` alias: one document per site (`h:{host}`), its pages' text
 chunked along each page's elements (1,200 to 1,800 characters: `CHUNK_SOFT_CHARS`,
 `CHUNK_HARD_CHARS`), its template (menu, footer) once, copies of a line or a chunk left
@@ -4262,6 +4988,40 @@ user assigned to that ICP. `customer_brain.sales_domain_pending_action` only acc
 once simpl_api migration `20260917_sales_domain_pending_icp_search_keywords.sql` has run.
 `pending_icp_change(...)` refuses a second open proposal of the same kind on one ICP, so
 the users who share it do not queue the same change.
+
+## How an account runs, its calls, its waiting conversations (Sales Domain)
+
+Three readers on an asyncpg connection ride on the operating snapshot
+(`db_read_outreach_operating_snapshot`) and decide nothing (ENG-1208):
+
+- `account_operating_model.how_this_account_runs(conn, user_id=…, customer_id=…,
+  outreach_prefs=…)` → `how_this_account_runs`: the customer's billing model
+  (`sales.customer_subscription`), managed engagement, the seller's `auto_approval`
+  setting, who approved, edited and rejected this seller's drafts in 14 days (from
+  `user.action.*` events: `via = managed` is SimpL staff in Operations; otherwise the
+  actor is the seller, a teammate, or someone outside the customer), and the approval
+  queue by message type (`pending_queue.fetch_queue_by_message_type`).
+- `call_outcomes.seller_calls(conn, user_id=…)` → `calls`: `call.*` events folded per
+  lead connection (agreed, booked, held, no-show, rejected, accepted, billed), listed when
+  they moved in 30 days or are dated in the next 14, upcoming first, counts for all.
+  `we_wrote_before_the_call` checks a successful send from any seller of the same
+  customer to the lead, since calls are handed to the colleague who takes them.
+- `conversations_waiting.conversations_waiting(conn, user_id=…)` → `conversations_waiting`:
+  leads whose latest inbound message (14 days) has no later successful send, with the
+  newest draft since (its `action_type`: `send_message` is a message, other types are
+  requests) and its `send_recheck` / `pre_send_check`, plus `call_since_their_message`,
+  the newest `call.*` event on the connection since the lead's message (a lead who booked
+  through the calendar never gets a message back).
+
+Each of the three is read through `domain_db_reads._snapshot_section`: a failure returns
+`{"error", "section"}` for that section only and is logged
+(`sales_domain_snapshot_section_failed`), so the rest of the snapshot still arrives.
+
+`autopilot_health` also carries `extension_socket_state` with its plain meaning
+(`extension_socket.extension_socket_meaning`): only `connected` is live, whatever
+`extension_last_seen_at` says. Message calibration edits carry `edited_by` (`seller`,
+`simpl_staff_in_operations`, `someone_else`, `not_recorded`); what counts as an edit is
+unchanged.
 ## Required company questions
 
 An ICP's required company questions (simpl_api's feature check, `sales_view.icp_required_question`) are filters: the opportunities run proposes only companies whose stored answer (`sales.company_feature`, read from their own website pages, code and LinkedIn posts) is the required one. `simpl_core.services.required_questions.load_required_questions(db, icp_id)` lists them; `check_required_questions(db, icp_id=..., company_ids=...)` gives each company's answer per question (`passes` is `None` when never answered, which is not a pass). Read-only models: `CompanyQuestion`, `CompanyQuestionAnswer`, `IcpRequiredQuestionView` (`CompanyQuestionRepository`); simpl_api owns the writes. simpl_flow's verifier reads them as filters so its judges never re-decide a rule a question answered.
@@ -4334,7 +5094,7 @@ The id in a tag is never trusted: the frontend resolves every tag against the ca
 
 - **Categories.** `simpl_core.models.funnel_category.FunnelCategory` names the canonical categories of `mappings.lead_status` (`MEETING_BOOKED = 5`, `NEGOTIATION = 9`: the lead attended the call, `CLOSED = 6`, ...). The ids are foreign keys, not an order: Negotiation sits between Meeting Booked and Closed. Sort and pick with `PRECEDENCE` / `precedence()` / `best_category()` and `FUNNEL_RANK`, test membership with `MEETING_BOOKED_OR_LATER` / `CALL_HELD`; never `<`, `<=` or ranges on the id. `CUSTOMER = 10` (kind `customer`, off the funnel, precedence 110: one Customer connection makes the company a Customer) is a company already a client of the customer (imported client list, or a SimpL close that aged): parked like Monitoring (Raff, 2026-10-28: silent until the person writes, a signal arrives or the seller asks), and never a meeting, a call or a win; `compute_opportunities_for_user_ids` counts it as `customers`, `icp_pipeline` as `imported_client`, autopilot's `execute_action` takes it back only on a claim, an inbound booking moves it to Meeting Booked and an inbound rule moves it on as from Monitoring (`stage_rule.moves_forward`). `CRM_STAGE_FALLBACK` maps Negotiation to Meeting Booked, Customer to Closed and Disqualified to Not Interested for a CRM pipeline without the stage. `DISQUALIFIED = 12` (kind `disqualified`, no funnel rank, precedence 15: between Opted out and Not Interested) is a lead met on a call whom the customer then decided not to sell to (ENG-1057): the call stays billed (it is not in `CALL_HELD`, and a move out of 12 is never a held call), it leaves call → customer rates; an inbound rule never moves it (`stage_rule.moves_forward`), the CRM pull moves it only into Closed or Customer, an unmapped push goes to the lost stage and never to the default (`NO_DEFAULT_STAGE`), `icp_pipeline` names it `disqualified` (a seller rejection in `icp_levers.REJECTED_STAGES`), and `TriggerSchedulerService.schedule_followup` arms no follow-up on it. A Disqualified that only SimpL's reading of the call made (`sales.call_disqualification` source `SIMPL_READING_SOURCE`, `decided_by` `SIMPL_READING_ACTOR_ID`, both in `funnel_category`; a seller who confirms the proposal is the decider) is `disqualified_by_simpl_reading` in `icp_pipeline`: worked, never a rejection. `LOST = 13` (kind `lost_after_call`: `lost` is Not Interested's; no funnel rank, precedence 12, between Disqualified and Not Interested; Raff, 2026-11-11) is a lead met on a call, in target, who did not go ahead: the call stays billed (not in `CALL_HELD`) and stays in call → customer rates; it is entered only from Negotiation by simpl_api's Lost path. An inbound rule never moves it (`stage_rule.moves_forward`), an inbound booking moves it to Meeting Booked (`ingestion.meetings`), the CRM pull never moves it in or out (a CRM stage mapped to 13 moves nobody; onboarding maps it to Not Interested), the push sends it to the lost stage (`CRM_STAGE_FALLBACK` 13 → 7, `NO_DEFAULT_STAGE`), it is not active pipeline, autopilot's `execute_action` never moves a Lost or Disqualified person (like Non sales), strategy plans never write to a Lost or Disqualified person (`CompanyReads.refused_leads`; an id `CATEGORY_KIND` does not know is not in progress), `evaluate_dispatch_authority` rule 1l cancels any first message to it (see "Opted out and Not In Target stop every send"), `contact_left` keeps it for the call, `icp_pipeline` names it `lost` (worked, not a rejection), and `schedule_followup` arms only its reopening (`trigger_source` = `trigger_scheduler.LOST_REOPEN` = `lost_reopen`; never recognised by the free-text `reason`).
 - **Status writes say who and when.** `UserLeadConnectionRepository.update_status(ulc_id=..., status_id=..., changed_by=..., effective_at=..., reason=..., change_ref=None)` takes the actor, the date the move became true (`None` = now) and what it came from (`change_ref`: `journey_log:<uuid>`, `pipeline_run:<id>`, `review:<uuid>`, `crm_sync:<id>`, `import:<id>`, read by the trigger from `sales.status_change_ref`). A writer in raw SQL calls `simpl_core.services.status_history.set_status_change_context(conn, changed_by=..., effective_at=..., reason=..., change_ref=None)` in the same transaction before its `UPDATE`; a SQLAlchemy writer calls the repository's `set_status_change_context`. `get_or_create_company_dummy_ulc` and `get_or_create_ulc_for_lead` take optional `changed_by` / `reason` / `change_ref`; an author left out is `orchestrator` with `pipeline_run:<id>` inside an agent-framework run and nobody outside one. The CRM pull writes `crm:<provider>` / `crm_sync`, autopilot `autopilot`, the ICP cleanup `icp_pipeline:not_in_target`. `last_lead_message_at(ulc_id, before=...)` is the date a move reacting to the lead becomes true. Moving a lead into Negotiation is for the owner or call evidence only: pay per call charges it.
-- **The status time is `status_changed_at`, not `updated_at`.** `UserLeadConnection.status_changed_at` is when the connection's status was last changed or confirmed; the writers that stamped a time with the status set it instead of `updated_at` (`update_status`, `update_ulc_status`, the CRM pull and blocklist, autopilot's moves, the ICP cleanup; those that stamped none, such as the strategy directive claims, are left to the database), and every reader that means "status since" or "worked last" reads it (the CRM export's `since` window and its pick of a company's connection, the flow facts' fallback, the sales datasets' company tie-break, `find_connection_thread`, the Sales Domain windows). `updated_at` is when the row last changed (set by the database): a company move or a claim moves it too, so only a reader that wants any change reads it (`FlowFactsLoader.changed_company_ids`). Until simpl_api's follow-up migration a trigger keeps the two equal; after it the database stamps `status_changed_at` on every `status_id` change, and a writer sets it only to confirm a status without changing it. `signal_seen_at` is when the seller pressed "Keep monitoring" on a monitoring signal, written only by simpl_sales. The simpl_api migration that adds both columns must be applied before a service runs this `simpl_core`: every `select(UserLeadConnection)` reads them.
+- **The status time is `status_changed_at`, not `updated_at`.** `UserLeadConnection.status_changed_at` is when the connection's status was last changed or confirmed; the writers that stamped a time with the status set it instead of `updated_at` (`update_status`, `update_ulc_status`, the CRM pull and blocklist, autopilot's moves, the ICP cleanup; those that stamped none, such as the strategy directive claims, are left to the database), and every reader that means "status since" or "worked last" reads it (the CRM export's `since` window and its pick of a company's connection, the flow facts' fallback, the sales datasets' company tie-break, `find_connection_thread`, the Sales Domain windows). `updated_at` is when the row last changed (set by the database): a company move or a claim moves it too, so only a reader that wants any change reads it (`FlowFactsLoader.changed_company_ids`). The database stamps `status_changed_at` on every `status_id` change and `updated_at` on every change (simpl_api 20261117200000); a writer sets `status_changed_at` only to confirm a status without changing it, and `sales.keep_change_times` = on leaves both for a write that must not count. `signal_seen_at` is when the seller pressed "Keep monitoring" on a monitoring signal, written only by simpl_sales. The simpl_api migration that adds both columns must be applied before a service runs this `simpl_core`: every `select(UserLeadConnection)` reads them.
 - **ICP definition writes say who and from where.** simpl_api's `sales.icp_definition_change` triggers log every changed part of an ICP (title, description, keywords, size, filters, embeddings, guidance/mission/brief, industries, roles). A writer calls `simpl_core.services.icp_change_context.set_icp_change_context(conn, IcpChange.by_user(id, path) | .by_staff(id, path) | .by_agent(name, path))` inside the transaction that writes (never in autocommit: the settings last one statement there); `maintenance=True` marks rewrites that keep the meaning. The Sales Domain writers in `services.sales_domain_icp_writes` take a required `change`: approved actions are `staff:<decided_by>` from `sales_domain_approval`, the agent's own writes `agent:sales_domain` from `sales_domain`.
 - **Meetings and calls in a period** come from `sales_view.company_funnel_facts` (simpl_api migration 20260925e, rules of 20261002_billable_call_rules) through `simpl_core.services.reports.funnel_facts`: `fetch_company_facts(conn, user_ids, since)` (`since=None`: all time) and `period_counts(facts, from_ts, to_ts, users=None, include_external=False)`. A meeting is a company's first booking, a call its first call that took place, a win its first close by a person from a working stage. `PeriodCounts` gives SimpL's as `CohortSplit` (`meetings`, `calls_held`, `won`: cohort = taken in the period, earlier = before), the others as `meetings_other` / `calls_held_other` (`meetings_all` / `calls_all` for every one), `won_all_time`, the cohort rate numerators and the same per user. `compute_opportunities_for_user_ids` returns `meetingBookedInPeriod` / `callsHeldInPeriod` (all), `meetingsAttributableInPeriod` / `callsBillableInPeriod` / `wonInPeriod` (SimpL's), `split` (cohort/earlier and `show_rate` / `win_rate`), `won` = won with SimpL all time and `proposals` = distinct companies, next to where companies stand today (`meetingBooked`, `negotiation`, `closed`, `customers`); Managed's `count_calls_booked_auto` counts first bookings in the engagement window. The admin overview and pay per call read the same function, so the numbers agree everywhere.
 
