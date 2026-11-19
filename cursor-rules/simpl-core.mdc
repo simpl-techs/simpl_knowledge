@@ -3038,7 +3038,11 @@ heads = await requests.heads(open_request_ids)  # many states in one query
   entity resolution's words, `same`, `different` or `unknown` (its two-way check,
   `Verification`), or `unresolved` while nothing decided, with `decided_by` (`hard_key`,
   `rule` or `judge`, ER's `Method` spellings; no human decides an identity) and the
-  `hard_key` that matched), `skipped_hits`, `resolved_subject` (#513's `ResolvedSubject`,
+  `hard_key` that matched), `skipped_hits` (each hit not fetched, with its `decision`:
+  `excluded_host`, `identity_key_only` (a LinkedIn profile kept as the lead's identity key,
+  never fetched), `other_profile` (another LinkedIn profile, for a lead with a stored one:
+  only the stored profile is the lead's key), `no_name_in_hit`, `over_host_cap`,
+  `over_page_cap`; `SourceDecision`), `resolved_subject` (#513's `ResolvedSubject`,
   fields a newer worker added ignored; None until the worker writes it), and
   `profile_reads` (its children and the reads its `profile_read` events name).
   `FetchRead`: the inbox row's status and the page. `CrawlRead`: `counts` and the pages of
