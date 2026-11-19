@@ -5043,11 +5043,13 @@ positions=…, source=…, today=None)` writes those positions; it never commits
 one bucket (taken, rejected, not proposable, still to propose) on an asyncpg connection.
 `icp_target_coverages(conn, icp_ids=[…])` counts several ICPs and reads the customer's
 connected companies once for all of them (`connected_companies(conn, customer_id=…,
-icp_id=None)`, 5,000 leads per statement, so no statement nears the API pool's 60 s
-client timeout); `icp_target_coverage(conn, icp_id=…)` is one ICP and raises
-`IcpWithoutOwnerError` for an ICP without an owner. The biggest customer (94k connected
-leads) takes about 19 reads of ~9 s on production, whatever its targets' size; callers
-that count often cache the result per customer (simpl_api `icp_target_left`). Each
+icp_id=None)`); `icp_target_coverage(conn, icp_id=…)` is one ICP and raises
+`IcpWithoutOwnerError` for an ICP without an owner. A company is taken through a claimed
+connection's lead company or the lead's current roles (at most three), read from
+`sales.connection_search` like simpl_flow's opportunity pipeline (ENG-1212): a former
+employer does not take it. The biggest customer (95k claimed connections) takes one read
+of 2-3 s, whatever its targets' size; callers that count often cache the result per
+customer (simpl_api `icp_target_left`). Each
 target is read once, whole: its rows also give `target_refreshed_at` (their latest
 `updated_at`), so no second walk of `opportunity.icp_company_matches` runs.
 
