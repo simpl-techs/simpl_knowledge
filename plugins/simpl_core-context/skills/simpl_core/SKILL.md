@@ -2224,7 +2224,8 @@ thread is an activity, else it fails as `repost_needs_activity_thread`). They ar
 `services.light_moves.executor.run_light_moves(db, operations=DatabaseLinkedInOperations(db),
 now=...)` runs them through the LinkedIn proxy on the seller's own extension: one move per
 seat per run, the seat's daily limits from simpl_api's `sales.linkedin_light_move_limits`
-(warming ramp, steady views 15, reactions 8, comments 2, reposts 1), a reaction, a comment
+(warming ramp, steady views 15, reactions 8, comments 2, reposts 1; a profile view counts
+OSINT research's seat reads too, below), a reaction, a comment
 or a repost only after a profile view in 14 days and on the person's own post at most 21
 days old. A view stores the
 person's posts in `sales.post` (`author_kind` person, `source` `linkedin_profile_activity`,
@@ -2247,6 +2248,65 @@ admits only SimpL's own colleagues). `post_repost` calls LinkedIn's server-drive
 UI action `createInstantRepost` (flagship-web), not the voyager API. `post_comment` and
 `post_repost` set `redispatch: false` (never handed to an extension twice); one that times
 out fails as `outcome_unknown`, never retried.
+
+**One count of a seat's profile views** (`services.light_moves.seat_views`, extension plan
+X8, Q17 (a); the review of simpl_core#549, I1): every profile a seller's extension opens is a
+`profile_positions` proxy request, whoever asked (light-move views, employment checks,
+simpl_flow's fresh profiles, research's seat reads), and they all spend the one
+`view_daily_limit`. `seat_views_today(session, user_id, now=)` returns `SeatViews(limit,
+spent)` (`.left`): the seat's `profile_positions` requests since the start of the UTC day,
+any `source_type`, plus a light-move view claimed (`RUNNING`) whose request is not written
+yet, once (`extension_proxy.seat_profile_views_since`, an owner-rights function that returns
+a number; `research_read_repository.seat_profile_views_since(session, user_id, since)`;
+partial index `extension_proxy_request_profile_views_idx`, migration `20261119150100`).
+`LightMoveQueue.done_today` is not added: it would count light-move views twice. The
+light-move executor calls `lock_seat_views(session, user_id)` (a transaction advisory lock)
+before reading the count and keeps it until its claim commits; research's admission takes
+the same lock inside its function. Employment checks and fresh profiles are counted but do
+not check the count yet (their repositories' follow-up). `seat_of_customer(session,
+user_id, customer_id)`: the user is active and the customer's, or lent to it through an open
+`sales.identity_loan` (admission's seat check). A seat read checks the same rule again, and
+the seller on duty (not on vacation, not held at the onboarding shortlist; the lead's sending
+window is a message's rule, not a read's), in SQL under the seat's lock
+(`extension_proxy.research_seat_refusal`).
+
+**Research's seat reads in the proxy ledger** (`repositories.extension_proxy.
+research_read_repository.ResearchReadRepository(session)`, migration `20261119150200`): the
+research login holds no grant on the `extension_proxy` tables, which have no row-level
+security; it calls `SECURITY DEFINER` functions that take the profile read's id and never a
+seat or a profile: each finds the seat (the read's parent's `seat_user_id`), the profile
+(the read's own URL, its public identifier) and research's share (the pinned policy's
+`SeatReader.max_view_share` of the limit, rounded down, at least 1; default
+`DEFAULT_MAX_VIEW_SHARE` 0.25, which is also its bound, in the model and in SQL; version
+1's `max_views_per_seat_per_day` caps it too) itself,
+and touches research's rows only (source type `RESEARCH_PROFILE_READ_SOURCE`,
+`osint_profile_read`; idempotency key `osint_profile_read:<read id>`), on the caller's
+session: `admit(read_id=, linkedin_account_id=, timeout_seconds=, presence_stale_seconds=)`
+(the read's seat, customer, URL and policy read once, its parent row kept `FOR SHARE`;
+`existing`, else under the seat's lock, at the clock read after it (`clock_timestamp()`, also
+the request's `created_at`), a refusal, else the request for the seat's live extension
+signed in to that account: `admitted`, `extension_offline`, `linkedin_account_mismatch`; the
+device rule is `admit_request`'s, kept in step by hand), `refusal(read_id)` (a pre-check:
+`no_read`, `no_seat`, `seat_not_the_customers`, `seller_off_duty`, `seat_views_spent`,
+`research_share_spent`, or `None`). The rows they trust are kept by osint's triggers
+(`20261119210000`): a research request's `seat_user_id` never changes after admission
+(only cleared by the user's delete), and a profile read's customer and lead are its
+parent's and its URL the lead's stored LinkedIn URL in the platform's one spelling; `of_read(read_id)`, `next_slot_at(read_id)` and `reserve_slot(read_id)` (the seat's
+`profile_positions` pacing slot, as `reserve_operation_slot` reserves it), `get`,
+`time_out`, `consume`, `seat_online`, and the SQL conditions
+`research_read_answered(request_id)` and `research_read_unconsumed(request_id)`.
+`DatabaseLinkedInOperations.read_profile_positions(request)` parses a `profile_positions`
+answer and acknowledges nothing, so a caller can keep the raw answer before its
+acknowledgement lets the ledger drop it. `services.linkedin_proxy.profile_identity`:
+`names_profile(positions, identifier=, mini_profile_urn=)` (the answer's public identifier
+compared unquoted and case-folded, or the lead's URN) and `is_member_id(identifier)` (a
+`/in/ACoAA...` member id, which `profile_positions` cannot read by).
+`positions_to_experience(..., jobs_only=True)` (a research read): only
+`sales.lead_experience` rows, companies found by their LinkedIn id and never created,
+attached or promoted, no claim resolved, no lead or connection company filled; a position of
+a company SimpL does not know is written with no `company_id`, its LinkedIn id, URL and name
+in `raw` (`PositionsWritten.unknown_companies`), told apart by that id
+(`LeadRepository.add_experience_if_absent(company_linkedin_id=)`).
 
 ## CRM flows
 
@@ -2639,18 +2699,40 @@ what research finds is later work. "Questions" (`request.questions`, a policy's
       is kept by identifier (`raw_page_object_key`); facts built from it are later work.
       The relay writes its progress into the parent's log (event type `profile_read`, dedup
       key `profile_read:<child id>:<status>`); the parent does not wait for it.
+    - **Starting one** (`RequestAdmission.profile_read(parent, profile, policy)`, the
+      research worker's search step, extension plan A4): `parent` is a `ProfileReadParent`
+      (request id, customer, source type and id, lead, company), `profile` the subject's
+      `ProfileUrl`, `policy` the active `profile_read_<platform>` version. It returns a
+      `ProfileReadAdmission(read, outcome)`: `reused` (a ready read younger than
+      `reuse_max_age_s`), `joined` (the read in flight) or `created` (written with its
+      first `status_changed` event; no `osint.request_submission` row). It raises
+      `RequestRefused` before writing: `profile_refused` (the platform is unknown or
+      disabled, or the URL is not its profile in its one spelling: checked first, so the
+      insert trigger never fails the parent's transaction), `source_type_refused` (the
+      policy's `source_types` are the research source types it reads for) or
+      `budget_spent`. The caller writes the parent's `profile_read` event, which names the
+      read (`queued`/`reading` when created or joined, the read's own event when reused);
+      `request_event_profile_read_key_idx` (`20261119150300`, built `CONCURRENTLY`) finds
+      every parent whose log names a read, so the worker copies the read's end to each.
+    - **Version 2 of `profile_read_linkedin`** (`20261119200000`, inactive; the one to
+      activate): version 1 plus `entity_resolution` in `source_types`, and
+      `budget.internal_by_source_type` giving internal reads of `agent`, `planner` and
+      `entity_resolution` a bucket each (100 reads, 5 dollars a day), as person research's
+      versions 2 and 3 do; `staff_endpoint` and `cli` share the internal bucket.
     - It carries `lead_id` (required at admission), the platform, `url` in the platform's
       one spelling, the parent and optionally the company; no research, fetch or crawl
       column. One read in flight per platform and `lower(url)`, across customers
       (`request_profile_read_in_flight_key`): a second parent's pass, whichever customer,
       gets the running one, so a seat view is never spent twice on one profile.
-    - **What the read did, by identifier** (T24 writes them; refused on every other kind):
+    - **What the read did, by identifier** (T24 writes them; refused on every other kind,
+      but a person research carries the seat its submit named in `seat_user_id`):
       `seat_user_id` (the `sales."user"` whose seat read the profile), `proxy_request_id`
       (the `extension_proxy.request` the seat's read went through; the relay's "the seat's
       answer has arrived" rule reads it) and `raw_page_object_key` (where the raw page is
-      stored; the page is not in Postgres). **For T24:** count a seat's light-move profile
-      views and its research reads in one place, against the seat's `view_daily_limit`
-      (account limits), with the policy's `max_views_per_seat_per_day` as research's share.
+      stored; the page is not in Postgres). A seat's light-move profile views and its
+      research reads are counted in one place (`services.light_moves.seat_views`), against
+      the seat's `view_daily_limit`, with the policy's `max_views_per_seat_per_day` as
+      research's share.
       States: `queued -> reading | ready | refused | failed | timed_out`, `reading ->
       ready | refused | failed | timed_out` (`reading` holds no claim; `queued -> ready`
       reuses a read).
@@ -2799,8 +2881,8 @@ search. The seed migrations' headers explain every key (`20261112100100`, `20261
     `entity_resolution` (research and search at the kind's per-customer cap in requests and
     that cap times `max_cost_usd_per_request` in dollars, search 1 dollar; fetch and crawl
     500 pages and 5 dollars). Activate them per key with the command line (Jackie's yes in
-    production). `profile_read_linkedin` keeps version 1 (readers per requester wait for
-    T24).
+    production). `profile_read_linkedin`'s version 2 is `20261119200000`'s (entity
+    resolution added, with the same internal buckets).
   - Research's `freshness_days` is the fresh-facts window. No kind has a page text key:
     Postgres keeps no page text.
   - **Schema versions:** a stored version is never rewritten, so a key leaves through a
@@ -2810,8 +2892,8 @@ search. The seed migrations' headers explain every key (`20261112100100`, `20261
     (`SCHEMA_VERSION`) has none of them, since nothing research finds expires, a subject is
     loaded by its id, and Postgres keeps no page text. The model reads a version 1 document
     with them dropped, and refuses a version 2 document that names one, as any unknown key.
-    New versions are stored resolved, at version 2; `profile_read_linkedin` is seeded at
-    version 2. The fetch and crawl seeds' `purpose` still says "with its text when asked",
+    New versions are stored resolved, at version 2; `profile_read_linkedin`'s version 1 is
+    seeded at schema version 2. The fetch and crawl seeds' `purpose` still says "with its text when asked",
     as stored.
   - **Reworded free texts:** the research defaults' `use_limits` start "Shared by every
     customer" and the person's `who_may_be_researched` is "Any lead, by its id". No code
@@ -2971,7 +3053,11 @@ heads = await requests.heads(open_request_ids)  # many states in one query
   `ResearchSubject`: exactly one of `lead_id`, `company_id`,
   `topic=Topic(text, synonyms, exclude)`; plus `policy_key`, an active research policy of
   the subject type, None for the subject type's own key; the question list is that
-  policy's whole list), `FetchSpec(url, max_age_s)`, `CrawlSpec(start_url, max_age_s)`
+  policy's whole list; `seat_user_id`, a person research only: the seller whose own
+  LinkedIn seat its profile read may spend, an active user of the customer or lent to it
+  through an open `sales.identity_loan`; an internal request (no customer) names none; None:
+  the read goes to the public page, never a seat (Q16 (a)); stored on the request, not
+  compared on a retry, and a joined or fresh run keeps its own), `FetchSpec(url, max_age_s)`, `CrawlSpec(start_url, max_age_s)`
   (`max_age_s` None: the policy's `default_max_age_s`), `SearchSpec(queries, engines,
   timelimit)`. URLs must be http or https with a host. No text a request carries (key,
   topic, query, word to exclude, URL) may hold a control character (`NO_CONTROL_CHARACTERS`
@@ -2987,7 +3073,7 @@ heads = await requests.heads(open_request_ids)  # many states in one query
   `idempotency_key_reused`); the customer, the policy key's active version (of the
   subject type's kind for research), its source types and purposes, then the kind's own
   checks (research: the lead or company exists and is no placeholder, with #513's rule,
-  `SubjectResolver.refusal`, from the row alone); research: the fresh rule (`fresh`: any
+  `SubjectResolver.refusal`, from the row alone; the seat it names); research: the fresh rule (`fresh`: any
   customer's done request for the same subject, policy key and questions within
   `freshness_days`) and the run in flight (`joined`; one past its deadline is timed out
   `failed` there); the daily budget over the last 24 hours; the insert (`created`), its
@@ -3013,8 +3099,9 @@ heads = await requests.heads(open_request_ids)  # many states in one query
   loopback, link-local or otherwise non-public IP, `localhost`, `.local`, `.internal`,
   `.home.arpa`, a one-label host or an all-digit last label; no DNS lookup, `addresses.py`
   keeps simpl_scraping's `is_public_address` rule; `url_rejections` and excluded hosts are
-  the drainer's), `too_many_queries`, `engine_refused`, `idempotency_key_reused`. There is
-  no submit for `profile_read`.
+  the drainer's), `too_many_queries`, `engine_refused`, `idempotency_key_reused`,
+  `seat_refused` (a person research's `seat_user_id` is no active user of the customer nor
+  lent to it, or the request is internal). There is no submit for `profile_read`.
 - **Read** (`read(request_id, after=0, limit=200, kind=None)`): one `REPEATABLE READ READ
   ONLY` transaction; `RequestNotFound` for an id that is no request of `kind`. Every read
   (`RequestRead`): status and reason, `final` (the stored status is final), `expired` (past
@@ -3043,7 +3130,8 @@ heads = await requests.heads(open_request_ids)  # many states in one query
   only the stored profile is the lead's key), `no_name_in_hit`, `over_host_cap`,
   `over_page_cap`; `SourceDecision`), `resolved_subject` (#513's `ResolvedSubject`,
   fields a newer worker added ignored; None until the worker writes it), and
-  `profile_reads` (its children and the reads its `profile_read` events name).
+  `profile_reads` (its children and the reads its `profile_read` events name: status,
+  reason, raw object key; never the seat or its proxy request, which are one customer's).
   `FetchRead`: the inbox row's status and the page. `CrawlRead`: `counts` and the pages of
   the `crawl_page` events after the cursor. `SearchRead`: every hit with its query and
   source.
@@ -3077,7 +3165,12 @@ heads = await requests.heads(open_request_ids)  # many states in one query
   (`hard_key`, `rule`, `judge`). A hard-key match writes `research_source.er_signals` as
   `HardKeySignals(hard_key, value)`; a hard-key row with no `er_signals` reads as no hard
   key. `resolved_subject` holds #513's `ResolvedSubject`; a landing-index hit's
-  `page_version_id` is set by the search step.
+  `page_version_id` is set by the search step. `ProfileRead(child_request_id, status,
+  lead_experience_ids, seat_answer_key)` is written when a profile read ends, first in the read's own log,
+  then copied by the worker to the parent's once the parent holds no claim;
+  `lead_experience_ids` are `sales.lead_experience`'s bigint ids (they were typed UUID
+  before 0.8.428, which no stored event used); `seat_answer_key` is where a seat's answer
+  that could not be used is kept, when the read went on to its next reader.
 - **Test doubles** (`services/osint/testing.py`), shipped with the package:
   - `OsintRequestsApi`: the API as a `Protocol` (`submit_*`, `read`, `follow`, `heads`,
     `latest`, `history`); type your dependency with it. `OsintRequests` implements it.
@@ -5030,12 +5123,14 @@ positions=…, source=…, today=None)` writes those positions; it never commits
   and its pending claims resolve to it), else a new row with `origin=source`. A position
   without an id is skipped, never matched by name.
 - **Experience:** one `sales.lead_experience` row per position the lead does not have yet
-  (`LeadRepository.add_experience_if_absent`).
+  (`LeadRepository.add_experience_if_absent`, which returns the row found or written,
+  `ExperienceRow(id, inserted)`).
 - **Current employer:** when the positions held on `today` name exactly one company, it
   fills `sales.lead.company_id` if that is NULL, and then the company of each of the
   lead's connections that has none. A lead with another company keeps it.
 - **Result:** `PositionsWritten` (`outcome`, `companies`, `skipped`, `experience_added`,
-  `current_employer_id`, `lead_company_filled`, `connections_filled`).
+  `experience_ids` (the rows of the positions with an id, written or already there; bigint
+  ids), `current_employer_id`, `lead_company_filled`, `connections_filled`).
 
 ## ICP target coverage
 
