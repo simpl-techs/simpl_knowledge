@@ -2523,7 +2523,8 @@ The `osint` schema is OSINT research's request ledger (`simpl_core.models.osint`
 each request's policy key and purpose, every submit's record and entity resolution's words
 for a page's identity, `20261118130000_osint_search_requests.sql` with its seeds
 `20261118130100` (search) and `20261118130200` (version 2 of each request policy, for the
-real callers)).
+real callers), and for heartbeat deadlines `20261119140000_osint_heartbeat_deadlines.sql`
+with its seed `20261119140100` (version 3 of person, company, topic and search, inactive)).
 
 **Four rules (Jackie, 2026-11-17)** shape the ledger:
 
@@ -2662,7 +2663,18 @@ what research finds is later work. "Questions" (`request.questions`, a policy's
     company is later work. The planner submits as `source_type` `planner`.
   - The request pins an `osint.policy` version of its kind (person, company, topic, fetch,
     crawl, profile_read) and sets `pages_due_at` and `deadline_at`. What admission writes
-    never changes, except `lead_id` and `company_id`, which follow merges.
+    never changes, except `lead_id` and `company_id`, which follow merges, and
+    `pages_due_at` under a heartbeat (`20261119140000`, X18): on a research, crawl or
+    search request whose pinned version has a `heartbeat`, the claim holder may move it
+    forward, before it has passed, in an update that keeps the claim, never past
+    `deadline_at` less the pinned version's `finish_window_s` (the trigger reads the
+    version; each refusal has its own message). `deadline_at` never moves. The research
+    worker (simpl_scraping `research/relay.py`) moves it on each progress with
+    `SET pages_due_at = GREATEST(pages_due_at, LEAST(now() + idle_s, deadline_at -
+    finish_window_s)) WHERE id = :id AND claim_token = :token AND pages_due_at > now()
+    RETURNING pages_due_at`, so a progress that comes early or after the request is due
+    writes nothing instead of failing its transaction, and moves the request's open
+    `scraping.research_inbox` rows' `deadline_at` to the returned time.
   - **Claims:** the database enforces each kind's state machine and the claims: a new
     `claim_token` only before `deadline_at`, on an open row, never from a holder younger
     than `reclaim_after_s`; each claim adds 1 to `attempt_count`, capped at
@@ -2749,6 +2761,24 @@ search. The seed migrations' headers explain every key (`20261112100100`, `20261
     schema change. At least one reader, each type once, their waits and timeouts together
     within `pages_due_s`. No `inbox_priority` (it writes no inbox row: that key is the
     research, fetch and crawl kinds' only).
+  - **Heartbeat deadlines** (research, crawl and search; X18): `heartbeat: {idle_s,
+    max_s}`, `null` by default (fixed times, the behaviour before the key). With it,
+    `pages_due_s` is the first wait; each progress (a new hit, a stored, extracted or
+    resolved page, a crawl page; never a failed page) before `pages_due_at` passes moves
+    it to `idle_s` after the progress when that is later, never back and never past
+    `max_s` after the submit; admission sets `deadline_at` to `max_s` plus
+    `finish_window_s` after the submit. Every policy model has `pages_due_cap_s` (the
+    latest `pages_due_at`, in seconds after the submit) and `pages_due_idle_s` (`None`
+    without a heartbeat), so the worker reads any pinned version alike. A
+    fetch and a profile read have no `heartbeat` key. Version 3 of person, company and
+    topic (180 / 120 / 900 s) and of search (30 / 20 / 120 s) is seeded inactive by
+    `20261119140100`. Activate it only when two things hold. First, every service that
+    loads OSINT policies (simpl_api's admission, the research worker, any caller that
+    reads requests) runs simpl_core 0.8.427 or later: an older one refuses a document
+    that names `heartbeat` (`extra="forbid"`), so every submit and read under it fails.
+    Second, the research worker moves `pages_due_at`: before it, research ends at its
+    first wait, 180 s (version 2: 600 s), and search at 30 s (version 2: 60 s), whatever
+    each still finds.
   - **Per source type budgets** (research, profile_read and search):
     `budget.by_source_type: {source_type: {max_requests_per_customer_per_day}}`, empty by
     default. A listed source type's requests count against its own cap and the kind's, so
@@ -2806,7 +2836,8 @@ search. The seed migrations' headers explain every key (`20261112100100`, `20261
     yandex; the search code imports the same constant), query templates with only
     `QUERY_PLACEHOLDERS[subject_type]`, the subject's name as one quoted phrase and no `OR`
     or `|`, every question named by a query, `vat_code` never in `er.hard_keys`, and for
-    fetch `server_wait.max_s < pages_due_s` (crawl: `server_wait` null). So are the
+    fetch `server_wait.max_s < pages_due_s` (crawl: `server_wait` null), and with a
+    heartbeat `pages_due_s` and `heartbeat.idle_s` at most `heartbeat.max_s`. So are the
     database's limits: seconds and `claim.max_attempts` at most 2,147,483,647, and never
     `page_text` as a research `extraction_profile`. A daily budget of 0 is valid.
   - **Immutable:** a parsed policy is frozen to the leaves (tuples, read-only mappings).
@@ -2978,7 +3009,11 @@ heads = await requests.heads(open_request_ids)  # many states in one query
   (`RequestRead`): status and reason, `final` (the stored status is final), `expired` (past
   `deadline_at` while the stored status is not: no worker may claim it, so it has ended),
   `complete` (final or expired, with no event left after `next_cursor`; `follow` stops
-  there), `policy_key`, `purpose`, the typed events after `after`, `next_cursor`,
+  there), `pages_due_at` (when it stops waiting for pages; under a heartbeat it moves
+  forward while the request finds pages, so a later read may show a later time),
+  `deadline_at` (fixed at admission: the latest it can end, so a `follow` that should see
+  the end passes a `max_wait_s` that reaches it), `policy_key`, `purpose`, the typed
+  events after `after`, `next_cursor`,
   `last_sequence`, `retry_after_s`. `ResearchRead`: `pages` (each hit to fetch or held by
   the landing index: `state` pending, stored or failed with its `reason`, `page` =
   `StoredPage` with `page_version_id`, `host`, `final_url`, `http_status`, `media_type`,
