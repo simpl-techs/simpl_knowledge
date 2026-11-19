@@ -2902,20 +2902,31 @@ research, fetch, crawl and search requests. There are no HTTP endpoints (simpl_a
 closed): SimpL services and agents call `OsintRequests` directly, in process, on the
 service's own database login. It admits and reads; the research worker runs every request.
 
-- **The login's access** (`migrations/20261118160000_osint_caller_role.sql`): grant the
-  calling service's login the role `osint_caller` (`GRANT osint_caller TO <login>`, in
-  production with Jackie's yes, once the service calls research). The role may submit and
-  read, never do the worker's writes:
-  - `osint.policy` SELECT; `osint.request` SELECT, INSERT, UPDATE (every event moves the
-    row's `last_sequence`, and a submit that finds a run past its deadline ends it);
-    `osint.request_event` SELECT, INSERT, through `osint.append_request_events` (EXECUTE);
-    `osint.request_submission` SELECT, INSERT;
+- **The login's access** (`migrations/20261118160000_osint_caller_role.sql`, narrowed by
+  `20261119160000_osint_writes_with_owner_rights.sql`): grant the calling service's login
+  the role `osint_caller` (`GRANT osint_caller TO <login>`, in production with Jackie's
+  yes, once the service calls research). The role may submit and read, never do the
+  worker's writes:
+  - `osint.policy` SELECT; `osint.request` SELECT, INSERT (admission writes the request);
+    `osint.request_event` SELECT; `osint.request_submission` SELECT, INSERT;
     `osint.search_call` and `osint.research_source` SELECT; `scraping.research_inbox`
     SELECT, INSERT (fetch and crawl); `scraping.research_crawl_page`, `scraping.pages` and
     `scraping.page_versions` SELECT (page metadata of every page, since research may reuse
     the landing crawl's copy; never text).
+  - EXECUTE on two SECURITY DEFINER functions, which run with their owner's rights:
+    `osint.append_request_events` (every event, and the row's `last_sequence`) and
+    `osint.time_out_request` (`OsintRequestRepository.time_out`: a submit that finds a run
+    past its deadline ends it). So the role holds no INSERT on `osint.request_event` and no
+    UPDATE on `osint.request`: a caller cannot write an event that skips the function's
+    claim and numbering checks, nor claim, end or move the times of another customer's
+    request (extension plan X38, since simpl_core 0.8.429; before it the role had both).
+    `20261119160000` needs the role (`20261118160000`) first, and runs again after either
+    `20261118160000` or `20261112100000` runs again: the first grants the INSERT and the
+    UPDATE back, the second recreates `append_request_events` with the caller's rights. It
+    fails when a role still holds either right through another grantor, PUBLIC or a
+    membership.
   - Not granted: `osint.host_list`, `osint.profile_platform`, `osint.er_label`,
-    `scraping.research_fact`, and any other UPDATE or DELETE.
+    `scraping.research_fact`, and any UPDATE or DELETE.
   - Each of those tables has row-level security, and the role's rule lets every row through.
     A login with grants but no rule reads zero rows and gets no error, so give a login the
     role, never the table grants alone.
@@ -3609,7 +3620,10 @@ async with db.session_scope() as s:
   `CounterTable`/`MinuteCounters` (one row per key and minute) and `IncidentOutbox` with
   `deliver_due` (one open incident per dedup key, delivered after commit, each send in
   a worker thread so a blocking notifier never holds the event loop; a notifier that
-  raises is a failed delivery) complete it.
+  raises is a failed delivery) complete it. `workpool.incidents` is shared: `deliver_due`
+  takes `key_prefix` (only those keys) or `skip_key_prefix` (all but those).
+  `RESEARCH_KEY_PREFIX` (`research.`) starts every key the OSINT research pool records and
+  delivers itself (simpl_scraping `research/incidents.py`); every other deliverer skips it.
 - `load_topology(path)` reads a fleet's pools (`Topology`, `Pool`, `Scaling`, `Runtime`,
   `Quota`): role (`gpu` with `depth`, `cpu` with `concurrency`), substrate, region and GPU
   type, runtime binding (`in_process` or `server`), `batch_units`, lanes, per-kind
@@ -3667,7 +3681,7 @@ async with db.session_scope() as s:
   rate and its cap; `queue_steps` recover expired leases (rows failed for good after
   crashing a pool's instances are one `dead-rows:<pool>:<day>` warning), sweep and prune,
   reported as `<queue>.recover` and so on; then the due incidents go to the topology's
-  alert route. A pool's `cap` and the topology's `alerts` are names: `ALERT_ROUTES` holds
+  alert route, all but the research pool's (`skip_key_prefix=RESEARCH_KEY_PREFIX`). A pool's `cap` and the topology's `alerts` are names: `ALERT_ROUTES` holds
   core's (`data_lake`: `DataLakeNotifier`, errors and warnings on #data-lake, info only
   logged), `caps=` and `routes=` add the caller's, and a name nobody registered raises
   `ValueError` before the tick.
