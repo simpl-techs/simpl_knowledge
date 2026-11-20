@@ -2715,11 +2715,26 @@ what research finds is later work. "Questions" (`request.questions`, a policy's
       read (`queued`/`reading` when created or joined, the read's own event when reused);
       `request_event_profile_read_key_idx` (`20261119150300`, built `CONCURRENTLY`) finds
       every parent whose log names a read, so the worker copies the read's end to each.
-    - **Version 2 of `profile_read_linkedin`** (`20261119200000`, inactive; the one to
-      activate): version 1 plus `entity_resolution` in `source_types`, and
-      `budget.internal_by_source_type` giving internal reads of `agent`, `planner` and
-      `entity_resolution` a bucket each (100 reads, 5 dollars a day), as person research's
-      versions 2 and 3 do; `staff_endpoint` and `cli` share the internal bucket.
+    - **Version 2 of `profile_read_linkedin`** (`20261119200000`, inactive): version 1 plus
+      `entity_resolution` in `source_types`, and `budget.internal_by_source_type` giving
+      internal reads of `agent`, `planner` and `entity_resolution` a bucket each (100 reads,
+      5 dollars a day), as person research's versions 2 and 3 do; `staff_endpoint` and
+      `cli` share the internal bucket.
+    - **Version 3** (`20261120110000`, inactive; the one to activate): version 2 with the
+      Olostep reader's `timeout_s` 120 instead of 60. A lead's guest page took 70 to 105 s
+      through Olostep (2026-11-20), and simpl_scraping calls Olostep in a step of its own
+      that allows it. It also writes out the reader's `country` "US" and `parser`
+      "@olostep/linkedin-profile".
+    - **`OlostepReader.country`**: the residential country of the Olostep call
+      (`OlostepCountry`; default `DEFAULT_OLOSTEP_COUNTRY` "US", so versions 1 and 2 read as
+      US). Only countries verified live are usable; today US. RU and RANDOM never: LinkedIn
+      is blocked in Russia, and a read with no country got a Russian ISP's block notice
+      (2026-11-20). Another country goes in by its own change, after a re-test shows real
+      profiles through it.
+    - **`OlostepReader.parser`**: the Olostep parser the call asks for (default
+      `DEFAULT_OLOSTEP_PARSER` "@olostep/linkedin-profile", which answers the profile as
+      JSON). simpl_scraping reads a profile through a parser only; the guest page's HTML is
+      no longer read (Jackie, 2026-11-20).
     - It carries `lead_id` (required at admission), the platform, `url` in the platform's
       one spelling, the parent and optionally the company; no research, fetch or crawl
       column. One read in flight per platform and `lower(url)`, across customers
@@ -2883,7 +2898,8 @@ search. The seed migrations' headers explain every key (`20261112100100`, `20261
     that cap times `max_cost_usd_per_request` in dollars, search 1 dollar; fetch and crawl
     500 pages and 5 dollars). Activate them per key with the command line (Jackie's yes in
     production). `profile_read_linkedin`'s version 2 is `20261119200000`'s (entity
-    resolution added, with the same internal buckets).
+    resolution added, with the same internal buckets), and its version 3
+    `20261120110000`'s (Olostep's call 120 s).
   - Research's `freshness_days` is the fresh-facts window. No kind has a page text key:
     Postgres keeps no page text.
   - **Schema versions:** a stored version is never rewritten, so a key leaves through a
