@@ -3281,7 +3281,12 @@ row, its id, its connection or its seller. Modules in `simpl_core.services.osint
   - `identity_keys`, from stored data only: `linkedin_urls` (the lead's profile or the
     company's page), `company_linkedin_id`, `emails` (`identity_emails`: the lead's stored
     addresses, never a role or automated mailbox, one the lead's rows give to another
-    person, or one another lead holds), `domain` (only when no other company has the host),
+    person, or one another lead holds; the holders come from
+    `LeadContactRepository.lead_ids_by_emails`, which reads through the SECURITY DEFINER
+    function `sales.lead_ids_by_emails`, so the login needs EXECUTE on it, granted by
+    `migrations/20261120100000_sales_lead_ids_by_emails.sql` to `service_role` and by
+    simpl_scraping's migration 113 to the research login; since 0.8.444), `domain` (only
+    when no other company has the host),
     `registrable_domain` (only when the host is it), `vat_code`.
   - `profiles`: `ProfileUrl(platform, url)` from the lead's stored data (today its LinkedIn
     profile, `platform="linkedin"`, in the spelling `normalize_lead_linkedin_url` writes,
