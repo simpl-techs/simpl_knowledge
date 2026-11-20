@@ -69,7 +69,7 @@ def call_ai(prompt: str, user_id: str | None = None):
 - On Cloud Run, Vertex AI and Compute Engine, `configure_from_yaml()` runs `require_compute_tracking()`: a report on the cost-tracking channel when infra tracking is off or no session opens within 10 minutes. It never stops the process, and the deploy-time check in simpl_knowledge only warns.
 - Compute sessions that never close are closed as `timeout` by the DB sweeper and still count in reports. Do not write `infra_compute_session` rows yourself.
 - **A workload with a GPU passes `gpu_type` and `gpu_count`** (default 1) to `track_compute` or `track_instance_lifetime`, e.g. `@track_compute(process="training", gpu_type="nvidia-l4")`. The GPU is not detected: without `gpu_type` only CPU and memory are priced. GPU time is priced per GPU-second from `cost_tracking.infra_gpu_pricing` (per resource, region, `service_type` and `gpu_type`) and added to the session's `total_cost_usd`; the row keeps `gpu_type`, `gpu_count` and `gpu_cost_usd`. A GPU with no rate costs 0, the session is still recorded, and the missing rate is reported as `compute_tracking.gpu_unpriced`: add the rate as a row of `infra_gpu_pricing` in a simpl_tracker migration, do not price the GPU yourself. Rates in the table: `nvidia-l4` for Cloud Run jobs in `europe-west4` and for Compute Engine `job` and `spot_job` in `europe-west3` and `europe-west4`. Cloud Run jobs in `europe-west4` also have CPU and memory rates.
-- Reports take OpenAI, OpenRouter and DeepSeek from their bills on every provider-day loaded (`src/simpl_tracker/jobs/provider_bill_sync.py`): the difference to the ledger is a `provider_bill_difference` row with no repo or customer, so per-customer cost is what the ledger recorded. A call your code makes without a receipt shows up there, not under your repo. Every cost row is `production` or `development` (ran locally or in CI, or used a dev key: `cost_tracking.provider_account`, from Doppler by `scripts/sync_provider_accounts.py`); `cost_rollup` filters and groups by `environment`.
+- Reports take OpenAI, OpenRouter and DeepSeek from their bills on every provider-day loaded (`src/simpl_tracker/jobs/provider_bill_sync.py`): the difference to the ledger is a `provider_bill_difference` row with no repo or customer, so per-customer cost is what the ledger recorded. A call your code makes without a receipt shows up there, not under your repo. Every cost row is `production` or `development` (ran locally or in CI, or used a dev key: `cost_tracking.provider_account`, from Doppler by `scripts/sync_provider_accounts.py`); `cost_rollup` filters and groups by `environment`, and by `upstream_tag` (the gateway endpoint that served a call, `''` for none) and `cost_source` (`provider`, `pricing`, `unpriced`; `NULL` for infrastructure and provider-bill rows) too.
 - Reports take Google Cloud from its bill, not from sessions, on every day the billing export is loaded (`src/simpl_tracker/jobs/gcp_billing_sync.py`, every 10 hours). Sessions still matter: they split each billed resource across repos, processes and customers, and a resource with none is reported as unattributed. A session's `service_name` must be the name the bill gives the resource: the Cloud Run service, job or worker pool (auto-detected), or for `resource_name="compute_engine"` (a Batch job's VM) the VM's `projects/<project number>/instances/<name>`, which simpl_tracker reads from the metadata server; if it cannot, the session is recorded without it, a warning is logged and the VM's bill stays unattributed. A `vertex_ai` session has no `service_name` yet (the bill's name for a custom job is not known until one is billed), so Vertex AI's billed cost is reported but not split to repos and processes.
 - Notification failures must remain fail-safe; they should log but not block the workload.
 - Discord webhooks are raw URLs from env (`DISCORD_ERROR_WEBHOOK_URL`, `DISCORD_WARNING_WEBHOOK_URL`, `DISCORD_SUCCESS_WEBHOOK_URL`), interpolated in `tracker.yaml`. Do not load Prefect `DiscordWebhook` blocks. Cost-tracking gaps go to their own channel through `DISCORD_COST_TRACKING_WEBHOOK_URL`, read directly from the environment (not from `tracker.yaml`).
@@ -189,6 +189,48 @@ To attribute those receipts, run the agent inside an `LLMAccountingScope`.
 
 `billing_provider` is decided by the host that answers, never by the label in a
 config: a provider entry called "openai" pointed at a gateway bills the gateway.
+
+**A router names the attempt each request is made for.** Open
+`simpl_tracker.attempt_scope(routing_attempt_id=..., upstream_tag=...)` around one
+attempt's request or stream (`simpl_ia` does, per attempt; a caller that may run against
+an older simpl_tracker feature-detects it with `getattr`). Every receipt built inside
+(`CostRecordingModel`, the transport, an abandoned SDK retry, `transcribe_audio`)
+carries `routing_attempt_id` and `upstream_tag`, the gateway endpoint the attempt is
+pinned to as the price book tags it (OpenRouter's `deepinfra/fp8`; `None`, or `""`, when
+the gateway chooses). A receipt built outside carries neither; an inner scope replaces an
+outer one until it closes, and the scope follows the task like any ContextVar.
+`current_attempt()` returns the open one as an `AttemptContext(routing_attempt_id,
+upstream_tag)`, or `None`. The ledger stores both, and the context's `agent_run_id`, as
+indexed columns of `llm_request_receipt` (`NULL` when not a UUID), and prices a call
+without a billed amount at its tag's rows (see *OpenRouter's price book* below). Use a
+UUID string for `routing_attempt_id`: anything else is kept in the payload but not in
+the column.
+
+**Every cost entry names the run it was recorded in.** `service_cost_entry` keeps
+`pipeline_run_id` (text) and `node_run_id` (uuid) as indexed columns, and `agent_run_id`,
+`node_run_id` and `pipeline_run_id` at the top of `metadata`. Every recorder takes them
+from the open `LLMAccountingScope` (simpl_core's agent framework opens one per node run)
+unless the call names them: model receipts, `track_llm_call`, `track_data_provider` and
+`track_web_scraping` (so `@track_cost`, `@track_batch_cost` and `track_custom(...).record`
+too; each takes `agent_run_id=`, `node_run_id=`, `pipeline_run_id=`),
+`record_assemblyai_transcript` (`AssemblyAIRequest` fields of those names),
+`record_recall_bot` (keyword arguments of those names) and `record_sandbox_usage`. An id
+passed to the call wins, then one already at the top of the call's `metadata`, then the
+scope's. A `node_run_id` that is not a UUID is stored `NULL` in the column and kept in
+`metadata`; the entry still lands. A transcript keeps the run its row first named. Spend
+recorded outside every run has both columns `NULL`. A service may run this simpl_tracker
+before the routing migration (`20261117120000_routing_cost_tracking.sql`, see
+*OpenRouter's price book* below) is applied: an insert the ledger refuses for a column it lacks
+(PostgREST `PGRST204`, Postgres `42703`) is retried once without the two columns, so the
+entry lands with its ids only in `metadata`; an entry that still fails is not recorded
+and is reported (`cost_tracking.insert_failed`). The migration's step
+`cost_entry_run_ids` adds the columns and steps `cost_entry_pipeline_run_index` and
+`cost_entry_node_run_index` build their indexes `CONCURRENTLY`.
+`scripts/backfill_cost_entry_run_ids.py [--pages 200] [--from-page 0] [--pause 0.5]
+[--apply]` fills both columns on older entries from their `metadata`, a range of heap
+pages per call in physical order, pausing between calls and halving a batch that hits
+the statement timeout (dry run by default). simpl_tracker never reads agent-framework tables:
+pipeline, node and agent names are read through the ids by simpl_core.
 
 **Audio transcription is not covered by the transport.** It records chat,
 completions, responses and embeddings only; a transcription sends its model in a
@@ -333,15 +375,17 @@ fails to settle, missing credentials or a crashed run go to the cost-tracking ch
 through `report_tracking_gap`, and a dry run only prints them):
 
 ```bash
-doppler run --config dev -- python -m simpl_tracker.jobs.cheaper_inference_costs pricing --apply
+doppler run --config dev -- python -m simpl_tracker.jobs.cheaper_inference_costs pricing [--accept-jumps] --apply
 doppler run --config dev -- python -m simpl_tracker.jobs.cheaper_inference_costs settle --apply
 doppler run --config dev -- python -m simpl_tracker.jobs.cheaper_inference_costs settle --since 2026-09-01 --apply
 ```
 
-`pricing` syncs the gateway's ZDR catalog into `provider_pricing`: calls are estimated
-at those rates when recorded. The first sync opens every price from 2026-09-01, so
-calls recorded before it are estimated too; a moved price opens from the day of the
-sync and keeps the model's other pricing tiers.
+`pricing` syncs the gateway's ZDR catalog into `provider_pricing` (`source =
+'sync:cheaper_inference'`, `source_version` the model's catalog `pricing_version` when it
+lists one): calls are estimated at those rates when recorded. The first sync opens every
+price from 2026-09-01, so calls recorded before it are estimated too; a moved price opens
+from the day of the sync and keeps the model's other pricing tiers. A price jump is held
+back until it is accepted (see *Price rows* below); `--accept-jumps` accepts every one.
 
 `settle` brings the ledger to what the usage export says each request was billed, as
 OpenRouter's answers carry their amount: a receipt takes the billed amount, matched on
@@ -358,10 +402,221 @@ Every recorder names a Cheaper Inference request by `x-ci-request-id`: the trans
 for unwrapped and abandoned requests, and `CostRecordingModel` through the transport,
 whatever the client reports as the response id. The logic is in
 `simpl_tracker.cheaper_inference` (`plan_pricing`, `apply_pricing`, `read_bills`,
-`apply_settlement`, `reconcile`) for a scheduled job to call. Both commands need
+`apply_settlement`, `reconcile`) for a scheduled job to call; its price sync is built on
+`simpl_tracker.pricing`. Both commands need
 `CHEAPER_INFERENCE_API_KEY` (`usage:read` scope for `settle`), `SUPABASE_URL` and
 `SUPABASE_SERVICE_ROLE_KEY`; `settle` needs migration
 `20260923190000_cheaper_inference_settlement`.
+
+### OpenRouter's price book: what each upstream charges
+
+OpenRouter serves a model through several upstreams, each an endpoint with its own tag
+(`deepinfra/fp8`, `together`) and its own per-token prices. The price book keeps those
+prices in `provider_pricing` under provider `openrouter`, one row set per endpoint tag
+(`upstream_tag` = the tag), per 1M tokens like every synced rate, with `source =
+'sync:openrouter'` and the sync's UTC date as `source_version`. Routing reads them.
+The rows are keyed by the slug a request asks for, which an answer may not repeat (a
+dated snapshot id). OpenRouter's answers carry their billed amount; a call without one
+(a stream cancelled before its usage) whose receipt names a tag is priced, every
+component from one set of rows, never a mix, from the first that has a row open on the
+call's date:
+
+1. the receipt's `requested_model` under its tag;
+2. the receipt's `model` (the id the answer named) under its tag;
+3. the receipt's `model`'s model-level rows (`upstream_tag = ''`), as for a call
+   without a tag.
+
+`cost_tracking.priced_model` picks the model and `cost_tracking.priced_upstream_tag` the
+tag; `quote_llm_cost(..., p_upstream_tag)` and `calculate_llm_cost` (new last argument
+`p_upstream_tag`) apply steps 2 and 3 for the model they are given, and
+`materialize_llm_receipt` and `reprice_model_entries` (from an entry's
+`metadata.requested_model`) give them `priced_model`'s. `reprice_unpriced_llm_receipts`
+and `v_models_missing_pricing` count a call as priced when any of the three has a row.
+`get_unit_cost` still matches its `p_upstream_tag` (default `''`) exactly.
+
+```bash
+doppler run --config dev -- python -m simpl_tracker.jobs.openrouter_costs pricing [--model z-ai/glm-5.2 ...] [--accept-jumps] [--apply]
+```
+
+`pricing` reads `GET /api/v1/models/{model}/endpoints` (no key needed; `OPENROUTER_API_KEY`
+is sent when set) for every OpenRouter model with an open price row, every model the
+ledger saw requested in the last 30 days (`cost_tracking.llm_models_requested`) and every
+`--model`. The prompt, cache read, cache write and completion prices become
+`input_tokens/none`, `input_tokens/read`, `input_tokens/write` and `output_tokens/none`,
+each only when listed and parsable. A changed tag opens from the day of the sync and
+closes only that tag's rows (`replace_model_pricing(..., p_upstream_tag)`); an unchanged
+one is not rewritten. A model whose endpoints cannot be read keeps its last prices and is
+reported through `report_tracking_gap` (with `--apply`); a model OpenRouter does not list
+and that has no upstream price is only printed. A price jump, a new endpoint or component priced at 0
+included, is held back until it is accepted (see *Price rows* below). Dry run by default,
+always exits 0. It needs `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and the routing
+migration, applied before deploying 0.8.31 (every price sync writes `source`; with
+`--apply`, both pricing jobs and the price calibration job call `sight_price_holds`,
+`price_hold_calibration`, `refuse_price_hold` and `accept_price_hold`).
+
+**The routing migration.** `migrations/20261117120000_routing_cost_tracking.sql` holds
+every schema change of the routing and cost work in 16 steps, each headed
+`-- Step N. <name>:` (`price_book_upstream_tag`, `receipt_routing_columns`,
+`receipt_agent_run_index`, `receipt_routing_attempt_index`, `price_row_sources`,
+`cost_entry_upstream_tag`, `cost_aggregate_tag_and_source`, `cost_aggregate_dedup_build`,
+`cost_aggregate_dedup_swap`, `price_calls_by_upstream_tag`, `cost_entry_run_ids`,
+`cost_entry_pipeline_run_index`, `cost_entry_node_run_index`, `failure_estimates`,
+`routing_prices_at_call_tier`, `price_holds`). Apply it with
+`psql -X -v ON_ERROR_STOP=1 -d <database> -f migrations/20261117120000_routing_cost_tracking.sql`,
+never through the SQL editor or `execute_sql`: five steps build an index `CONCURRENTLY`,
+which cannot run inside a transaction block, and the file uses psql's `\gset`, `\if` and
+`\gexec`. Every other step is its own short transaction (`BEGIN;` ... `COMMIT;`, with
+`SET LOCAL lock_timeout` where it locks a hot table). After a failure, run the whole file
+again from the top: every step can be applied again (created when missing, replaced, an
+INVALID index dropped and built again, a definition a later step replaces skipped once
+that step has run).
+
+`cost_tracking.llm_token_prices` is the read for routing: one row per `provider`,
+`model` and `upstream_tag` with a token price open today at the provider's current tier,
+columns `input_usd_per_token`, `cache_read_usd_per_token`, `cache_write_usd_per_token`,
+`output_usd_per_token` (NULL when that component has no row), `effective_from` (when
+the newest of them opened) and `pricing_tier`; `upstream_tag = ''` is the model-level
+price. The tier is `resolve_pricing_tier(provider, 'standard', now())`: `peak` or
+`off_peak` for a provider with peak windows (DeepSeek, its off-peak days included),
+`standard` for every other, so a row is what `quote_llm_cost` charges a call made now; a
+DeepSeek model with standard rows only is not listed. `SELECT` for `authenticated` and
+`service_role` (the routing migration's step `routing_prices_at_call_tier` adds the tier
+and lets `authenticated` read `provider_offpeak_day`, which the tier reads). The sync logic is `simpl_tracker.pricing`: a
+`PriceSource` (`provider`, `source`, `read_prices(open_rows) -> PriceRead`),
+`plan_prices` and `apply_prices` shared with Cheaper Inference, and
+`OpenRouterPriceSource`.
+
+### Price rows: source, price jumps and calibration
+
+`provider_pricing.source` says where a price came from: `sync:openrouter`,
+`sync:cheaper_inference` or `manual`; `source_version` is the source's name for its
+listing. `replace_model_pricing(p_provider_name, p_model, p_effective_from, p_rows,
+p_close_current, p_upstream_tag, p_source, p_source_version)` takes both, `manual` and
+`NULL` by default: a price entered by hand (the dashboard's Pricing tab) is `manual`.
+
+**Price jumps.** `plan_prices(..., source=...)` holds back a set whose standard rate
+moves by more than 50% of the open one either way, drops to 0 or leaves 0, and a set
+with a component at 0 that its open rows have no standard rate for (a new set's, or
+one an existing set gains; detail `unit_type/cache_mode first price 0`), all through
+`price_jumps`: it goes to `PricingPlan.held_back` (`HeldBackChange`, reason
+`price_jump`, the components in `detail`) instead of `changes`. A first price above 0
+is never a jump.
+
+**Price holds.** A held-back set reaches `provider_pricing` only once accepted, through
+`cost_tracking.price_hold` (`service_role` only; one open row per provider, model and
+tag, `uq_price_hold_open`): `price_rows` (the standard rows listed, `hold_rows`),
+`source`, `source_version`, `detail`, `first_seen_at`, `last_seen_at`, `sightings`,
+`refused_at`, `refusal`, `resolved_at`, `resolution` and `evidence`. With `--apply` each
+pricing job calls `keep_price_holds(backend, provider, plan, unread=..., accept_jumps=...,
+today=...)`, which records the run with one `sight_price_holds(p_provider, p_held,
+p_unread)` call: a set held back at the same rows counts a sighting (and keeps its
+refusal), a new set or new rows open a hold at 1 (the old one `withdrawn`), and every
+other open hold of the provider is `withdrawn` unless its model is in `unread` (the
+models the run could not read). With `--accept-jumps` every held set is accepted
+(`accepted_by_hand`). Otherwise each is judged on its calls billed yesterday and today
+(UTC) since it was first seen, `price_hold_calibration(since, today)`:
+`calibration_in_line` (within `GAP_LIMIT`, 5%, on at least `MIN_CALLS`, 20) accepts it
+(`accepted_calibration`, the row as evidence); `calibration_refuses` (more than 5% off
+on at least 20 calls, or billed above 0 at a quote of 0, on any number of calls)
+records `refuse_price_hold(p_hold, p_evidence)` and it stays held. With too few calls to
+judge, a set at `SIGHTINGS_TO_ACCEPT` (3) sightings is accepted (`accepted_sightings`)
+unless its hold was refused or it sets a standard component to 0 from a price or from no
+rate (`zero_moves`): those wait for calibration or `--accept-jumps`. The returned plan
+has the accepted ones in `PricingPlan.accepted` (`AcceptedChange`: change, hold id,
+resolution, evidence), the rest in `held_back` with their `sightings` and `refusal`
+(`hold_status` words it). `apply_prices` opens `changes` with `replace_model_pricing`
+and each accepted change with `accept_price_hold(p_hold, p_effective_from, p_carried,
+p_resolution, p_evidence)`, which opens the hold's rows plus the set's other tiers
+(`p_carried`) under the hold's source and version and resolves the hold, in one
+transaction. `report_price_jumps(provider, plan)` posts the sets still held through
+`report_tracking_gap`: the refused ones in one alert (`pricing.price_refused`), the
+others in another (`pricing.price_jump`). When `keep_price_holds` raises (a missing
+migration, the schema cache, a timeout), the job adds `price_holds_failed(plan, error)`
+to its problems, accepts no jump, and `apply_prices` still opens the plan's other
+changes; the run's alert says a price it did not write keeps its last value.
+
+**Calibration.** `cost_tracking.price_calibration` holds, per UTC `day`, `provider`, and
+the `model` and `upstream_tag` the book priced the calls under (the rules above, so a
+dated answer counts under the requested slug's tag), the answered calls recorded at a
+billed amount that the book can quote at their time and tag: `calls`, `billed_usd`, `quoted_usd` and `gap =
+(billed - quoted) / quoted` (NULL when the quote is 0), with `computed_at`; `SELECT` for
+`authenticated` and `service_role`. `calibrate_llm_prices(day)` replaces a day's rows and
+returns them; `quote_price_calibration(day)` returns them without writing.
+
+```bash
+doppler run --config dev -- python -m simpl_tracker.jobs.price_calibration [--day 2026-11-16] [--apply]
+```
+
+The job (yesterday UTC by default) prints every row; with `--apply` it stores them and
+posts the rows whose gap is above 5% either way on at least 20 calls in one alert
+(`pricing.calibration_gap`). It then judges every open price hold:
+`price_hold_calibration(p_day, p_through)` gives, per hold, the `billed_llm_calls` of
+`p_day` through `p_through` (`p_day` alone when NULL) with the hold's tag whose model
+or requested model is the hold's, made since the hold was first seen, quoted at the held
+rows (`quote_held_price`): `calls`, `billed_usd`, `quoted_usd`, `gap` (0 when both are 0,
+NULL when only the quote is). `judge_held_prices` refuses, with `--apply`, each hold
+`calibration_refuses` (`refuse_price_hold`, the row as refusal; posted in one alert,
+`pricing.price_refused`) and accepts each hold `calibration_in_line`
+(`accept_price_hold`, `accepted_calibration`, the row as evidence), opening from today
+over the provider's open rows (`held_change`); one with too few calls, or whose set the
+book already prices so, or whose rows opened today, is left. Dry run by default, always
+exits 0. simpl_flow's
+`cost_tracking_flow` runs it with `--apply` after the settlements, which fill the bills
+it compares with.
+
+### Estimated costs of failed calls
+
+Off by default. `cost_tracking.settings` (one row, `id` always true) holds
+`failure_estimates`, `updated_at` and `updated_by`; `set_failure_estimates(p_on boolean,
+p_by text) RETURNS cost_tracking.settings` sets it. The table, `cost_estimate` and every
+estimate function are `service_role`'s alone: a dashboard reads them through its server
+with the service-role key, never with a user's session.
+
+While it is on, `estimate_failed_receipts(p_since timestamptz DEFAULT now() - interval
+'21 days') RETURNS integer` (pg_cron `failure_estimates_daily`, 04:15 UTC) upserts into
+`cost_tracking.cost_estimate` one row per receipt made since `p_since` that failed
+(`failed`, `interrupted`, `abandoned`) with neither a billed amount nor a ledger amount:
+`receipt_id` (= the receipt's and its ledger entry's id), `created_at` (the call's time),
+`provider`, `model` (requested), `upstream_tag`, `process_name` (the agent id),
+`agent_run_id`, `pipeline_run_id`, `node_run_id`, `estimated_usd`, `p_billed` (0 or 1),
+`input_tokens`, `output_tokens`, `basis` (jsonb: `p_billed_reason`, `p_billed_rule`,
+`input_tokens_source`, `output_tokens_source`, sample sizes, `priced_upstream_tag`,
+per-token prices, `quote_usd`, the sample window), `replaced_at`, `computed_at`. While the
+switch is off it returns 0 and writes nothing. The rule is in the README (*Estimated
+costs of failed calls*).
+
+P(billed) is 0 for a `failed` call the provider did not name: its receipt cannot tell a
+refusal from a call accepted and then lost after the caller's timeout, so the latter is
+under-estimated (`basis.p_billed_rule`).
+
+**Which estimates count:** `estimate_counts(p_receipt_id uuid) RETURNS boolean` is the one
+rule. True when the receipt's estimate exists, `replaced_at IS NULL`, and its provider-day
+(provider and UTC day of `created_at`) has no row in `provider_billing_load`: a loaded
+provider-day's total is the provider's bill, which already holds the failed calls. It is
+decided at read time, so a bill loaded later stops the estimate counting. Any reader that
+adds estimates to an amount filters with it. `replaced_at` is set by
+`materialize_llm_receipt` (a bill or a book price) and `settle_llm_receipts` (a late bill)
+when the receipt gets an amount, and by the estimator on any it finds with one. A reader
+adds estimates to a total only when asked, and never to alerts, the provider
+reconciliation's own measure or anything billed to customers:
+
+- `cost_rollup(p_from, p_to, p_filters, p_dimensions, p_include_estimates boolean DEFAULT
+  false)`: with the flag, every group also has `estimated_cost_usd` (the counting
+  estimates) and its `total_cost_usd` includes it; an estimate takes its failed call's
+  ledger entry's dimensions, else only its own (provider, model, tag, process, day).
+  Without it, the result is unchanged.
+- `reconciliation_with_estimates(p_from date, p_to date) RETURNS TABLE (provider text,
+  ledger_usd numeric, estimated_usd numeric, invoice_usd numeric)`: per provider with a
+  loaded bill or a counting estimate, over the whole window: the ledger every day, the
+  estimates only on provider-days without a loaded bill, the invoice on the days its bill
+  is loaded (NULL for a provider with none).
+- `backtest_failure_estimates(p_from date, p_to date) RETURNS TABLE (receipts integer,
+  median_rel_error numeric, p90_rel_error numeric)`: the estimate against the amount of
+  abandoned receipts that have one, with their own tokens hidden.
+- `quote_failure_estimates(p_from timestamptz, p_to timestamptz, p_backtest boolean
+  DEFAULT false)`: the estimates of a window, computed without writing.
+
+All of these are `service_role` only.
 
 ## What this library does NOT do
 
@@ -382,6 +637,9 @@ critical path. Pass the provider's complete response for extraction; the stored
 receipt excludes audio, text, prompts and credentials. `transcript=None` records a
 pending request; the same request can be completed/replayed without double counting.
 `assemblyai_account_key(api_key)` supplies the non-secret account fingerprint.
+The run the request was made in comes from the open `LLMAccountingScope` unless
+`AssemblyAIRequest` names it (`agent_run_id`, `node_run_id`, `pipeline_run_id`); the
+completion keeps the run the submission was recorded in.
 The backend can recover pending requests with
 `pending_speech_receipts(repo, process, account)` (up to 100 at a time).
 Apply migration `20261001130439_assemblyai_speech_receipts.sql` first.
@@ -394,7 +652,9 @@ rate is inferred before the effective date.
 ## Recall.ai meeting bots
 
 `simpl_tracker.recall.record_recall_bot(tracker, bot, repo_name=..., process_name=...,
-user_id=..., customer_id=...)` records one ledger row per finished bot. Every quantity
+user_id=..., customer_id=...)` records one ledger row per finished bot, tagged with the
+run of the open `LLMAccountingScope` unless `agent_run_id=`, `node_run_id=` or
+`pipeline_run_id=` name it (they sit at the top of `metadata`). Every quantity
 comes from the bot JSON Recall returns (`GET /bot/{id}/`), never from our config.
 Components, priced in `provider_pricing` (provider `recall_ai`, service
 `meeting_recording`):
@@ -439,7 +699,8 @@ missing when the sandbox did not stop cleanly: pass None), `stoppedAt` and
 - The tracker defaults to the global one. Attribution not passed comes from the active
   `LLMAccountingScope` and lands where it does on LLM rows: `sub_process`, `channel`,
   `company_id`, `batch_id` and `ulc_id` are columns, and `agent_run_id`, `node_run_id` and
-  `pipeline_run_id` sit at the top of `metadata`. No process: `unattributed_sandbox`.
+  `pipeline_run_id` sit at the top of `metadata` (the last two are columns too). No
+  process: `unattributed_sandbox`.
 - Components: `active_cpu:<region>` (vCPU-seconds), `provisioned_memory:<region>`
   (GB-seconds, at least 60 s per sandbox on Vercel) and `creation`. Migration
   `20261102120000_sandbox_compute_usage.sql` seeds fra1 ($0.184/CPU-h, $0.0304/GB-h) and iad1
