@@ -5440,7 +5440,13 @@ webhooks; transport lives in simpl_ingestion) into leads owned by the right sell
   profile's is reported as `IngestionResolution.twin_lead_id` (no merge), unless the
   customer worked the profile's lead first
   (`UserLeadConnectionRepository.customer_first_connected_at(customer_id=…, lead_id=…)`):
-  then the profile's lead keeps the signal and the address's is the twin. A meeting fact
+  then the profile's lead keeps the signal and the address's is the twin. When nothing
+  matched (a profile no lead holds, the address's lead storing another one), the lead the
+  person gave this customer's inbound that address for still takes the signal
+  (`LeadContactRepository.leads_given_address(customer_id=…, address=…, source=…) ->
+  list[UUID]`, private rows of `source` for the customer's users, first given first;
+  `LeadMatch.EMAIL`): a profile link corrected between two signals is no second lead. A
+  team's mailbox (`is_role_address`) keeps dedup's answer. A meeting fact
   (`calendar_booking`, `call_recording`) about somebody no seat holds is first looked for
   among the leads the customer's active seats work at the company the signal places them
   at or on their work domain's site
