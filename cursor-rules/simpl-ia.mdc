@@ -90,7 +90,9 @@ result = await client.run(agent=agent, user_prompt="...")
 Providers: `openai`, `deepseek`, `openrouter` (models are `vendor/model` slugs),
 `cheaper_inference` (Cheaper Inference's gateway; bare model ids such as
 `glm-5.3-flash`, a slug is refused; the endpoint defaults to
-`https://api.cheaperinference.com/v1`, so a binding needs only the key),
+`https://api.cheaperinference.com/v1`, so a binding needs only the key; every request
+body carries `"ranking": "balance"`, the gateway's seller ranking, and no
+`min_discount_percent`),
 `self_hosted` (an OpenAI-compatible server you run, such as llama.cpp or vLLM:
 the target must name its `base_url`, needs no key, structured output is native,
 and no cost receipt is written, since no provider bills it),
@@ -100,7 +102,11 @@ target's `api` is the API its model speaks there: `chat` (the default) or
 `client.selected_target_metadata(result)`
 reports which chain member answered (`model`, `provider`, `api`, `reasoning`,
 `fallback_index`) and the name it answered under (`served_model`); `api` tells a
-decision model's answer from a language model's. With an
+decision model's answer from a language model's. For a target naming a canonical model
+(below), `model` and `provider` are the member that answered (the provider's own name)
+and `canonical` the model's name; `canonical` is `None` otherwise. For a target naming a
+bucket (below), `canonical` is the tier's model that answered, and `bucket` and `tier` (from
+0) name the bucket and the tier; both are `None` otherwise. With an
 `attempt_log` passed to `make_agent`, the member is credited by chain position,
 so a provider renaming what it serves is logged instead of failing the call.
 
@@ -111,7 +117,8 @@ model takes none. Every model in the chain sends the call's `extra_body`, so eve
 must be `self_hosted`: `make_agent` raises `ValueError` naming each one that is not.
 `make_agent(system_prompt=None)` sends no system message, for a
 model whose prompt format has no place for one; `run(..., max_tokens=...)` caps the
-answer of every model in the chain.
+answer of every model in the chain (a target with its own `max_output_tokens` is sent
+the smaller of the two).
 
 ```python
 policy = ModelPolicy(
@@ -161,11 +168,199 @@ Build every agent that runs on a policy through `make_agent`, including a plain-
 one (`output_type=str`): constructing `Agent(...)` by hand reads the model some other
 way than the policy does. Every chain falls back on errors and on a response cut off
 at its output limit before it answered (a thinking model that spent its whole budget
-reasoning); a cut-off on the last member raises `FallbackExceptionGroup`. A text-only
+reasoning); a cut-off on the last member raises `FallbackExceptionGroup`. It falls back
+too on any answer cut off at its target's own output cap (below). A text-only
 agent's chain falls back on nothing else; any spec with a schema to fail (a model,
 `list[Model]`, a union, a `ToolOutput`, `[str, Model]`) keeps the invalid-output guard,
 which validates answers exactly as pydantic-ai does for that spec, with the agent's
-`validation_context`.
+`validation_context`, whenever a member answers in prompted or tool mode.
+
+**Each model in the chain has one attempt budget per agent run**: the target's
+`max_invalid_responses`, else the policy's, else `retries + 1` (**4** with
+`make_agent`'s default `retries=3`: one attempt and three corrective retries). Every failed attempt on the
+model spends it, across every request of the run (tool turns and corrective retries
+included): an error or timeout of a sent request, a rejected answer (cut off, or
+invalid with no retry left), and an invalid answer handed back for a corrective retry.
+A pinned upstream (one an internal, canonical or bucket target sends to, or a closed
+list split by the timeout skip) that failed in the run is not sent again in it, so the
+next turn starts where the last one answered. A target the gateway routes itself (pinned
+to no upstream) is never marked failed: every request of the run walks the chain from
+its first target again, as long as the target's budget lasts. **Each model also has a
+time share per run** of `TIME_SHARE_DEADLINES` (**2**) × its attempt deadline (below):
+the wall-clock time of its failed attempts (errors, timeouts, rejected answers and
+corrective retries; never an answer it kept), each counted up to one deadline, plus one
+more deadline must fit in the share before another attempt is sent. A first attempt that
+times out leaves room for a second; once more than one deadline is wasted the model
+refuses, so it never wastes more than two deadlines; fast failures still spend the whole
+attempt budget. A model with no attempt deadline has no time share. Once a model's
+budget or time share is spent, or every pinned upstream it may use failed, its requests
+are refused without being sent
+(`simpl_ia.agents.attempt_budget.AttemptBudgetSpent`, a `ModelAPIError`, whose message
+says which: `attempt budget of N spent`, `time share of S s spent`, `every upstream
+failed in this run`) and the chain moves on; the last model refuses too, and the call
+then fails as when its budget is spent. Nothing is spent by a timeout-skip refusal or an
+HTTP 404 (a 404 still keeps a pinned upstream out of the run). An invalid answer is
+handed back for a corrective retry only when the retry still fits the time share, and is
+also rejected once `make_agent(retries=...)` corrective retries were made in the run,
+since pydantic-ai would raise instead of asking again.
+**What reaches the caller is what pydantic-ai raised before**: when the last model, or
+a model alone, answers invalidly with no retry left, the call raises
+`OutputBudgetSpent`, an `UnexpectedModelBehavior` with pydantic-ai's message
+(`Exceeded maximum output retries (N)`), never wrapped in a `FallbackExceptionGroup`;
+when the budget runs out on errors or timeouts, the call raises those errors (a single
+one, or the chain's `FallbackExceptionGroup`). Each `agent.run` starts with every
+budget whole, so `run`'s truncate-and-retry and temperature retry are sent normally.
+
+**Each target has its own attempt deadline and output cap.** `attempt_timeout_seconds`
+on a target is the wall-clock deadline of each attempt on it (a request, or a stream's
+open), else the policy's (the primary's), else `make_agent(attempt_timeout_seconds=)`;
+with none of the three the target's attempts are unbounded. `max_output_tokens` on a
+target, else the policy's, is sent as `max_tokens` on that target's requests only; there
+is no default cap. When the run also passes `max_tokens`, the smaller is sent. Every
+upstream of an internal target shares the target's values. An answer of a capped target
+that ends on `finish_reason="length"` is a failed attempt whatever it holds: its trail
+entry is `rejected` with `error_class` `InvalidOutput` and `error_message` `output cut
+off at its cap of N tokens (finish_reason=length)`, it spends the target's budget and
+the chain moves on (next upstream, next target). On the last model, or a model alone, it
+raises `simpl_ia.agents.output_cap.OutputTruncated`, an `UnexpectedModelBehavior`. A
+target with no cap of its own is judged as before: a cut-off answer with text in it is
+taken as an answer. Streams the caller reads are sent the cap but never judged (the
+chain judges no such stream); a request the client streams internally (below) is judged
+as a request. A caller bounding the whole call takes its ceiling from
+`simpl_ia.agents.structured.chain_call_ceiling_seconds(targets,
+attempt_timeout_seconds=<the agent's>, retries=3)`: 1.1 × the sum over targets of
+min(budget, 2) × deadline, each target's time share, which no target can overrun, so
+every target after it keeps its turn (264 s for one target at 120 s, 528 s for two,
+1,056 s for four).
+
+**Each stream is watched before it is handed over; a request can be hedged.** All three
+settings sit on a target, else the policy (the primary); none has a default that changes
+a call on its own except the statistics-derived first-token deadline on streams.
+
+- `ttft_deadline_seconds`: how long a stream may go without its first chunk, from the
+  request (the open included); unset, twice the offering's p95 time to first chunk for the
+  agent (`OfferingStats.ttft_p95_ms`, below), and at least
+  `FIRST_TOKEN_DEADLINE_FLOOR_SECONDS` (**20 s**), when the source measured one
+  (`structured.first_token_deadline_for`), else none. A value you set is used as written,
+  below the floor too. A stream with no first chunk by then
+  ends with `simpl_ia.agents.watchdog.FirstTokenTimeout` (a `ModelAttemptTimeout`): its
+  trail entry is `raised`, `error_class` `FirstTokenTimeout`, `timed_out: true`,
+  `health_class` `timeout`; the timeout skip counts it; the chain moves on.
+- `max_reasoning_tokens`: the reasoning a stream may produce before its answer starts
+  (thinking characters / 4, or the reasoning tokens the usage reports, whichever is
+  larger). Past it the stream is aborted with
+  `simpl_ia.agents.output_cap.ReasoningTruncated` (an `OutputTruncated`): its entry is
+  `rejected`, `error_class` `InvalidOutput`, `error_message` `reasoning passed its budget
+  of N tokens before any answer (aborted)`, `health_class` `invalid`; the chain moves on,
+  and on the last model, or a model alone, the caller gets it as an `OutputTruncated`.
+  While a stream reasons within budget its events are held back and handed over, in
+  order, once the answer starts. Reasoning after that is not counted.
+- Either one set (on the target or the policy) also makes the client **stream the
+  target's requests internally** (`structured.streams_requests`): each `run` request is
+  sent as a stream and the response built from it, so the watch applies; its entries are
+  `streamed`, with `latency_ms` the time to first chunk. Its attempt deadline still
+  bounds it whole, as it bounds a request.
+- `hedge: true` (off by default): for an agent with no tools, a request whose first
+  upstream has no first chunk by its offering's p95 time to first chunk for the agent also
+  goes to the next upstream of the same target, in order, whose offering is marked
+  `cancel_stops_billing: true` (the first must be marked too, and its p95 measured; no
+  statistics, no hedge). Both are streamed; the first to produce a chunk is read to its
+  end and judged, the other is cancelled. Both entries carry `hedge`: `won` for the kept
+  attempt, `lost` for the other (`outcome: cancelled`, or `raised` when it failed). Each
+  spends one attempt of the target's budget (the kept one unless judging it spent one);
+  a hedge is sent only when the budget has room for both. When the kept attempt fails or
+  its answer is rejected, the request goes on to the target's next upstreams as usual. At
+  most one hedge per agent run and target. Only internal, canonical and bucket targets
+  ranked from an offering source hedge.
+
+Pass `make_agent(..., route_log=[])` to have one JSON-serialisable entry appended per
+chain target when the chain is built: `fallback_index`, `provider`, `api`, `model`,
+`canonical` (the canonical model a target names, `null` for a target naming a provider),
+`routing` (`internal` or `gateway`), `budget`, `attempt_timeout_seconds` and
+`max_output_tokens` (as resolved for the target, `null` when unbounded or uncapped),
+`token_mix` (`{input_tokens,
+output_tokens, samples}` or `null`), `ranking` (an internal target's mode, `price` or
+`effective`; `null` on any other target), `exploration` (`{explored, propensity, chosen}`
+when the effective order was sent without an epoch, else `null`), `family` (the call's
+prompt family key, `null` without an agent name), `epoch` (`{start, upstream, decision}`
+when the family's epoch ordered the target, below, else `null`), `canary` (`{trial,
+chosen, propensity, control}` while a canary runs for the agent on the target's model, below, else
+`null`), `candidates` in the
+order they are tried (`provider`, `model` (the provider's own name), `upstream`, 1-based
+`rank` in the price order, `est_cost_usd`, `price_source`
+`book`/`listing`, `quantization`, `zdr`, `status`, and from the effective ranking
+`effective_rank` (`null` when a constraint left the upstream out), `cost_per_answer_usd`,
+`latency_s`, `p_bad`, then `deadline_s`, the attempt deadline the upstream is sent with)
+and `excluded` (`provider`, `model`, `upstream`, `reason`: `zdr`, `quantization`,
+`not_listed`, `ignored`,
+`missing_parameter:<name>`, `price_above_max`, then `health_open` (canonical and bucket
+targets, below), then `precision_excluded:<precision>` (below), then
+`not_capable:<capability>` and `not_certified:<capability>` (below), then `blamed` (an
+upstream tried last because the agent is blamed for its failures there, always
+`shadow: true`, below), then the constraint codes below; an
+upstream left out by a precision policy, a capability, open health or a constraint that
+is still sent carries `shadow: true`). A target sent
+through one unpinned member (a plain provider, a gateway target without a closed list)
+has neither; a closed list taken as written lists its upstreams in that order with `null`
+for everything it does not know but `deadline_s`. Every entry also carries `bucket` and
+`tier` (the bucket and the tier's index, from 0, on a bucket's tier; `null` otherwise) and
+`models` (`null` but on a bucket's tier). A bucket tier's entry has `provider`, `model`,
+`canonical`, `token_mix`, `attempt_timeout_seconds` and `max_output_tokens` `null`, its
+`budget` is the sum of its models' budgets, and `models` lists each model of the tier
+(`canonical`, `budget`, `attempt_timeout_seconds`, `max_output_tokens`, `invalid_rate`,
+`token_mix`); its candidates and exclusions each carry `canonical`, the model they serve,
+beside `model`, the provider's own name. simpl_core records it with the attempt trail as
+the call's routing decision.
+
+Every entry of the `attempt_log` carries `attempt_id`, a uuid4 string minted as its
+request starts. The request (a stream from its open to its close) runs inside
+simpl_tracker's `llm_accounting.attempt_scope` with that id and the upstream the member
+is pinned to (`None` when unpinned), so the cost receipt of the request carries
+`routing_attempt_id` and `upstream_tag`: simpl_core stores the id as the attempt's
+`attempt_key`, and simpl_tracker prices the receipt at the upstream's rate. A
+simpl_tracker without `attempt_scope` records its receipts as before. Without an
+`attempt_log` there is no entry and no scope. Every entry also carries `family` (the
+call's prompt family key, `null` without an agent name) and `prefix_fingerprint`: hashes
+of the prefix the request sent (its tool definitions, then its instructions and system
+prompt), cumulative at each 4,000-character block (about 1,000 tokens), at most 8 of 16
+hex characters, empty for a prefix under one block
+(`simpl_ia.agents.affinity.prefix_fingerprint`); two requests share their leading hashes
+exactly as far as their leading blocks match. An answer from Cheaper Inference carries
+`cache_affinity`, the gateway's `x-ci-prompt-cache-affinity` (`hit`, `miss`, `new`,
+`stale`). Every entry carries `capabilities`, the sorted capabilities the member needed
+for the request (`simpl_ia.agents.structured.needed_capabilities(target, output_mode=,
+tools_present=, reasoning=None)`): `tools` for function tools or tool output,
+`structured_output.native`, `.tool` or `.prompted` for the mode a structured answer
+resolves to (none for free text), `reasoning` when the target sets a reasoning level. An
+accepted answer is evidence the upstream that served it has them; a `capability` error,
+that it lacks one. `CompletionClient` entries carry `capabilities: []`. In a call a
+running canary drew (below), every entry of that target's members carries `canary_trial`,
+the canary's trial id; no other entry has the key.
+
+Every closed entry also carries `health_class`, what the attempt says of its offering
+(`simpl_ia.agents.health.classify_attempt(entry)`, a pure function you can run over a
+stored trail): `answered` (a decision model's hand-off included); `invalid` (rejected as
+`InvalidOutput`, cut off, truncated or past its reasoning budget included, handed back for
+a corrective retry, or a reply the client could not read); `timeout` (the attempt
+deadline, the first-token deadline, an HTTP client timeout, `TimeoutError`, HTTP 408);
+`server` (HTTP 5xx, 429 and any other status not listed, connection errors, any other
+error); `capability` (HTTP 400, 404, 422 that is not `context`); `context` (HTTP 413, or
+HTTP 400 or 422 whose message names the context window: `maximum context length`,
+`context_length_exceeded`, `context window`, `prompt is too long`, `too many tokens`,
+`reduce the length`, matched in any case; and `ContextWindowExceeded`: the request is too
+long for the model, which says nothing of the offering, so simpl_core's sink counts it
+toward no health and marks no capability); `cancelled`; `null` for a refusal that sent nothing (`TargetTimeoutSkip`, an adopted
+pause, `AttemptBudgetSpent`). A raised entry carries `http_status` when its error names
+one and `timed_out: true` for a timeout. Install a `HealthSink`
+(`simpl_ia.agents.health.install_health_sink`; simpl_core installs one that writes the
+routing tables) and every classified attempt of every chain built with an `attempt_log`
+is handed to its `record(outcome, settings)`: a `HealthOutcome(provider, api, model,
+upstream, agent, health_class, latency_ms, at)` (`upstream` and `agent` are `""` when
+there is none; `at` is when the attempt closed, seconds since the epoch) and the member's
+`HealthSettings`. A failure is handed over at once, an answer once the event-loop step
+that returned it is done (the chain may still reject it in that step). The sink is
+called synchronously and must never block or raise. `CompletionClient` entries carry
+`health_class` too but are not reported.
 
 ### Plain completions on a self-hosted model
 
@@ -368,31 +563,321 @@ It differs from `run` in what it refuses to do, not in what it resolves:
   segment closes without finishing (error, filtered, incomplete) — *before* the
   SDK runs the tools that segment asked for. Pass the same `attempt_log` you gave
   `make_agent` so the refused segment's trail entry is corrected.
-- **The per-attempt bound covers the open only.** `make_agent(...,
-  attempt_timeout_seconds=)` wraps each chain member in `AttemptDeadline`; on a
+- **The per-attempt bound covers the open only.** A target's resolved deadline (its
+  `attempt_timeout_seconds`, the policy's, then `make_agent(...,
+  attempt_timeout_seconds=)`) wraps each of its members in `AttemptDeadline`; on a
   stream it bounds opening the stream, so a target that never starts raises and
   the chain advances. Once chunks flow, that clock is off. A target that goes
   quiet mid-stream is ended by the HTTP per-read timeout or by *your* ceiling over
   the whole turn — nothing infers a stall from silence.
 - **A target that keeps timing out is skipped.** A chain member stops sending to a
-  target that reached `AI_TIMEOUT_SKIP_THRESHOLD` timeouts (default 5) in the window
-  (default 300 s) and timed out more often than it responded. Each host may set its
-  own values; a threshold of `0` turns the skip off. The member raises
+  target that reached its threshold of timeouts (default 5) in the window (default
+  300 s) and timed out more often than it responded. The member raises
   `TargetTimeoutSkip` before sending, so the chain moves on with no wait and nothing
   is billed; the trail shows `raised` with that `error_class`. After the cooldown
-  (default 300 s) one call at a time tries the target again. A chain's last member
-  never refuses. Counts live in the process, so a short-lived run starts with none.
-- **A closed list of OpenRouter upstreams is tried one upstream at a time.** When a
-  target's `provider_routing` closes its list (`only`, or `order` with
-  `allow_fallbacks: false`) and names two or more upstreams, each request is pinned
-  to one of them (`only: [name]`), in the written order. A request that fails with a
-  provider error moves to the next upstream, for at most the target's
-  `max_invalid_responses` requests (else the policy's, else `retries + 1`), then the
-  chain moves to its next member. Each upstream is counted and skipped on its own,
-  so one stalled upstream is passed over while the others keep serving the model.
-  Every attempt keeps the target's `fallback_index` and carries the pinned name as
-  `upstream` in the trail. With the skip off (`AI_TIMEOUT_SKIP_THRESHOLD=0`) the
-  list is sent to OpenRouter whole.
+  (default 300 s, for every member) one call at a time tries it again. A chain's last
+  member never refuses. Counts live in the process, keyed by provider, API, model,
+  pinned upstream and agent (`make_agent(agent_name=...)`), so every policy of the same
+  agent naming the same model and upstream adds to one count; chains built without an
+  agent name share one count; a short-lived run starts with none.
+- **Each policy sets its own skip values.** `timeout_skip: {threshold, window_seconds,
+  cooldown_seconds}` on a target, else on the policy (the primary's), else the host's
+  `AI_TIMEOUT_SKIP_*` variables, else the defaults in `simpl_ia.agents.structured`. A
+  threshold of `0` turns the skip off for that target. A skip stays in the process that
+  started it; its timeouts reach other processes as health outcomes (below).
+- **`routing: internal` lets simpl_ia pick an OpenRouter target's upstream.** Each
+  request is pinned to one upstream (`only: [tag]`, the target's other routing fields
+  kept). A request that fails with an error the chain falls back on (a provider
+  error, or a body that is not a usable completion such as invalid JSON), or whose
+  response the chain rejects (cut off before answering, or invalid with no retry
+  left), moves to the next upstream while the model's attempt budget (above) lasts,
+  then the chain moves to its next member. Every attempt keeps the
+  target's `fallback_index` and carries the pinned tag as `upstream` in the trail.
+  The candidates come from the process's offering source
+  (`simpl_ia.agents.routing_table.install_offering_source`; simpl_core installs its
+  routing table there): every offering of the model that passes the target's `zdr`,
+  `quantizations`, `only`, `ignore`, closed `order` and `max_price` (prompt and
+  completion), and that accepts the parameters the request needs, when the offering
+  lists its parameters: `tools` for function tools or tool output, `reasoning`, and
+  `response_format` when the request resolves to native structured output, as
+  `output_mode: auto` does on most OpenRouter models. The candidates are **ranked by
+  estimated cost per call**: prompt price × the agent's input tokens + completion price
+  × its output tokens, from the source's `token_mix(agent, provider, model)` (a
+  `TokenMix(input_tokens, output_tokens, samples)`), or 3 input tokens per output token
+  when it has none; unpriced offerings come after priced ones, and degraded ones (the
+  gateway's negative `status`, or `health: degraded`) after everything in service. A closed list (`only`, or `order` with `allow_fallbacks:
+  false`) is the candidate set, ranked, not walked in its written order; an open
+  `order` keeps the upstreams it names first, ranked among themselves, then ranks the
+  rest. The written order only breaks ties. `sort: price` is this order, and `sort:
+  latency` or `throughput` is refused on an internal target. Each `Offering` carries
+  `prompt_price`, `completion_price` and `cache_read_price` in USD per token,
+  `price_source` (`book` for the price book, `listing` for the gateway's listing) and
+  `cancel_stops_billing` (`true` when a cancelled stream there is billed no more than it
+  streamed, `null` unknown; only marked offerings are hedged, above).
+  `routing_table.rank_offerings` gives the ranking and the offerings left out with
+  their reason; `candidate_upstreams` the upstream tags alone.
+  `data_collection` and the other `max_price` limits are left to OpenRouter, which
+  applies them to the pinned request. A caller that bounds the whole call takes its
+  ceiling from `chain_call_ceiling_seconds(targets, attempt_timeout_seconds=...,
+  retries=3)` (above), the sum of every model's time share; `chain_attempt_budgets(targets,
+  retries=3)` still gives the sum of every model's attempt budget. Without a source, or for a model it does not list, the
+  target's own closed list (`only`, or `order` with `allow_fallbacks: false`) is used
+  in its written order; with neither, the target goes to OpenRouter as written and a
+  warning is logged.
+  The default, `routing: gateway` (or unset), lets OpenRouter pick, with one
+  exception: while the timeout skip is on, a closed list is sent one upstream at a
+  time in the same way, so a stalled upstream is skipped alone; those skips stay in
+  the process. With the skip off, `provider_routing` goes as written.
+- **An internal target can rank its upstreams by effective cost and speed.** The same
+  candidates are also scored (`simpl_ia.agents.scoring`, pure) from what the source
+  measured: `offering_stats(agent, provider, model, upstream)` (an `OfferingStats(samples,
+  attempts, p_fail, p_late, latency_p50_ms, latency_p90_ms, latency_p95_ms, ttft_p50_ms,
+  tokens_per_s, cache_hit_share, answered_cost_usd, failed_cost_usd, ttft_p95_ms,
+  by_input_size)`, the agent's figures or the offering's pooled ones) and
+  `token_profile(agent, provider, model)` (a `TokenProfile(samples, input_p50, input_p90,
+  cached_p50, output_p50, output_p90, reasoning_p50, reasoning_p90)`); a source without
+  them measures nothing. `by_input_size` maps an input-size bucket (`lt_2k` below 2,000
+  input tokens, `2k_8k`, `8k_32k`, `ge_32k` from 32,000; `routing_table.INPUT_SIZES`,
+  `routing_table.input_size(tokens)`) to an `OfferingStats` of the calls of that size: the
+  latencies, times to first chunk and tokens per second of the call's bucket replace the
+  overall ones, each one the bucket leaves `None` falling back to the overall figure
+  (`scoring.for_input_size`). The call's bucket comes from the profile's median input,
+  else `make_agent(prompt_chars=)` (the rendered prompt's length, system and user parts)
+  / 4; with neither, the overall figures (`scoring.call_input_size`). With Î the
+  profile's median input (else the token mix's, else 3 × Ô), Ĥ = Î × `cache_hit_share`
+  and Ô its median output plus reasoning (else the mix's, else 1): cost per call C =
+  input price × (Î − Ĥ) + cache-read price (else the input price) × Ĥ + output price × Ô;
+  P(bad) = p_fail + (1 − p_fail) × p_late; cost per usable answer K = (C + (1 − p̂) ×
+  `failed_cost_usd`) / p̂ with p̂ = max(1 − P(bad), 0.01); latency T = TTFT + Ô /
+  tokens per second, else the median latency. `objective: {minimize, tie_band, then,
+  latency_value_usd_per_s}` (`simpl_ia.agents.ObjectiveConfig`) orders them: `cost` (the
+  default) the lowest K and, within `tie_band` (0.10) of it, the best on `then` (`tps`,
+  the default, or `latency`); `latency` the lowest T; `blend` the lowest K + λ × T (λ =
+  `latency_value_usd_per_s`, required). `constraints: {min_tps, max_ttft_s,
+  max_p90_latency_s, max_input_price_per_mtok, max_output_price_per_mtok,
+  max_cost_per_call_usd, max_p_bad}` (`ConstraintsConfig`) leave upstreams out with
+  `tps_below_min`, `ttft_above_max`, `p90_latency_over_max`, `price_above_max`,
+  `cost_per_call_above_max`, `p_bad_above_max`; an unknown figure never excludes, and
+  when they leave out every upstream they are kept only as `shadow`. An upstream without
+  statistics is scored on its price with no failures, after an equal one with them, so a
+  source that measures nothing ranks by price. Degraded upstreams, and those an open
+  `order` does not name, still rank after the rest. `ranking: price | effective`
+  (default `price`) picks what is sent: `price` sends the price order above; `effective`
+  sends the effective order, moves a uniformly drawn upstream of the best's band whose
+  P(bad) is at most 1 point above the best's to the front `exploration_share` of the time
+  (default 0.04; 0 off; the process's draws come from
+  `scoring.install_exploration_random(random.Random(seed))`), and sends each upstream
+  with an `adaptive_deadline: {enabled, factor, floor_seconds, min_samples}`
+  (`AdaptiveDeadlineConfig`: clamp(1.5 × its p95 latency, 20 s, the target's deadline)
+  once its statistics rest on 30 answered attempts; an unbounded target stays
+  unbounded). The effective ranking is computed and logged in both modes. Each value is
+  the target's, else the policy's (the primary's), field by field for the nested ones,
+  else the default (`structured.ranking_settings`). Model order never changes: only one
+  target's upstreams are reordered.
+- **An internal target routes by each offering's validated capabilities**, in both
+  ranking modes. Each `Offering` carries `capabilities`, a mapping of capability
+  (`tools`, `structured_output.native`, `structured_output.tool`,
+  `structured_output.prompted`, `reasoning`, `caching`, `context`;
+  `routing_table.CAPABILITIES`) to status (`certified`, `observed`, `unknown`, `failed`);
+  a capability it does not name, or `capabilities=None`, is `unknown`. For the call's
+  needed capabilities (`needed_capabilities`, above): an offering `failed` for one is left
+  out (`not_capable:<capability>`, the first in sorted order); within its band, the
+  offerings `certified` or `observed` for every one rank before those with any `unknown`,
+  whatever their cost or score, and exploration stays among the best's equals.
+  `certification_required: true` on a target, else on the policy (default false;
+  `structured.certification_required_for`) also leaves out an offering with an `unknown`
+  one (`not_certified:<capability>`). When this would leave out every offering the routing
+  filters kept, all of them are sent (unknown ones before failed ones) and the exclusions
+  are logged with `shadow: true`, so a model is never skipped for missing marks.
+  `rank_offerings(..., needed_capabilities=, certification_required=)` gives the same
+  ranking; each `RankedOffering` carries its `capability_tier` (`0` validated, `1` with an
+  unknown, `2` with a failure) and each `ExcludedOffering` its `shadow`.
+- **An internal or canonical target leaves out the precisions the agent may not be served
+  at**, in both ranking modes. The source's `precision_policy(agent, model)` (read by
+  `getattr`; `model` is the provider's own name on a target naming a provider, the
+  canonical name on a canonical one) returns a
+  `simpl_ia.agents.routing_table.PrecisionPolicy(never, excluded, allowed, ladder,
+  default_min, unknown)`: `ladder` the catalog's rungs from the highest precision down,
+  `default_min` the lowest rung every agent may be served at (`None`: no floor),
+  `allowed` and `excluded` the precisions cleared and excluded for this agent, `never`
+  the precisions the catalog allows for no agent, and `unknown` (`allowed` or
+  `requires_clearance`) the rule for a precision no rung names, `unknown` included;
+  names as offerings report them (`fp8`, `fp4`, `unknown`, ...), compared without case.
+  `never` and `excluded` exclude whatever the rung; a precision on a rung below
+  `default_min`'s is excluded unless `allowed` names it; one no rung names stays with
+  `unknown: allowed`. An offering at an excluded precision (`unknown` when it reports
+  none) is left out with `precision_excluded:<precision>`, after the routing filters and
+  before the capabilities; when that would leave out every offering the routing filters
+  kept (across every provider of a canonical target), all are sent and the exclusions are
+  logged with `shadow: true`. Without a policy every precision routes, `unknown` included.
+  `rank_offerings(..., precision_policy=)` and `canonical.rank_across_providers(...,
+  precision_policy=)` give the same ranking.
+- **An agent blamed for its failures on an offering tries it last**, in both ranking
+  modes, on internal, canonical and bucket targets. `Offering.blamed_agents` names the
+  agents whose own load the offering's failures are blamed on (failing there while the
+  other agents it serves do not); the source fills it. For such an agent the offering
+  ranks after every other candidate, whatever its precision rank, band, capability tier,
+  cost or score and under every objective, and the rest keep their order
+  (`RankedOffering.blamed`, `ScoredOffering.blamed`, `routing_table.blamed_for`).
+  Exploration never draws it while the best is not blamed. An epoch home it is blamed on
+  goes last in its call (`override:blamed`); a planned epoch draws its home as if no
+  upstream were blamed, so one agent's blame never moves its family's home. It is never
+  left out: the route log lists it in `excluded` with `blamed` and `shadow: true`. Every
+  other agent ranks it as usual. `rank_offerings(..., agent_name=)` and
+  `canonical.rank_across_providers(..., agent_name=)` give the same ranking. A running
+  canary's draw still puts its offering first on its share of calls.
+- **A running canary sends a share of the agent's calls to its offering first**, in both
+  ranking modes. The source's `canary(agent, model)` (read by `getattr`, `model` as above)
+  returns a `simpl_ia.agents.routing_table.CanaryPlan(trial_id, upstream, provider,
+  share)`: `upstream` the offering's tag (`""` for a provider without sub-providers),
+  `provider` `None` or the target's provider on a typed target, the member's provider on a
+  canonical one (`None` there only when a single member has that upstream). Each call
+  whose upstreams include the offering draws from the process's canary random
+  (`simpl_ia.agents.canary.install_canary_random(random.Random(seed))`, apart from the
+  exploration random): with probability `share` (clamped to [0, 1]) the offering goes
+  first and the rest keep the order the mode sent, exploration and epoch included. A call
+  not drawn is a control: the offering never goes first there; when it would have, it
+  goes right behind the best other upstream. The route log's `canary` records `trial`,
+  `chosen`, `propensity` (`share` when chosen, `1 − share` when not, `1` when the
+  offering was not among the upstreams sent, which draws nothing) and `control` (true on
+  a call not drawn whose first upstream is another offering; false when chosen, not
+  drawn, or when the offering is the target's only upstream, so no control was possible). A closed list taken as written and a gateway target read neither the
+  precision policy nor the canary.
+- **A target can name a canonical model instead of a provider.** `ModelTarget(name=
+  "deepseek-v4.1-flash")` (no `provider`; also a policy's primary or any fallback) names a
+  model of the model catalog the offering source holds: `catalog_model(name)` returns a
+  `simpl_ia.agents.routing_table.CatalogModel(name, offers, attempt_timeout_seconds,
+  max_output_tokens, max_invalid_responses, zdr)`, `offers` mapping each provider to its
+  own name for the model (`{"deepseek": "deepseek-flash", "openrouter":
+  "deepseek/deepseek-v4.1-flash"}`), read by `getattr`. When the agent is built the target
+  becomes one chain position with a member on each offered provider whose credentials the
+  policy was bound with (`bind_policy_credentials` keeps the whole binding on the policy as
+  `provider_credentials`, and leaves such a target unbound): one on DeepSeek, OpenAI or
+  Cheaper Inference, each with that provider's route, name and settings, and one per
+  OpenRouter endpoint the source lists (pinned as on internal routing; with none listed,
+  one that OpenRouter routes). They are ranked together, by price or, with `ranking:
+  effective`, by the scoring above, at the token mix and profile with the most samples
+  among the providers' models; a provider without sub-providers is read as its offering
+  with upstream `""` (`offerings(provider, model)`, `offering_stats(agent, provider, model,
+  "")`), and is unpriced when none is listed. They share one attempt budget: the target's
+  `max_invalid_responses`, else the catalog model's, else the policy's, else `retries +
+  1`; the catalog model's `attempt_timeout_seconds` and `max_output_tokens` likewise stand
+  between the target's own and the policy's (`chain_call_ceiling_seconds` reads them from
+  the catalog). `require_zdr: true` (only on such a target, not inherited) keeps only
+  zero-data-retention members: an OpenRouter endpoint by its listing, a provider without
+  sub-providers by the catalog's `zdr` map, else its listing. Left out, with `upstream`
+  `""` in the route log: a provider without credentials (`no_credentials`), one that
+  refuses the target's `output_mode` or `reasoning` (`incompatible:output_mode`,
+  `incompatible:reasoning`), and one no member can be built on (`unsupported_provider`).
+  A member whose `Offering.health` is `open` is left out with `health_open` (first-party
+  offerings have no pause row, so this is what keeps them unsent; OpenRouter endpoints are
+  also paused), unless every member is open: then all stay, logged `shadow: true`;
+  `probing` and `degraded` members stay as before. Health is judged before the precision
+  policy and capabilities, so when the filters together would leave no member, a healthy
+  member they exclude is sent as shadow rather than an open one. A
+  name the catalog does not list, or an offer its provider cannot take, raises
+  `ValueError` at `make_agent`; a target left with no member refuses every request unsent,
+  so the chain moves on. Before the routing table's first load the source may say so with
+  an optional `catalog_loaded() -> bool` (read by `getattr`; absent means loaded): while
+  it is false, an unlisted name is not an error but a target that refuses every request
+  unsent (its route log entry has no candidates), logged once per name as
+  `ai.catalog_not_loaded`; once it is true, an unlisted name raises again.
+  `provider_routing`, `prompt_cache`, `base_url`, `api_key`,
+  `routing` and `api="decisions"` are refused on it. No prompt-family epoch applies to it.
+  `resolved_output_modes()` raises for it: each member runs in its own provider's mode. A
+  target naming a provider is built as before, whatever the catalog lists.
+- **A target can name a bucket instead of a model,** for an agent that names no model.
+  `ModelTarget(bucket="fast_check")` / `ModelPolicy(bucket=...)` (no `name`, no `provider`;
+  a policy's primary or any fallback) names a bucket the offering source's
+  `catalog_bucket(name)` returns (read by `getattr`): a
+  `simpl_ia.agents.routing_table.CatalogBucket(name, tiers, objective, constraints,
+  require_zdr)`, `tiers` a tuple of tuples of canonical model names (`catalog_model`
+  resolves each). When the agent is built each tier becomes one chain position, so a target
+  after the bucket has the `fallback_index` of its position (tiers counted), not of its
+  place in the policy. A tier's position holds every offering of each of its models, each
+  model expanded as a canonical target is (credentials, ZDR, output mode, precision policy
+  and canary per model), ranked together: by price, or with `ranking: effective` by the
+  scoring above with the bucket's `objective` and `constraints` between the target's own and
+  the policy's, each offering scored at its own model's token profile, and its cost per
+  usable answer divided by 1 − the agent's invalid-answer rate on its model, from the
+  source's `model_fit(agent, model)` (a float in [0, 1] read by `getattr`; `None` for no
+  penalty). Each model keeps its own attempt budget, time share, deadline and cap: the catalog model's
+  `max_invalid_responses`, else the target's, else the policy's, else `retries + 1` (and
+  likewise for `attempt_timeout_seconds` and `max_output_tokens`); a tier is passed over
+  once every model's budget is spent or every member failed, so the chain moves to the next
+  tier, and later tiers serve only then. `require_zdr` on the bucket, or on the target, keeps
+  only zero-data-retention offerings. An open offering is left out of its tier
+  (`health_open`), unless every offering of the tier is open (then `shadow`). A bucket or a
+  tier model the catalog does not list raises `ValueError` at `make_agent`, as does
+  `make_agent(model=...)` with a bucket primary; while the source's `catalog_loaded()` is
+  false, an unlisted bucket instead stands at one position (route log `bucket` set, `tier`
+  `null`) and a tier with an unlisted model at its own, each refusing unsent and logged
+  once. A tier with no member (no credentials for any of its models' providers) refuses
+  unsent, so the chain moves on. `provider_routing`, `prompt_cache`, `base_url`, `api_key`,
+  `routing`, `decision_thresholds` and `api="decisions"` are refused on it, and
+  `resolved_output_modes()` raises for it. `chain_call_ceiling_seconds` and
+  `chain_attempt_budgets` count every model of every tier.
+- **An internal target's upstreams can be paused for one agent or for every agent,
+  from the health outcomes every process reports** (above). The `HealthSettings` each
+  outcome carries are the rule the sink applies, set per policy as `health: {...}`
+  (`simpl_ia.agents.HealthConfig`) on a target, else on the policy (the primary's), else the defaults in
+  `simpl_ia.agents.health.HealthSettings` (no environment variable): over
+  `window_seconds` (600), once `min_attempts` (20) remain, an offering's rate of timeouts
+  and server errors degrades it at `degrade_rate` (0.10), opens it (a pause for every
+  agent) at `open_rate` (0.25), and a degraded one recovers below `recover_rate`
+  (0.05). An open offering stays paused `first_cooldown_seconds` (300), doubled at each
+  reopening up to `max_cooldown_seconds` (86400); then it is probing, and
+  `probe_answers` (3) answers make it healthy. An agent failing at `open_rate` on an
+  offering whose other agents have `misfit_min_other_attempts` (10) or more attempts
+  there and fail below `degrade_rate` does not count toward that offering, one-offering
+  models included; an agent left out on `misfit_min_offerings` (2) or more offerings is a
+  workload misfit. No offering opens while `fleet_guard_share` (0.5) of the offerings
+  with attempts are degraded or open. Two or more capability errors of one agent pause
+  the offering for that agent for `capability_cooldown_seconds` (86400). `enabled:
+  false` reports nothing. Each `Offering` carries its `health` (`healthy`, `degraded`,
+  `open`, `probing` or `None`) and its pauses as `pauses: tuple[OfferingPause(agent,
+  paused_at, paused_until, ended_at), ...]` (`agent=None` for every agent; seconds
+  since the epoch). Each call adopts the offering's pauses for every agent and for its
+  own agent: the upstream is skipped until `paused_until`, then each process's next
+  call is its trial. A trial changes only its own process; a pause ends when it runs
+  out or by hand (`ended_at`), which also ends this process's skip that started before
+  it, unless its trial is running.
+- **A prompt family stays on a warm cache.** Pass `make_agent(agent_name=..., prompt_id=...)`:
+  the agent, its prompt id and its tool names make the call's family
+  (`simpl_ia.agents.affinity.family_key`, 16 hex characters; none without `agent_name`).
+  Its key is sent where a provider can use it: OpenRouter's body `session_id` (chat, every
+  target); OpenAI's `prompt_cache_key` on OpenAI's own endpoint for the models before
+  GPT-5.6 (`affinity.OPENAI_PROMPT_CACHE_KEY_FAMILIES`: gpt-4o, gpt-4.1, gpt-5 to
+  gpt-5.5, o1, o3, o4-mini, and their `-` variants); Cheaper Inference's
+  `x-ci-prompt-cache-session` header, with `x-ci-prompt-cache-scope: org` when the
+  source's `family_agents(family)` names more than one agent; nothing to DeepSeek. No
+  request ever carries Cheaper Inference's `x-ci-techniques`: one whose settings would is
+  refused unsent with `simpl_ia.agents.cheaper_inference.TechniquesRefused`. Within one
+  agent run, an internal target's next request starts on the upstream that answered its
+  last one, in either ranking mode. In `effective` mode, with a source that has
+  `family_epoch(family, provider, model)` (an `EpochChoice(upstream, epoch_start,
+  epoch_end, snapshot_version)`, the family's latest, in force or ended;
+  `simpl_ia.agents.routing_table`), a call starts on the family's epoch home instead of
+  drawing an exploration (`simpl_ia.agents.epochs`): `kept` while the home is a candidate,
+  `healthy`, within the target's `max_p90_latency_s` and not left out by a constraint;
+  otherwise the best other upstream goes first (`override:<reason>`: `not_candidate`,
+  `degraded`, `open`, `probing`, `p90_latency_over_max`, a constraint code, or `blamed`
+  when the call's agent is blamed for its failures there) and the epoch goes on. With none in force, the process plans one, `min(1,800 s, the provider's
+  cache TTL)` long (`affinity.CACHE_TTL_SECONDS`: OpenAI 5 min before GPT-5.6 and 30 min
+  after, Anthropic 5 min, DeepSeek hours, other OpenRouter vendors 10 min, else 5 min), on
+  a grid every process computes alike: a Thompson draw (each upstream's chance to fail
+  from Beta(1 + p_fail × attempts, 1 + the rest), ranked by the objective at its warm
+  cache share, `cache_warmth(family, provider, model, upstream)`) seeded by the family,
+  the epoch start and the source's `snapshot_version()` gives the challenger, and the
+  previous home is left only when n_f × (K_h − K_c,warm) > 2 × (K_c,cold − K_c,warm) and
+  K_c,warm < 0.95 × K_h (n_f = `family_rate(family)`, else 1; K at the warm share and at
+  0), or when it is no longer fit (`new` with no previous home, else `switched` or
+  `kept`). Each source method is read by `getattr` and must answer from memory. The plan
+  goes once to the process's `EpochSink` (`simpl_ia.agents.epochs.install_epoch_sink`;
+  `record(EpochPlan(family, provider, model, upstream, epoch_start, epoch_end,
+  snapshot_version, candidates, draw, propensity))`, called synchronously, must never
+  block or raise), and this process follows it until the source lists an epoch. `price`
+  mode never reads epochs.
 
 ## Milvus: one hit per group, aliases, raw rows and filters
 
