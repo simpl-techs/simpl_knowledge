@@ -3057,7 +3057,8 @@ admission = await requests.submit_research(origin, ResearchSpec(company_id=compa
 # admission.pages_due_at, .deadline_at (and .fresh_until for a fresh run): when to come back
 read = await requests.read(admission.request_id, after=cursor)   # never waits
 async for read in requests.follow(admission.request_id, max_wait_s=120):
-    ...  # each read with new events; stops when read.complete or the time is up
+    ...  # reads every 1 s (at least retry_after_s); yields reads with news; stops when
+         # read.complete or the time is up
 heads = await requests.heads(open_request_ids)  # many states in one query
 ```
 
