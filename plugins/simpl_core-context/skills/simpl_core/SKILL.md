@@ -2529,8 +2529,9 @@ Three small public surfaces back `simpl_scraping`; any consumer may read them.
 `migrations/20261105_scraping_extraction_publications_unlogged.sql`,
 `migrations/20261105b_scraping_drop_page_versions_storage_object_idx.sql`,
 `migrations/20261110_scraping_drop_extraction_publications_config_idx.sql`,
-`migrations/20261110b_scraping_pages_extraction_marker.sql` and
-`migrations/20261112160000_scraping_drop_extracted_entities.sql`:
+`migrations/20261110b_scraping_pages_extraction_marker.sql`,
+`migrations/20261112160000_scraping_drop_extracted_entities.sql` and
+`migrations/20261120120000_scraping_drop_page_versions_observed_idx.sql`:
 
 - `ScrapingPage` (`scraping.pages`): one row per `(canonical_url, representation)`.
   `latest_version_id` names the newest observed raw response. `extraction_queued_*`
@@ -2538,7 +2539,10 @@ Three small public surfaces back `simpl_scraping`; any consumer may read them.
   the page, all set or all NULL; simpl_scraping writes them, nobody else should.
 - `ScrapingPageVersion` (`scraping.page_versions`): immutable. It stores a reference to
   the object holding the response (bucket, key, version id, stored SHA-256 and size),
-  never the body. The database rejects UPDATE.
+  never the body. The database rejects UPDATE. Its only indexes are `id`,
+  `(page_id, id)` and `(page_id, artifact_kind, content_sha256)`: read a page's versions
+  by `page_id` and sort them (about 1.7 per page), and reach the newest through
+  `pages.latest_version_id`. Nothing indexes `observed_at` since `20261120120000`.
 - `ScrapingExtractionPublication` (`scraping.extraction_publications`): one receipt per
   extraction job. The table is unlogged: a Postgres crash or a backup restore empties
   it, so treat a receipt as a recent record, never as proof a version was extracted
