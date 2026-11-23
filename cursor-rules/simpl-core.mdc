@@ -3489,7 +3489,9 @@ and a login granted `research_read_admit(uuid)` cannot call the four-argument on
 parent's and its URL the lead's stored LinkedIn URL in the platform's one spelling; `of_read(read_id)`, `next_slot_at(read_id)` and `reserve_slot(read_id)` (the seat's
 `profile_positions` pacing slot, as `reserve_operation_slot` reserves it, once per read:
 since `20261123130000` a repeat returns the read's slot, kept in
-`extension_proxy.research_read_slot`, and moves the seat's slot no further), `get`,
+`extension_proxy.research_read_slot`, and moves the seat's slot no further; since
+`20261123170000` `next_slot_at` answers that slot too when the read has one, else the
+seat's next slot, and reserves nothing), `get`,
 `time_out`, `consume`, `seat_online`, and the SQL conditions
 `research_read_answered(request_id)` and `research_read_unconsumed(request_id)`.
 `DatabaseLinkedInOperations.read_profile_positions(request)` parses a `profile_positions`
