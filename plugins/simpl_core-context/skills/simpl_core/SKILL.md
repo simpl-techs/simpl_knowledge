@@ -2286,13 +2286,26 @@ session: `admit(read_id=, linkedin_account_id=, timeout_seconds=, presence_stale
 `existing`, else under the seat's lock, at the clock read after it (`clock_timestamp()`, also
 the request's `created_at`), a refusal, else the request for the seat's live extension
 signed in to that account: `admitted`, `extension_offline`, `linkedin_account_mismatch`; the
-device rule is `admit_request`'s, kept in step by hand), `refusal(read_id)` (a pre-check:
+device rule is `admit_request`'s, kept in step by hand), `admit_read(read_id)` (migration
+`20261123130000`, for a login that may read nothing of the seller, such as the fetchers'
+`scraping_worker`: the same admission, its arguments derived in SQL and never passed: the
+seller's account from `sales."user".linkedin_url` by `utils.linkedin_identity.
+linkedin_account_id_from_url`'s rule, `extension_proxy.linkedin_account_id_from_url`; the
+active runtime revision's presence window; the read's seat reader's `wait_s` capped by the
+`profile_positions` revision's `request_timeout_seconds`. One more outcome,
+`seat_not_handed_out` (kill switch on, operation disabled, no readable profile URL), then
+`slot_not_reached` (the read reserved no slot, or its slot is more than a second ahead),
+after `no_read`, `no_seat` and `existing`; only the outcome and the request id come back,
+and a login granted `research_read_admit(uuid)` cannot call the four-argument one),
+`refusal(read_id)` (a pre-check:
 `no_read`, `no_seat`, `seat_not_the_customers`, `seller_off_duty`, `seat_views_spent`,
 `research_share_spent`, or `None`). The rows they trust are kept by osint's triggers
 (`20261119210000`): a research request's `seat_user_id` never changes after admission
 (only cleared by the user's delete), and a profile read's customer and lead are its
 parent's and its URL the lead's stored LinkedIn URL in the platform's one spelling; `of_read(read_id)`, `next_slot_at(read_id)` and `reserve_slot(read_id)` (the seat's
-`profile_positions` pacing slot, as `reserve_operation_slot` reserves it), `get`,
+`profile_positions` pacing slot, as `reserve_operation_slot` reserves it, once per read:
+since `20261123130000` a repeat returns the read's slot, kept in
+`extension_proxy.research_read_slot`, and moves the seat's slot no further), `get`,
 `time_out`, `consume`, `seat_online`, and the SQL conditions
 `research_read_answered(request_id)` and `research_read_unconsumed(request_id)`.
 `DatabaseLinkedInOperations.read_profile_positions(request)` parses a `profile_positions`
