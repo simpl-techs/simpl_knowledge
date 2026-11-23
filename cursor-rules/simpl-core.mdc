@@ -3933,7 +3933,13 @@ async for batch in searcher.query_rows({"host": hosts, "uses_https": False}):
   nothing to write settles at once. `on_result` sees each committed batch (a group's
   share one `commit_seq`); `drain()` waits for every batch in hand and commits the
   group (a scoped run drains before `walk.advance`); `deferred`/`stopped` say why it
-  stopped. The embedder never gets more than `embed_concurrency` requests at once.
+  stopped. An embedder that cannot answer for now raises `EmbedderUnavailableError`
+  (`NebiusEmbedder.embed` does on simpl_ia's retryable errors: timeout, connection,
+  rate limit, 5xx, once its retries are spent): the pipeline defers instead of failing.
+  The batch goes back with no failure counted, the waiting groups still commit, nothing
+  more is claimed, nothing is raised, and `embedder_unavailable` holds the first such
+  error for the caller to report. Other embedder errors still raise.
+  The embedder never gets more than `embed_concurrency` requests at once.
   A commit never carries a document twice: a batch holding a document already
   waiting commits the group first.
 - A scanner's mark must leave a claim in place (never `claim_token = NULL`): the batch
@@ -4717,7 +4723,13 @@ when that is unset or Discord does not take the message, falls back to the proce
 (`data_lake_event`, `data_lake_channel`, the traceback of an exception) and never
 raises. A delivered exception is marked announced, so tracker's default policy does not
 post it again to #warning. Pass a `dedup_key` per problem (a document, a job): repeats
-edit one message.
+edit one message, within one process. A problem many runs raise (each Cloud Run job a
+process that starts empty) also passes `shared_dedup=<database URL or DatabaseManager>`.
+Its repeats are then counted in `agent_framework.alert_fingerprints` by every process
+(`PostgresDedupStore`, via `simpl_core.agent_framework.alerting.shared_alert_dedup_store`),
+so the problem is one message, edited as it recurs. When the store cannot be had, the
+alert still goes out, deduplicated in process. `TrackerOperatorNotifier(...,
+dedup_store=...)` takes any tracker `DedupStore` the same way.
 
 ## Decks in a company's look (`decks`)
 
