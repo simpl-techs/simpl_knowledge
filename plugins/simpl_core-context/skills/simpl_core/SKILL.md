@@ -5062,6 +5062,14 @@ Recall and the calendar providers are never called.
   - `lead_attendee {email, response_status}`;
   - `capture_job_ids`, with the organizer's row first.
 
+`LeadMeetings(session).last_held(customer_id=…, lead_id=…)` returns the latest call this
+lead spoke on that started before `for_lead`'s window: between 365 days
+(`HELD_CALL_MEMORY`) and 30 days back. The meeting has the same shape as above, with every
+calendar's row of it included. It returns `None` when there is no such call. A finished
+recording counts only when its `call_lead_links` hear the lead. A caller that keeps
+`for_lead`'s window uses it so a call that took place is not forgotten once the window
+moves past it.
+
 `AccountCoordinationService.request(...)` for a `calendar_booking` key needs the call to
 book under `evidence["booking"]`; `booking_problems(booking, now=...)` is the check.
 - **Shape:** `call_medium` (`invite` / `phone`), `lead_email`, `lead_phone`,
