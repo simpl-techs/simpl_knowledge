@@ -351,6 +351,1003 @@ model:
   temperature: omit
 ```
 
+**Each target has its own attempt deadline, and may have an output cap.**
+`attempt_timeout_seconds` is the wall-clock deadline of each attempt on a target (a
+request, or a stream's open); unset, it is the policy's (the primary's), else the agent's
+`timeout_seconds`. `max_output_tokens` caps what each request to the target may generate,
+reasoning included, and is sent as `max_tokens` on that target's requests only (the
+smaller of it and a call's own `max_tokens`); unset, it is the policy's, else no cap is
+sent. An answer cut off at its cap (`finish_reason: length`) is a failed attempt: it
+spends the target's budget and the chain moves on; when the last model's answer is cut
+off, the call fails with simpl_ia's `OutputTruncated` (an `UnexpectedModelBehavior`). A
+target's failed attempts may take at most two of its deadlines in a call (its time share;
+one deadline when its budget is a single attempt), and the call is bounded as a whole by
+the sum of its targets' shares, plus 10%.
+Both are greater than 0; an `lm_model` row's targets refuse them.
+
+```yaml
+model:
+  name: deepseek/deepseek-v4.1-flash
+  provider: openrouter
+  attempt_timeout_seconds: 90    # this target's, and each fallback's that sets none
+  max_output_tokens: 16000       # the same
+  fallbacks:
+    - name: deepseek-v4-pro
+      provider: deepseek
+      attempt_timeout_seconds: 240
+```
+
+**Internal routing picks the OpenRouter upstream.** A target with `routing: internal`
+(OpenRouter chat targets only) is sent one pinned upstream at a time, chosen by simpl_ia
+from the routing table: every endpoint of the model that passes the target's own
+`provider_routing` filters (`zdr`, `quantizations`, `only`, `ignore`), ranked by the
+estimated cost of one of the agent's calls (the endpoint's price × the agent's token mix,
+3 input tokens per output token when it has none; an open `order` keeps its upstreams
+first, ranked among themselves). Every failed attempt on a model, on any of its upstreams
+and across the whole run, spends its budget (`max_invalid_responses`, else the policy's, else `retries + 1`, 4 by default); an
+upstream that failed is not tried again in the run. An upstream that keeps timing out is
+skipped on its own while the others keep serving the model. `routing` unset (or `gateway`) sends
+`provider_routing` as written. `timeout_skip` sets, per target, the process's own skip
+(`threshold`, `window_seconds`, `cooldown_seconds`); each unset field takes the primary's,
+then the host's `AI_TIMEOUT_SKIP_*` variables, then simpl_ia's defaults (5 timeouts in
+300 s, a 300 s wait; `threshold: 0` is off). `health` sets, per target, the values the
+fleet's health state machine judges its offerings by (simpl_ia's `HealthConfig`:
+`window_seconds`, `min_attempts`, `degrade_rate`, `open_rate`, `recover_rate`,
+`first_cooldown_seconds`, `max_cooldown_seconds`, `probe_answers`, `fleet_guard_share`,
+`misfit_min_offerings`, `misfit_min_other_attempts`, `capability_cooldown_seconds`,
+`enabled`); each unset field takes
+the primary's, then simpl_ia's defaults (below). Both are passed through as written.
+`ranking` (`price`, the default, or `effective`), `objective`, `constraints`,
+`exploration_share` and `adaptive_deadline` set how the target orders its upstreams by
+what they measured (below); each unset value, or unset field of a nested one, takes the
+primary's, then simpl_ia's default. The nested ones are simpl_ia's `ObjectiveConfig`,
+`ConstraintsConfig` and `AdaptiveDeadlineConfig`, passed through as written and dumped
+with only the fields written, so a stored fallback that sets one field keeps inheriting
+the others. `certification_required: true` keeps a target on internal routing off every
+offering not validated (certified or observed) for a capability the call needs, unless no
+offering is (unset takes the primary's, else false). `output_mode` (`native`, `tool` or
+`prompted`; unset is simpl_ia's `auto`) pins how a target returns its typed answer, refused
+by simpl_ia when the target cannot serve it; an `lm_model` target refuses it.
+`ttft_deadline_seconds` (greater than 0) bounds how long each of a target's streams may go
+without a first chunk: past it the attempt ends as a timeout (`FirstTokenTimeout`) and the
+chain moves on; unset takes the primary's, else twice the offering's p95 time to first chunk
+for the agent once measured, else none. `max_reasoning_tokens` (greater than 0) aborts a
+stream that reasons past it before its answer starts, as a rejected, truncated attempt
+(`OutputTruncated` on the last model); unset takes the primary's, else none. Either one
+makes the target's requests streams, so they are watched. `hedge: true` (unset takes the
+primary's, else off) lets a call with no tools send a second request to the target's next
+upstream when the first has no first chunk by its offering's p95 time to first chunk, only on
+offerings marked as stopping billing on cancel (below); both attempts are recorded (the
+loser `cancelled`, `hedge: lost`) and both spend the target's budget. An `lm_model` target
+refuses all three.
+
+```yaml
+model:
+  name: z-ai/glm-5.3-flash
+  provider: openrouter
+  routing: internal
+  timeout_skip: {threshold: 5}
+  health: {min_attempts: 40}
+  provider_routing: {zdr: true, quantizations: [fp8, fp16, bf16, fp32, unknown]}
+```
+
+**A target can name a canonical model instead of a provider.** A primary or fallback
+with no `provider` (`model: {name: deepseek-v4.1-flash}`) names a model of the model
+catalog; simpl_ia sends it to every provider the active catalog offers it on, under each
+provider's own name and with the credentials the host bound for that provider, as one
+chain position whose attempts share one budget, ranked by price or by `ranking:
+effective`. `provider_routing`, `prompt_cache`, `base_url`, `routing` and `api:
+decisions` are refused on it; `require_zdr: true` (on such a target only, not inherited)
+keeps it on zero-data-retention offerings. A target naming a provider is unchanged. A new
+config version may name only a canonical model the active catalog lists:
+`ConfigVersionRepository.insert_version` raises `UnknownCanonicalModelError` (a
+`ConfigAuthoringError` and a `ValueError`) otherwise, and `af_config_migrate` checks the
+names against a catalog document (`catalog=`, `--catalog`; by default the one simpl_core
+ships, `MODEL_CATALOG_DOCUMENT`). Since `require_zdr` is not inherited, a new version whose
+primary sets it must give every fallback its own: a canonical model or bucket with
+`require_zdr: true`, an OpenRouter target with `provider_routing.zdr: true`, or a
+provider's model the same catalog marks `zdr` (`ModelCatalogDocument.zdr_offers()`);
+`insert_version` and `af_config_migrate` raise `ZdrFallbackError` (a
+`ConfigAuthoringError` and a `ValueError`) otherwise. The shipped catalog marks no
+provider `zdr`, so a direct provider cannot follow a `require_zdr` primary yet; stored
+versions are not re-checked.
+
+```yaml
+model:
+  name: deepseek-v4.1-flash
+  require_zdr: true
+  fallbacks:
+    - {name: glm-5.3-flash, require_zdr: true}
+    - {name: z-ai/glm-5.3, provider: openrouter, provider_routing: {zdr: true}}
+```
+
+**A target can name a bucket instead of a model,** for an agent that names no model:
+`model: {bucket: fast_check}` (a primary or a fallback; no `name`, no `provider`) names a
+bucket of the active model catalog. simpl_ia stands it at one chain position per tier of
+the bucket: the models of one tier are interchangeable, so a call may go to any of them
+for cost or speed, each model keeping its own attempt budget, deadline and cap (the
+catalog model's, else the target's, else the policy's); a later tier serves only once the
+models before it are spent or failing. Every `fallback_index` simpl_ia reports is a
+position, so a target after a bucket is numbered past its tiers, and the audit row's
+`fallback_index` of an answer is that position. `provider_routing`, `prompt_cache`,
+`base_url`, `routing` and `api: decisions` are refused on it; `require_zdr: true` is
+allowed (not inherited). A new config version may name only a bucket the active catalog
+lists: `insert_version` raises `UnknownBucketError` (a `ConfigAuthoringError` and a
+`ValueError`) otherwise, and `af_config_migrate` checks against a catalog document as it
+does canonical names. `configured_model_name` is `None` for a bucket primary, which
+`LLMAgent` builds without a `model` (simpl_ia refuses a per-call model in its place).
+
+```yaml
+model:
+  bucket: fast_check
+  fallbacks:
+    - {name: z-ai/glm-5.3, provider: openrouter}
+```
+
+**The model catalog** is the config-ledger key `model_catalog` (`config_kind
+'model_catalog'`; `MODEL_CATALOG_KEY`, `MODEL_CATALOG_KIND` in
+`simpl_core.agent_framework.authoring`), versioned and activated like any other key but
+never projected: processes read the active version's content whole. Its document
+(`ModelCatalogDocument`, `parse_model_catalog(content)`):
+
+```yaml
+models:
+  deepseek-v4.1-flash:
+    offers: {deepseek: deepseek-flash, openrouter: deepseek/deepseek-v4.1-flash, cheaper_inference: ""}
+    budgets: {attempt_timeout_seconds: 60, max_output_tokens: 8000, max_invalid_responses: 3}
+    zdr: {deepseek: true}
+quantization:
+  ladder: [[bf16, fp16, fp32], [fp8, mxfp8], [int8], [fp6], [nvfp4, mxfp4, fp4], [int4]]
+  default_min: fp4
+  unknown: allowed
+  never: []
+buckets:
+  fast_check:
+    tiers: [[deepseek-v4.1-flash, glm-5.3-flash], [gpt-6-luna]]
+    objective: {minimize: cost, tie_band: 0.10, then: tps}
+    constraints: {min_tps: 30, max_p90_latency_s: 45, max_p_bad: 0.03}
+  reviewer_zdr:
+    requires: {zdr: true}
+    tiers: [[glm-5.3-flash, deepseek-v4.1-flash]]
+```
+
+`offers` maps a provider (`openai`, `deepseek`, `openrouter`, `cheaper_inference`) to
+its own name for the model; a blank name is no offer yet. `budgets` are the model's
+defaults for a target naming it, below the target's own and above the policy's. `zdr` is
+the model's zero-data-retention status on a provider without sub-providers, from the
+account's terms. `quantization` is the precision policy: `ladder` (rungs, highest
+first), `default_min` (the lowest rung cleared for every agent, `null` for none named; a
+precision on a lower rung serves only an agent whose clearance for it is `allowed`),
+`unknown` (how a precision no rung names is treated, an offering reporting none included:
+`allowed` keeps it; `requires_clearance` is refused by the write gate) and `never`
+(precisions no agent is sent to, whatever its clearance). `buckets` serve agents that name no model: `tiers` lists each tier's canonical models,
+best first; `objective` and `constraints` are simpl_ia's `ObjectiveConfig` and
+`ConstraintsConfig` for the bucket's tiers (between a target's own and its policy's; only
+the fields written are kept); `requires.zdr` keeps every tier on zero-data-retention
+offerings. The write gate (`insert_version` with `config_kind='model_catalog'`, and
+`af_config_migrate(config_kind='model_catalog')`) refuses a document that does not fit
+this shape, `unknown: requires_clearance`, an offer whose name its provider cannot take, a
+canonical name written twice,
+a provider's model offered under two canonical names, a bucket with no tier or an empty
+one, a tier naming a model the catalog does not list, and a model named twice in one
+bucket, with `ModelCatalogError`; the key `model_catalog` holds catalog versions only.
+The catalog simpl_core ships is
+`src/simpl_core/agent_framework/model_routing/model_catalog.yaml` (version 2: the models
+outreach names, `deepseek-v4.1-flash` on DeepSeek and OpenRouter, `glm-5.3-flash` and
+`glm-5.3` on OpenRouter, `gpt-6.1-sol` and `gpt-6-luna` on OpenAI, Cheaper Inference ids
+blank, first-party ZDR unset, every precision from fp4 up routable and int4 only for an
+agent cleared for it, and the buckets above). A new
+version is a seed:
+
+```bash
+simpl_core af_config_migrate --yaml src/simpl_core/agent_framework/model_routing/model_catalog.yaml \
+  --dest migrations/ --config-key model_catalog --config-kind model_catalog \
+  --version 3 --parent 2 --prefix <migration number> --summary "..." --activate
+```
+
+The adaptive LLM routing migration, `migrations/20261111_adaptive_llm_routing.sql`, holds every
+`llm_routing` object and the routing objects of `agent_framework` and `sales_view` as
+steps of one file. It is applied with `psql -X -v ON_ERROR_STOP=1 -d <database> -f <file>`
+(never the SQL editor: it builds indexes `CONCURRENTLY` and uses psql's `\gset`, `\if` and
+`\gexec`), after simpl_tracker's routing cost tracking migration, and run again from the
+top after a failure; `migrations/20261111_adaptive_llm_routing_rollback.sql` undoes it
+step by step, last step first. Its step `seed_model_catalog_1` registers and activates
+version 1 (only while no `model_catalog` version was ever activated), before any version
+naming a canonical model. Step `seed_model_catalog_2` registers version 2, the shipped
+document with the buckets `fast_check` (`[[deepseek-v4.1-flash, glm-5.3-flash],
+[gpt-6-luna]]`) and `reviewer_zdr` (`[[glm-5.3-flash, deepseek-v4.1-flash]]`, ZDR only),
+**inactive**: a person reviews and activates it (`SELECT
+agent_framework.activate_config_version('model_catalog', '2')`) before any version naming
+a bucket can be written.
+
+The routing table is `llm_routing.offering` (table model
+`simpl_core.models.LlmRoutingOffering`), filled every hour by simpl_flow's
+`sync_openrouter_listing(db)` (`simpl_core.agent_framework.model_routing`) with every
+endpoint of each OpenRouter chat model an active policy names or the active catalog
+offers. Each model is written in
+its own transaction: a model whose listing cannot be read or written keeps its rows and
+is named in `ListingSyncResult.failed_models`. `sync_first_party_listing(db, *,
+dry_run=False, http=None, cheaper_inference_api_key=None,
+cheaper_inference_base_url=None)` writes one row per model the active catalog offers on
+DeepSeek or Cheaper Inference, with upstream `''` (they have no sub-providers), no
+prices (the price book prices them), Cheaper Inference's precision `unknown`, and `zdr`
+from the catalog's `zdr` for the provider, else, on Cheaper Inference, from its
+zero-data-retention catalog (`GET /models?zdr=true`, read with the account's key: the
+argument, else `CHEAPER_INFERENCE_API_KEY` / `CHEAPER_INFERENCE_BASE_URL`); a row the
+catalog no longer offers is unlisted. When Cheaper Inference's catalog cannot be read
+(no key included), its rows keep their listing and its models are in `failed_models`.
+Without an active catalog it does nothing. Run it with `sync_openrouter_listing` in the
+hourly listing job. A host opts in once per
+process with `routing = await use_routing_table(db)`, which keeps the listed rows in
+memory (reloaded in the background at most once a minute) and hands them to simpl_ia,
+and calls `await routing.aclose()` before it exits, while `db` is still open. A host
+that does not, or a model the table does not list, falls back to the target's own
+closed list (`only`, or `order` with `allow_fallbacks: false`), else to the gateway.
+A process with no offering source that runs an agent whose policy names a canonical model
+or a bucket (`needs_routing_table(policy)`) gets the same install on the Loader's database
+the first time, before the agent is built (`ensure_routing_table(db)`, called by
+`execute_agent` and `execute_agent_stream`; concurrent first calls share one install), so
+simpl_flow's flows and strategy runs can run such policies; a host's own install is left
+alone. When the database an install made this way was made on has been shut down, the
+next such agent installs it again on its own Loader database and drains the old
+recorders, logging what they held as lost. Nothing drains an install made this way at
+exit: the outcomes and routes counted since the recorders' last flush (30 s) are lost,
+so a host that needs them installs and closes the table itself.
+
+Each offering is priced from the shared price book, simpl_tracker's
+`cost_tracking.llm_token_prices` (input, cache read and output, USD per token, at the
+tier a call made now is billed at: DeepSeek's `peak` or `off_peak`, `standard`
+elsewhere; the row of the endpoint's tag, or the model-level row, tag `''`, for an
+offering of DeepSeek or Cheaper Inference), and from the listing when the book has no
+row for it; the offering's `price_source` (`book` or `listing`) says which. A listed
+price of 0 counts as none: an offering listed at $0 with no book row is unpriced, so
+simpl_ia ranks it after the priced ones instead of as the cheapest.
+`PriceBookRepository.token_prices()` reads every row with its `pricing_tier`, so the
+view needs simpl_tracker's tier migration (the `pricing_tier` column) before a host runs
+this simpl_core; without it the read fails as a missing view does. A failed read of the
+book keeps the book a previous load read and, before any has, prices every offering from
+the listing; it logs `agent_framework.model_routing.routing_prices_unavailable` as an
+error at every load. The listed offerings are the one read a load needs (when it fails
+the process keeps its previous copy and logs
+`agent_framework.model_routing.routing_table_load_failed`); every other part (pauses,
+health, attributions, statistics, capabilities, epochs, token mixes, clearances,
+canaries, catalog) is
+read in a savepoint of its own, and one that cannot be read keeps the rows a previous
+load read, and is empty only when none has (its table missing for instance); each
+failed read logs an error, `agent_framework.model_routing.routing_table_part_unavailable`
+with its `part`, `error` and `kept`. Kept pauses still end at their own time. The table also hands simpl_ia each agent's token mix,
+`llm_routing.agent_token_mix`: the median input tokens (cached included) and output
+tokens (reasoning included) of the agent's answered calls to each model over the last 7
+days, kept for groups of at least 5 calls.
+
+**Every call's route is recorded.** `use_routing_table` also installs a `RouteRecorder`.
+After each `LLMAgent` call (`check` or `stream`), answered or failed, the chain simpl_ia
+built (its route log: per target the routing, budget, attempt deadline, output cap, token
+mix, the candidates with rank, estimated cost per call and price source, and the upstreams
+left out with a reason such as `zdr`, `quantization`, `ignored` or `paused:agent`) and the
+call's attempts are
+written in the background to `llm_routing.routing_decision` and `llm_routing.attempt`,
+under the call's agent run id and node run id. `llm_routing.decision_explained` renders
+one line per decision and target, with the agent when its `agent_framework.agent_runs`
+row exists; the target's deadline follows its budget, then its cap when it has one (a
+target logged without them shows neither). An exclusion reads by whether the upstream is
+still sent: `not X (reason)` when left out, `X last (blamed)` when tried after every other
+upstream, `X kept (reason)` for any other shadow exclusion, and `sent without the
+precision filter (precision_filter_unmatched)`; X is the upstream, else the member's
+provider:
+
+```text
+openrouter z-ai/glm-5.2 (internal, budget 3, deadline 90 s, cap 16000 tokens, mix 4200 in / 900 out): 1 deepinfra/fp8 $0.00412 book; 2 together $0.00519 listing; not wafer (ignored)
+```
+
+Each attempt row carries `health_class`, the class simpl_ia gave it (`answered`,
+`timeout`, `server`, `capability`, `invalid`, `cancelled`; null for an entry without one),
+and `attempt_key`, the `attempt_id` simpl_ia gives the request,
+which simpl_tracker writes on the request's cost receipt as `routing_attempt_id`: join
+`llm_routing.attempt.attempt_key` to `cost_tracking.llm_request_receipt.routing_attempt_id`
+to read what an attempt cost. It is unique where set and null for an entry without a
+UUID id; an attempt whose key is already stored is skipped and logged as
+`agent_framework.model_routing.route_attempts_duplicate`, and the rest of its route is
+written.
+
+The decision also keeps `attempt_timeout_seconds`, the agent's per-attempt budget the call
+ran with (`LLMAgent`'s `timeout_seconds` when the client bounds each attempt, else null;
+a target's own deadline is in the chain), and
+each attempt `streamed` and `stream_duration_ms`: a request's `latency_ms` is its whole
+response time, a stream's is its time to first chunk, and `stream_duration_ms` the whole
+stream, both from when the request was sent.
+
+**Response times per day.** `llm_routing.response_time_daily` rolls the attempts up per
+UTC day of the attempt's start, pipeline, node, agent, provider, model and upstream (`''`
+for none; the pipeline and node of the agent run's node run, else of the decision's; the
+agent is the run's `agent_id`, else the `process_name` of a receipt of the call):
+
+| Column | Meaning |
+|---|---|
+| `calls`, `attempts`, `answered` | calls with an attempt in the row, attempt rows, those answered |
+| `budget_hits` | attempts that ended on the per-attempt deadline (`ModelAttemptTimeout`) or an HTTP timeout raised as its own class (`llm_routing.attempt_hit_budget`); an HTTP timeout wrapped in `ModelAPIError` is not told apart |
+| `latency_avg_ms`, `latency_p50_ms`, `latency_p90_ms`, `latency_p95_ms` | answered attempts: a request's `latency_ms`, a stream's `stream_duration_ms` |
+| `ttft_p50_ms`, `ttft_p95_ms` | answered streams' `latency_ms` |
+| `output_tokens_per_s_p50` | answered receipts' output tokens (reasoning included) per second of the attempt |
+| `budget_seconds` | the most common attempt deadline of the row's calls: each attempt's own `deadline_seconds`, written with the attempt (its target's `attempt_timeout_seconds`, on a bucket tier its model's, else the call's) |
+| `cost_usd` | known amounts of the cost entries of the attempts' receipts (a receipt's entry has its id); null when none is known |
+| `input_tokens`, `output_tokens` | the same receipts' tokens (input with cached, output with reasoning), duplicates left out; null without a receipt |
+| `failed_calls` | the row's calls with no attempt answered on its provider and model |
+| `estimated_cost_usd` | the failure-cost estimates (`cost_tracking.cost_estimate`) that `cost_tracking.estimate_counts` admits of the receipts of the row's attempts that did not answer, duplicates left out; null without any. Never part of `cost_usd` |
+| `answered_input_tokens` | the input tokens of the answered attempts' receipts that report cached tokens; null without any |
+| `cache_hit_share` | those receipts' cached tokens over `answered_input_tokens`; null when that is null or 0 |
+
+A call with attempts on several upstreams or models counts in each of their rows.
+`llm_routing.refresh_response_time_daily(p_since date)` recomputes each UTC day from
+`p_since` to today that has attempts, replacing all its rows, and returns the rows
+written; a day without attempts keeps its rows, so the rollup outlives the attempts'
+30-day retention. It reads each attempt's agent and deadline and its decision's node run,
+never `agent_runs`. With `pg_cron` and the analytics switch on (below),
+`response_time_daily_recent` runs it at minute 5 of every hour over yesterday and today,
+and `estimated_costs_refresh` at 04:45 UTC daily over the last 21 days (the window
+failure-cost estimates are written over, so a new estimate and its replacement by a late
+bill land within a day) while `llm_routing.failure_estimates_in_use(now() - interval '21
+days')`: simpl_tracker's failure-estimates switch is on, or an estimate of the last 21 days
+exists (false before simpl_tracker's tables exist); without pg_cron, a host schedules the
+same calls.
+`scripts/backfill_response_times.py` (dry run unless `--apply`) fills earlier days from
+the LLM runs' `agent_runs.attempts`, latency, counts and budget hits only, one UTC day at
+a time with `--pause-seconds` (0.5) between days, and never overwrites a row.
+
+The Activity tab reads `sales_view.llm_activity(p_from date, p_to date, p_group text[])`
+(security invoker, execute for `service_role`), a wrapper of `llm_routing.llm_activity`:
+the rows of the UTC days in `[p_from, p_to]`, one per combination of the dimensions
+`p_group` names among `day`, `pipeline_id`, `node_id`, `agent`, `provider`, `model`,
+`upstream` (an unknown name raises `invalid_parameter_value`; an empty array gives one
+total row). Columns, in order: `day`, `pipeline_id`, `node_id`, `agent`, `provider`,
+`model`, `upstream` (null when not grouped by), `calls`, `attempts`, `answered`,
+`budget_hits`, `latency_avg_ms`, `latency_p50_ms`, `latency_p95_ms`, `ttft_p50_ms`,
+`output_tokens_per_s_p50`, `budget_seconds`, `cost_usd`, `input_tokens`,
+`output_tokens`, `failed_calls`, `estimated_cost_usd`, `cache_hit_share`. Counts, costs,
+estimates and tokens are summed. Over several stored rows the averages and percentiles
+are the rows' values weighted by their answered attempts (exact for the average,
+approximate for percentiles); `cache_hit_share` is the rows' shares weighted by their
+`answered_input_tokens` (exact); `budget_seconds` is the value with the most calls. The
+routing migration's step `llm_response_times` is applied before a host runs this
+simpl_core: without its columns every route write is dropped.
+
+A failed write is logged and never fails the call; `routing.aclose()` drains the route
+recorder and the epoch recorder beside the health recorder, within the same
+`timeout_seconds`, and logs `agent_framework.model_routing.route_decisions_lost` (and
+`epochs_lost`) for what it could not write.
+`refresh_routing_inputs(db)` (simpl_flow's listing flow runs it after the sync) rebuilds
+the token mixes from `cost_tracking`; it returns `RoutingMaintenance(token_mixes)` and
+raises what the database raises.
+
+**Scheduled jobs: a switch for the analytics, retention always on.** Every analytics
+pg_cron job the routing and cost migrations schedule (offering statistics and capability
+marks every 5 minutes, each a job of its own, cache statistics and model fit hourly,
+detectors and certification queueing hourly, response times hourly, pipeline run costs
+every 15 minutes and nightly, cancel billing daily at 01:23 UTC, prompt families and
+estimated costs daily) filters its command on `WHERE llm_routing.analytics_jobs_on()`
+(the estimated costs also on `failure_estimates_in_use`, below): while the one row of
+`llm_routing.job_setting` (service role only) has `analytics_jobs` false, the migration's
+default, the job returns at once without reading anything. Turn them on with
+
+```sql
+UPDATE llm_routing.job_setting SET analytics_jobs = true, updated_at = now();
+```
+
+and off the same way. The functions themselves do not read the switch, so a host or a
+person can still call them. The retention jobs never read it and run as procedures that
+delete in bounded batches, each committed on its own with a pause between them (call them
+outside a transaction block; each returns its counts):
+`routing_evidence_retention` at 03:50 UTC runs `CALL llm_routing.prune_routing_evidence()`
+(attempts and decisions written more than 30 days ago, health buckets older than 48 hours,
+epochs that ended more than 90 days ago), `agent_run_messages_retention` at 03:40 UTC runs
+`CALL agent_framework.prune_agent_run_messages()` (30 days) and
+`pipeline_run_costs_retention` at 03:55 UTC runs
+`CALL agent_framework.prune_pipeline_run_costs()` (runs started more than 90 days ago).
+
+**Health is shared by the fleet.** `use_routing_table` also installs a `HealthRecorder`
+as simpl_ia's health sink. Every attempt simpl_ia classifies (answered, timeout, server
+error, capability error, invalid answer; a cancelled one is dropped), on any target, is
+counted in the process per minute, offering (provider, model, upstream; `""` when pinned
+to none) and agent (`LLMAgent` passes its definition id as simpl_ia's `agent_name`), with a
+histogram of the answered attempts' latency, and written every 30 seconds through
+`llm_routing.record_health` into `llm_routing.health_bucket` (kept 48 hours), with the
+settings of each offering's latest outcome. A failed write is logged and retried (5 tries,
+30 s apart), and never fails the call; `routing.aclose()` writes what is still counted,
+one try within 5 seconds, and logs `agent_framework.model_routing.health_outcomes_lost`
+for what it could not write. The process's own timeout skip stays as the fast local path.
+
+`record_health` adds the buckets to every other process's, then runs each named
+offering's transition under its lock, over the last `window_seconds` (600):
+
+- **Rate.** Failures (timeouts, server errors) over attempts (answered, timeouts, server
+  errors; capability errors and invalid answers left out), counted once `min_attempts`
+  (20) remain, and only from the end of the offering's last global pause.
+- **Attribution.** An agent failing at `open_rate` or more on an offering whose other
+  agents have `misfit_min_other_attempts` (10) or more attempts there and fail below
+  `degrade_rate` is left out of that offering's rate (and of the fleet guard's view of
+  it), on a model with a single offering too, and has one open `agent_attribution`
+  finding on that offering (none for a chain without an agent name), resolved once a
+  window passes without the blame; blamed again within a window of that resolution, the
+  same finding is reopened rather than a new one written. The routing table hands each offering the agents of
+  its open `agent_attribution` findings last seen within their window
+  (`Offering.blamed_agents`), and simpl_ia tries that offering after every other for
+  those agents only: never skipped, never paused, logged in the route's `excluded` as
+  `blamed` with `shadow: true`. An agent left out so on
+  `misfit_min_offerings` (2) or more offerings is a workload misfit: one open
+  `workload_misfit` finding once its attempts there reach `min_attempts`. On an offering
+  where the others fail too, or are too idle to judge, its failures count.
+- **States.** `healthy` → `degraded` at `degrade_rate` (10%), → `open` at `open_rate`
+  (25%); `degraded` → `healthy` below `recover_rate` (5%). `open` writes a global
+  `offering_pause` (reason `health`) for `first_cooldown_seconds` (300), doubled at each
+  reopening up to `max_cooldown_seconds` (a day) and reset after a full window healthy;
+  once that pause ends (expired, or by hand) the offering is `probing`: `probe_answers`
+  (3) answers make it healthy, a failure reopens it.
+- **Capability.** An agent with 2 or more capability errors (400, 404, 422) there gets an
+  agent pause (reason `capability`) for `capability_cooldown_seconds` (a day) and one
+  `capability_error` finding; one error does neither.
+- **Fleet guard.** While two or more, and at least `fleet_guard_share` (half), of the
+  offerings with traffic are failing or paused for health, no offering opens (it stays
+  `degraded`), and one `fleet_guard` finding is open.
+- **Overrides** (unexpired): `ban` keeps the offering open through a pause (reason
+  `override`; for one agent, that agent's pause), `exempt` never opens it (nor pauses an
+  agent for capability), `force_state` sets its state.
+
+Every process adopts the pauses with its routing table (within a minute), and each
+offering's `health` with it: simpl_ia ranks a `degraded` one with the gateway's degraded
+endpoints. An offering stored `open` with no global pause in force loads as `probing`
+(`routing_table.loaded_health`), so canonical and bucket targets try it again once its
+pause ends. An offering pinned to no upstream gets a state but no pause, and loads as
+`probing` once its cooldown since opening has passed. A finding is
+resolved once a window passes without it being seen.
+
+The dashboard reads `sales_view.llm_routing_offerings` (each offering with `paused`, a
+global pause in force, `open_pauses`, and `health_state`, `health_reason`,
+`health_counts`; an open offering whose pause ended, or without an upstream whose cooldown
+passed, reads `probing`),
+`sales_view.llm_routing_pauses` (every pause in force with its scope, agent, `reason`
+and length), `sales_view.llm_routing_findings` (open first) and
+`sales_view.llm_routing_overrides` (active first), ends a pause by id with
+`sales_view.end_llm_routing_pause(pause_id, ended_by)`, and sets and ends overrides with
+`sales_view.set_llm_routing_override(p_provider, p_model, p_upstream, p_agent, p_action,
+p_state, p_expires_at, p_by) → bigint` (`p_agent` null for every agent; `p_state` only
+with `force_state`) and `sales_view.end_llm_routing_override(p_id, p_by) → boolean`. A
+ban pauses at once; ending it ends its pause. Every process stops skipping for an ended
+pause at its next reload. The `llm_routing` views and functions they wrap are security
+invoker; the `sales_view` objects are for service_role only. The routing migration's step
+`llm_routing_health` is applied before a host runs this simpl_core. `scripts/replay_health.py` replays the state machine over the
+`agent_runs` attempt trail in a scratch database and prints every transition and finding.
+
+**Offerings are ranked by what they measured.** The routing table also hands simpl_ia
+each offering's statistics (`RoutingTable.offering_stats(agent, provider, model,
+upstream)`: the agent's row, else the offering's pooled row, else `None`) and each
+agent's token profile (`RoutingTable.token_profile(agent, provider, model)`), from
+`llm_routing.offering_stats` and `llm_routing.agent_token_profile`. simpl_ia scores every
+internal target's candidates with them on every call and logs the effective ranking
+beside the price one (`effective_rank`, `cost_per_answer_usd`, `latency_s`, `p_bad`,
+`deadline_s` per candidate; `ranking` and `exploration` per target); only a target with
+`ranking: effective` sends it.
+
+- `llm_routing.attempt_outcome` (view; `llm_routing.attempt_outcomes(p_since, p_until
+  DEFAULT now(), p_decision_ids bigint[] DEFAULT NULL)` for the attempts written in a
+  window, both ends included, only those of `p_decision_ids` when given) is each
+  attempt with its agent and its deadline as the route recorder wrote them on the attempt
+  (`decision_row` takes the agent; `attempt_deadline_seconds`: the chain entry's
+  `attempt_timeout_seconds`, else, on a bucket tier, the attempt's model's under the
+  entry's `models`, else the call's), read without `agent_runs` or the chain; its whole
+  latency and a
+  stream's time to first chunk, its receipts' input, cached, output and reasoning tokens
+  and billed or priced cost (duplicates left out), and, for an attempt that did not
+  answer while `cost_tracking.settings.failure_estimates` is on, its counting estimate.
+- `offering_stats`, per provider, model, upstream and agent (`''` is the pooled row):
+  exponentially decayed over every attempt kept, with no window: the pooled row weighs
+  every agent's attempts by 0.5 per hour of age, an agent's row its attempts by 0.5 per
+  week, an attempt's age counted from its start (its write, if earlier); a row weighing
+  under 1e-9 attempts is dropped. Only `answered`, `timeout` and `server` attempts count. `p_fail` is failures (timeout, server) over
+  attempts, `p_late` late answers (above 0.8 × the target's deadline) over answers, each
+  under a Beta prior of mean 5% worth 10 attempts, `(hits + 0.5) / (count + 10)`; an
+  agent's are shrunk toward the pooled row instead, `(own + 20 × pooled) / (count + 20)`,
+  when there is one. `samples` (weighted answers, rounded), `attempts`, latency p50/p90/p95,
+  `ttft_p50_ms`, `ttft_p95_ms` (over at least 5 weighted streams, rounded),
+  `tokens_per_s` (a stream's from its first chunk), `cache_hit_share`,
+  `answered_cost_usd` and `failed_cost_usd` (cost plus estimate, unknown counting 0) are
+  weighted the same. A quantile is read from a decayed histogram of buckets 2^(1/8) wide
+  (about 9%): the weighted mean of the first bucket whose cumulative weight reaches the
+  share, the exact value when that bucket's values are equal.
+- `agent_token_profile`, per agent, provider and model: median and p90 input (cached
+  included), median cached, median and p90 output (reasoning left out) and reasoning
+  tokens of the answered attempts with a receipt, weighted 0.5 per week of age and read
+  from histograms the same way, for at least 5 samples (weighted answers, rounded).
+  `agent_token_mix` stays for `token_mix`.
+- `llm_routing.refresh_offering_stats(p_now timestamptz DEFAULT NULL) → integer` adds the
+  attempts written since its last run to stored decayed sums and histograms
+  (`offering_stats_sum`, `offering_stats_histogram`, `agent_token_sum`,
+  `agent_token_histogram`, each stored relative to `offering_stats_state.reference_at`, so
+  an attempt touches only its own rows), then rewrites the three tables as of `p_now` (the
+  database's clock when null) and returns the rows written, one at a time. Each attempt
+  folded in the last 2 days is recorded (`offering_stats_folded`) with the tokens, cost and
+  failure estimate it was folded with: one a slow transaction commits after a refresh is
+  still added, once, and each is read again at 1 hour and 2 days old; when its cost or
+  tokens changed (a late bill, a receipt delivered after the fold, a daily failure
+  estimate), its recorded contribution is subtracted and its current one added. Every
+  product of a decayed weight goes through `llm_routing.product_or_zero(value, factor)`,
+  0 under 1e-290 instead of a float8 underflow, so evidence never touched again decays to
+  0 and the refresh keeps running. Without stored sums, or for a `p_now` before the last
+  refresh's, it rebuilds them; `llm_routing.rebuild_offering_stats(p_now)` rebuilds them
+  from every attempt kept. Both give the same statistics for the same attempts once their
+  costs and tokens are those last read; the prune leaves the sums of the attempts it
+  deletes in place. With `pg_cron`, `offering_stats_refresh` runs it every 5 minutes
+  while the analytics switch is on, else a host schedules it. `OfferingStatsRepository`
+  reads the tables and calls `refresh(now=)` and `rebuild(now=)`.
+- `agent_model_fit`, per agent, provider and model (the provider's name): the agent's
+  `answers` (attempts of class `answered` or `invalid`) and `invalid` ones of the last 14
+  days, each weighted 0.5 per week of age; attempts with no agent count nowhere.
+  `llm_routing.refresh_model_fit(p_now timestamptz DEFAULT NULL) → integer` replaces it,
+  one at a time; with `pg_cron`, `model_fit_refresh` runs it at minute 53 of every hour
+  while the analytics switch is on, else a host schedules it. `OfferingStatsRepository.model_fits()` reads it and
+  `refresh_model_fit(now=)` calls it. The routing table sums an agent's rows over each
+  canonical model's catalog offers and hands simpl_ia the rate,
+  `RoutingTable.model_fit(agent, model) → float | None` = `(invalid + 0.5) / (answers +
+  10)` (a Beta prior of mean 5% worth 10 answers; `None` unmeasured): a bucket tier's
+  candidate's cost per usable answer is divided by 1 − its model's rate. The routing
+  migration's step `model_fit` is applied before a host runs this simpl_core: without the
+  table every routing table load fails and keeps its previous copy.
+- `offering_stats_input_size`, per `offering_stats` row and `input_size` (`lt_2k`,
+  `2k_8k`, `8k_32k`, `ge_32k`, as simpl_ia's `routing_table.input_size` names the input
+  tokens of the attempt's receipts; `llm_routing.input_size(tokens)` in SQL): `samples`,
+  `attempts` (the weighted answers), latency p50/p90/p95, `ttft_p50_ms`, `ttft_p95_ms` and
+  `tokens_per_s` of the row's answers of that size, for at least 5 samples; written by
+  `refresh_offering_stats`. The routing table hands them to simpl_ia as the statistics'
+  `by_input_size` (with the row's `p_fail` and `p_late`), which scores a call on its
+  bucket's latencies, first chunks and speed: the agent's token profile places the call,
+  else the rendered prompt's length over 4 (`LLMAgent` passes `prompt_chars`).
+  `OfferingStatsRepository.input_size_stats()` reads them.
+
+`scripts/routing_shadow_report.py --since YYYY-MM-DD [--until] [--agent]` (read only)
+prints, per agent and target, the calls that logged an effective ranking, how many had a
+different first offering than the price order, how many were explored, and the average
+logged cost per answer and latency of each order's first offering. The routing
+migration's step `offering_stats` is applied before a host runs this simpl_core: without
+`attempt.health_class` every route write is dropped, and without the two tables every
+routing table load fails and keeps its previous copy.
+
+**Tail control: the cancel-billing mark and the off-policy report.**
+
+- `llm_routing.offering_cancel_billing` (provider, model, upstream, `cancels`,
+  `overbilled`, `cancel_stops_billing`, `last_cancel_at`, `computed_at`): over 30 days, the
+  streams cancelled on the offering that its provider billed (a cost entry with
+  `cost_source = 'provider'`) and whose input is known (the receipt's, else the same run's
+  answer on the same model). A cancel is overbilled when its bill pays for more than 32
+  output tokens past what it streamed, the output a bill pays for being its amount less the
+  uncached input at the listed prompt price, over the listed completion price.
+  `cancel_stops_billing` is true with 5 cancels or more and none overbilled, false with 5 or
+  more and one overbilled, null below 5. `llm_routing.refresh_cancel_billing(p_now
+  timestamptz DEFAULT NULL) → integer` replaces it; with `pg_cron`,
+  `cancel_billing_refresh` runs at 01:23 UTC daily while the analytics switch is on, else
+  a host schedules it.
+  `OfferingStatsRepository.cancel_billing()` and `refresh_cancel_billing(now=)` read and
+  call it. The routing table gives each simpl_ia `Offering` its mark as
+  `cancel_stops_billing` (`None` until marked): simpl_ia hedges only on offerings marked
+  true. `sales_view.llm_routing_capabilities` lists it as one more capability per listed
+  offering, `cancel_stops_billing`: `observed` (true), `failed` (false) or `unknown`.
+- `sales_view.llm_routing_off_policy_report(p_from date, p_to date)` (over
+  `llm_routing.off_policy_report`, same arguments and rows; both days UTC and included; a
+  reversed range raises) estimates per agent, by self-normalised importance sampling over
+  the calls whose route logged a propensity for its first upstream, what its calls would
+  have cost per answer and taken had each started on the price order's first candidate, and
+  on the effective order's. A call counts by its chain's `fallback_index` 0 entry: a chosen
+  canary's propensity, else the canary's (1 without) times the exploration draw's, or the
+  stored `routing_epoch` propensity of the epoch and home it followed (kept, new or
+  switched), or 1; no propensity under an epoch override, an unstored epoch or no draw at
+  all. A call matching an order weighs 1 / propensity; its cost is all its attempts' known
+  amounts plus counting estimates, its latency from its first attempt's start to the end of
+  its last answered one. Intervals are 95%, from the residuals clustered by draw (an epoch's
+  calls share one), null with fewer than 2 draws and never below 0. Columns: `agent`
+  (`''` without one), `calls`, then `price_calls`, `price_cost_per_answer_usd`,
+  `price_cost_per_answer_low_usd`, `price_cost_per_answer_high_usd`, `price_latency_s`,
+  `price_latency_low_s`, `price_latency_high_s`, and the same seven for `effective_`;
+  ordered by agent. It reads simpl_tracker's receipt tables through `attempt_outcomes`,
+  over the attempts written from a day before `p_from` to a day after `p_to`.
+
+The routing migration's step `tail_control` is applied before a host runs this simpl_core:
+without `ttft_p95_ms` and the two tables every routing table load fails and keeps its
+previous copy.
+
+**Prompt families stay on a warm cache.** simpl_ia keys every call's prompt family from
+the agent, its `prompt_id` (`LLMAgent` passes the definition's when the client takes it)
+and its tool names, sends that key where a provider can use it, and, for a target with
+`ranking: effective`, keeps the family on one upstream of each model for an epoch (the
+provider's cache lifetime, at most 30 minutes). This package keeps what the fleet shares:
+
+- Each attempt row also carries `family` (the family key), `prefix_fingerprint` (`text[]`,
+  cumulative hashes of the request's tool definitions and system prompt per 4,000
+  characters) and `cache_affinity` (Cheaper Inference's `hit`, `miss`, `new` or `stale`);
+  null when the entry has none.
+- `llm_routing.routing_epoch` (family, provider, model, `epoch_start`, `epoch_end`,
+  `upstream`, `snapshot_version`, `candidates` jsonb, `draw` jsonb, `propensity`; kept 90
+  days): every epoch a process planned. `use_routing_table` installs an `EpochRecorder` as
+  simpl_ia's epoch sink; it writes plans in the background through
+  `llm_routing.record_epoch(...) → boolean`, which stores a plan only when no epoch of the
+  family on that model covers any part of its period, so the first process wins and the
+  others follow its row after their next reload (at most a minute). The routing table
+  hands simpl_ia each family's latest epoch per model of the last day
+  (`RoutingTable.family_epoch(family, provider, model)`), and `snapshot_version()`, a hash
+  of the prices and statistics it loaded: the same in every process that loaded the same
+  rows, so they seed the same draw.
+- `llm_routing.cache_stats` (family, provider, model, upstream): `warm_hit_share`, the
+  cached share of the input tokens of the family's answers made within an epoch length of
+  its previous answer on that offering, and `calls_per_epoch`, its answers on the model per
+  epoch-length period it answered in (the same on every upstream), over 14 days weighted
+  0.5 per week of age; the epoch length is the latest planned on the model in the last
+  day, else 300 s. `RoutingTable.cache_warmth(family, provider, model, upstream)` and
+  `family_rate(family)` (the largest over its models) hand them over.
+  `llm_routing.refresh_cache_stats(p_now timestamptz DEFAULT NULL) → integer` replaces the
+  table; with `pg_cron`, `cache_stats_refresh` runs it at minute 41 of every hour while the
+  analytics switch is on, else a host schedules it.
+- `llm_routing.prompt_family` (family, `agents text[]`, `shared_prefix_blocks`,
+  `updated_at`): for each family seen in 7 days, the agents whose families' attempts on
+  one of the same models agree on its first fingerprint block, its own included, and the
+  leading blocks all of them agree on. `RoutingTable.family_agents(family)` hands the
+  agents to simpl_ia, which asks Cheaper Inference for an org-wide cache scope when there
+  are several. `llm_routing.refresh_prompt_families(p_now timestamptz DEFAULT NULL) →
+  integer` replaces it; with `pg_cron`, `prompt_family_refresh` runs at 03:20 UTC daily
+  while the analytics switch is on.
+
+`AffinityRepository` writes the epochs, reads the three tables and calls both refreshes.
+The routing migration's step `cache_affinity` is applied before a host runs this
+simpl_core: without the attempt columns every route write is dropped, and without the
+tables every routing table load fails and keeps its previous copy.
+
+**Offerings are marked by capability, from real calls and from a certification suite.**
+simpl_ia lists on every attempt entry the capabilities the request needed (`tools`,
+`structured_output.native`, `.tool` or `.prompted`, `reasoning`), and routes by each
+offering's marks: an offering `failed` for a needed capability is left out, `certified`
+or `observed` ones rank ahead of `unknown` ones within their band. This package keeps the
+marks and hands them over:
+
+- Each attempt row also carries `capabilities` (`text[]`, sorted; null when the entry has
+  no list).
+- `llm_routing.offering_capability` (provider, model, upstream, capability, `status`
+  `certified` | `observed` | `failed`, `source` `certification` | `observed`,
+  `suite_version`, `evidence` jsonb, `updated_at` (when the evidence was seen),
+  `expires_at` (a certification's `certified` mark, 30 days on, its `failed` mark 7 days
+  on; a `failed` mark from real calls', 24 hours after its evidence)). A missing row is `unknown`. `RoutingTable.load` gives each
+  simpl_ia `Offering` its marks as `capabilities` (`None` without any; a mark whose
+  `expires_at` has passed is left out, so it reads `unknown`) and counts them in
+  `snapshot_version()`.
+- `llm_routing.mark_capabilities_from_attempts(p_since timestamptz) → integer`: per
+  offering and needed capability of the attempts written since `p_since` on an upstream,
+  the latest accepted answer (`health_class = 'answered'`) marks `observed`; the latest
+  capability error (`'capability'`: HTTP 400, 404, 422) marks `failed` only when 2 or more
+  distinct agents (the attempts' own `agent`) had a capability error for it in those
+  attempts, and
+  marks nothing otherwise; neither changes a stored mark that is `certified` or newer.
+  Each offering whose latest attempt for a capability was a
+  capability error gets one open `capability_error` finding with `agent` null and
+  `details.capabilities` naming each such capability (its errors, the last one's time and
+  the agents). With `pg_cron`, `capability_marks` runs it over the last 15 minutes every
+  5 minutes while the analytics switch is on, apart from the statistics refresh, so a
+  refresh that fails does not skip the marks.
+- `llm_routing.certification_queue` (provider, model, upstream, `trigger`, `queued_at`)
+  holds the offerings waiting for the suite. It is filled by triggers: a new offering
+  (`new_offering`), a listing change of quantization, context length or supported
+  parameters, or a relisting (`listing_change`; every change of those, `zdr` and `listed`
+  is kept in `llm_routing.offering_listing_change` (field, `old_value`, `new_value` jsonb,
+  `seen_at`)), a new `capability_error` finding (`capability_error`), a detector alarm
+  (`drift`), and `llm_routing.enqueue_due_certifications(p_now timestamptz DEFAULT NULL)
+  → integer` for every listed offering without a completed run in 30 days (`uncertified`,
+  `expired`). Only listed offerings are queued.
+- `llm_routing.run_offering_detectors(p_now timestamptz DEFAULT NULL)` returns its alarms
+  (provider, model, upstream, `detector`, `statistic`, `threshold`): `error_cusum` and
+  `invalid_cusum` (Bernoulli CUSUM over `health_bucket` minutes against the offering's
+  7-day rate, above 5), `latency_page_hinkley` (log-latency of answered attempts centred
+  per agent, above 20), `invalid_peer` and `reasoning_peer` (modified z-score against the
+  model's other offerings, above 3.5; the reasoning one from receipts). Each offering is
+  judged on its evidence since its latest alarm, at most a day. An alarm writes one open
+  `drift` finding (`details`: `detector`, `statistic`, `threshold`, `alarms`), deletes the
+  offering's `offering_stats` rows (the next refresh rebuilds them) and queues it; a drift
+  finding not seen for a day is resolved. With `pg_cron`, `offering_detectors` runs it and
+  the due check hourly while the analytics switch is on.
+- `sales_view.llm_routing_capabilities` (over `llm_routing.capability_status`): one row per
+  listed offering and capability, in order: `provider`, `model`, `upstream`,
+  `upstream_name`, `capability`, `status` (`unknown` without a mark), `source`,
+  `suite_version`, `updated_at`, `expires_at`, `expired`.
+
+The suite is `simpl_core.llm_routing.certification` (the `agent-framework` extra). Its
+cases are ledger agents in that package's `agent_policy.yaml` (config key
+`llm_routing_certification_root`), each run by `execute_agent(..., model_policy=)` on a
+policy pinned to the offering (gateway routing, `provider_routing.only: [upstream]`,
+`allow_fallbacks: false`, one attempt, no fallbacks), so every call writes its
+`agent_runs` row, tool calls, model exchange and receipts under one node run
+(`llm_routing_certification`, correlation `certification_run:<id>`). Cases: tools (the
+lookup tool called with the right key among five decoys, per sample), each
+structured-output mode (a nested schema answered valid, per sample, an answer after an
+invalid attempt included; a mode the client never sends to the offering is not judged),
+reasoning (more reasoning tokens at `high` than at `low`), caching (cached tokens on a
+repeated long prefix), context (a document of half the window read whole) and a streamed
+latency baseline (time to first token, tokens per second; no mark). A capability whose
+cases all passed is `certified`; it is `failed` on one case failed by a capability error
+(HTTP 400, 404 or 422), or on 2 failed cases (`FAILING_SAMPLES`; every case, for a
+capability judged on fewer); fewer failures leave it unmarked. A capability tested by a
+single case (reasoning, caching, context) runs that case once more in the same run when
+it fails without a capability error (`<case>.rerun`, recorded like any case), and is
+`failed` only when the re-run fails too. A timeout, a server error
+or a missing receipt decides nothing. A run's `certified` marks expire after 30 days
+(`CERTIFIED_TTL`), its `failed` ones after 7 (`FAILED_TTL`).
+
+```python
+from simpl_core.llm_routing.certification import run_certification, work_certification_queue
+
+outcome = await run_certification(db, "openrouter", model, upstream, trigger="manual",
+                                  max_cost_usd=1.0)
+result = await work_certification_queue(db, max_offerings=5, max_cost_usd=5.0)
+```
+
+`run_certification` writes `llm_routing.certification_run` (trigger, suite version,
+status `running` | `completed` | `stopped` | `error`, `cost_usd`), one
+`llm_routing.certification_result` per case (capability or `baseline`, `case_name`,
+`passed`, null when undecided, `details`, `agent_run_id`) and the marks, and returns
+`CertificationOutcome(run_id, provider, model, upstream, status, cost_usd, cases, marks)`.
+It counts each call's cost from its receipts and stops before a call that would pass
+`max_cost_usd` (`stopped`, marking only the capabilities it judged whole); it raises
+`OfferingNotFound` for an offering not listed and `CertificationRunFailed` (with `run_id`
+and `cost_usd`) when a started run ends on an error, stored as `error`.
+`work_certification_queue` (simpl_flow's certification flow) first queues what is due,
+then runs the oldest queued offerings one at a time, at most `max_offerings`, within
+`max_cost_usd` for the whole pass; a failed run is logged
+(`llm_routing.certification.run_failed`) and its offering queued again. It returns
+`CertificationQueueResult(offerings, completed, stopped, errors, skipped, cases, cost_usd,
+budget_exhausted)`. `CertificationRepository` reads and writes the tables and calls the
+SQL functions.
+
+Publishing the suite's agents is a ledger version, as for any document: `simpl_core
+af_config_migrate --yaml src/simpl_core/llm_routing/certification/agent_policy.yaml --dest
+migrations/ --config-key llm_routing_certification_root --version 1 --parent 0 --prefix
+<migration number> --summary "..." --activate`, then a person applies the seed; until a
+version is active, both functions raise `LookupError`. The placeholder policy in the
+document sends nothing. The routing migration's step `certification` is applied before a
+host runs this simpl_core: without `attempt.capabilities` every route write is dropped,
+and without `offering_capability` every routing table load leaves the capability marks
+empty.
+
+**Offerings without an upstream.** DeepSeek and Cheaper Inference serve a model as one
+offering, stored with upstream `''`. A member of a canonical target on one of them
+reports no upstream; the health recorder counts it toward the offering `''`, the
+statistics read it there, `mark_capabilities_from_attempts` marks that offering from
+attempts sent to no upstream (never OpenRouter's own routing, which has no such
+offering), a `capability_error` finding naming no upstream queues it, and the detectors
+read its attempts. Such an offering gets health states and findings but no pause (a pause
+needs an upstream). The routing table hands simpl_ia the active catalog's canonical
+models (`RoutingTable.catalog_model(name)`, simpl_ia's `CatalogModel` with the offers
+that name a model) and its buckets (`RoutingTable.catalog_bucket(name)`, simpl_ia's
+`CatalogBucket(name, tiers, objective, constraints, require_zdr)`), reloaded with the
+rest; a catalog version whose content fails the gate keeps the catalog in hand and logs
+`agent_framework.model_routing.model_catalog_unreadable` once. The routing migration's
+step `first_party_offerings` is applied before a host runs this simpl_core: without it
+every DeepSeek and Cheaper Inference row the first-party sync writes is refused.
+
+**Routing proposals.** Changes to *what* runs (the model an agent names, the lowest
+precision it may run on, its time budget and output cap, its prompt) are prepared by the
+nightly routing advisor and decided by a dashboard admin; the router's own choice of
+provider and sub-provider is never a proposal.
+
+```python
+from simpl_core.llm_routing.advisor import run_routing_advisor
+
+result = await run_routing_advisor(db)  # AdvisorResult(created, applied, verified,
+                                        #   regressed, reverted, expired, reopened, moved)
+```
+
+`run_routing_advisor(db, *, now=None, settings=None)` (the `agent-framework` extra; simpl_flow's
+`llm_routing_advisor_flow` runs it at 03:40 UTC) expires open proposals older than 30
+days (a proposal sent back to open counts from `verification.stale.at`), writes each accepted ledger patch as a new **inactive** config version (version
+`<active>-proposal-<id>`, parent the active one, `source = 'dashboard'`, `created_by` the
+admin) or sends it back to `open` with `verification.stale.reason` when it no longer applies
+(element or path gone, value changed, validation refused), moves each stranded ledger patch
+(applied, its version never activated, its parent no longer the active version, so the
+ledger refuses to activate it) onto the active version as `<active>-proposal-<id>`
+(recorded in `verification.moves`: `at`, `from`, `to`) when the values it replaces are
+unchanged there, else sends it back to `open` with `verification.stale` (`version` the one
+it had written), verifies applied proposals for
+14 days after they take effect (a clearance when accepted, a ledger version when
+activated), reverts each one it judges `regressed` in the same transaction, and opens new
+ones. A regressed ledger patch is reverted by activating its version's parent while its
+version is the active one; a regressed clearance by restoring the clearance its patch's
+`from` records (deleting it when there was none) while the clearance is the one the patch
+wrote. The proposal stays `regressed` and keeps the revert in `verification.revert`
+(`at`, `reverted`, then `config_key`, `activated`, `deactivated`, or `clearance`,
+`replaced`, `restored`, or `reason` when nothing was reverted, the ledger's refusal
+included when another version became active meanwhile), and each revert logs
+`agent_framework.model_routing.routing_proposal_reverted` (warning) with `proposal_id`,
+`kind`, `subject`, `reasons`, `revert` and `page`. New proposals each log
+`agent_framework.model_routing.routing_proposal_created` (warning) with `proposal_id`,
+`kind`, `subject`, `usd_per_day` and `page` (`/dashboard/monitoring/routing-proposals`).
+`AdvisorSettings` holds its windows and thresholds. Kinds: `workload_misfit` (an open
+misfit finding; ledger patch raising `timeout_seconds`, or `model.attempt_timeout_seconds`
+when the policy sets it, to 1.5 times the larger of the budget and the p95 latency, and
+`model.max_output_tokens` below 1.5 times the p90 output; a task outside the ledger),
+`prompt_not_cacheable` (a family under 15% cache hits over 7 days and 200 answers whose
+shared prefix is under half its input; task), `retired_model` (an active policy naming a
+model no listing or catalog offers, or one answering under another name; ledger patch to
+the new name when known, else a task), `certification_failed` (information),
+`cheaper_model` and `lower_precision` (from `llm_routing.trial` when it exists), and
+`add_model_to_tier` (a passed trial of an agent whose active policy names a bucket, its
+reference a model of one of the bucket's tiers and its candidate another catalog model the
+bucket does not name: a task to add the candidate to that tier in a new catalog version,
+one per bucket, tier and model, subject `bucket`, `tier`, `model`, `tier_models`,
+`agents`; such a trial proposes no `cheaper_model`).
+
+`llm_routing.proposal`: `id`, `kind`, `subject` (agent, model, offering, config_key as they
+apply), `finding_id`, `evidence` (figures and `query`, the SQL behind them), `impact`
+(`usd_per_day`, `usd_per_day_low`, `usd_per_day_high`, `seconds_per_call`; positive is a
+saving), `risk` (`low` | `medium` | `high`), `reversible`, `patch`, `status` (`open` →
+`accepted` → `applied` → `verified` | `regressed`, or `dismissed` / `expired`),
+`dedupe_key` (one open per key), `created_at`, `decided_by`, `decided_at`,
+`dismissed_reason`, `applied_config_version`, `verify_until`, `verification` (`before`,
+`after`, `guardrails`, `observed_usd_per_day`, `result`, `reasons`, `judged_at`). A patch is
+`{"type": "ledger", "config_key", "changes": [{"element": "<kind>:<id>", "path": "a.b",
+"value", "from"?}]}`, `{"type": "clearance", "agent", "model", "precision", "status":
+"excluded" | "allowed", "trial_id"?, "from"?}` (accepting sets `from` to the clearance it
+replaces: `status`, `trial_id`, `decided_by`, `decided_at`, or null),
+`{"type": "task", "text"}` or `{"type": "none"}`;
+`llm_routing.proposal_patch_problem(patch jsonb) → text` says what is wrong with one.
+`llm_routing.clearance` (agent, model, precision, `status`, `trial_id`, `decided_by`,
+`decided_at`) holds accepted clearances.
+
+For the dashboard (security invoker, `service_role` only):
+
+- `sales_view.llm_routing_proposals`: every proposal, open first, then by
+  `usd_per_day` descending, then newest: `id`, `kind`, `status`, `open`, `subject`,
+  `finding_id`, `evidence`, `impact`, `usd_per_day`, `risk`, `reversible`, `patch`,
+  `patch_type`, `dedupe_key`, `created_at`, `decided_by`, `decided_at`,
+  `dismissed_reason`, `applied_config_version`, `applied_version_activated_at`,
+  `applied_version_active`, `verify_until`, `verification`.
+- `sales_view.llm_routing_proposal_track_record`: per `kind`, `proposed`, `open`,
+  `accepted` (accepted, applied, verified or regressed), `applied`, `verified`,
+  `regressed`, `dismissed`, `expired`, `mean_predicted_usd_per_day` and
+  `mean_observed_usd_per_day` (over the verified and regressed ones).
+- `sales_view.accept_routing_proposal(p_id bigint, p_by text, p_patch jsonb DEFAULT NULL)
+  → llm_routing.proposal`: accepts an open proposal; `p_patch` replaces the stored patch
+  when it is well formed and of the same type (same `config_key`; a clearance keeps its
+  agent, model and precision). A clearance is written at once (`applied`), a task or
+  information patch is `applied`, a ledger patch `accepted` for the advisor.
+- `sales_view.dismiss_routing_proposal(p_id bigint, p_reason text, p_by text) →
+  llm_routing.proposal`: dismisses an open or accepted proposal, or an applied ledger patch
+  whose version was never activated; the reason is required.
+
+Both functions raise with a message prefix: `proposal_not_found`, `proposal_not_open`,
+`invalid_patch`, `by_required`, `reason_required`. `ProposalRepository` wraps them and
+reads the views. The routing migration's step `routing_proposals` is applied before the
+advisor runs or the Proposals page is deployed.
+
+**Clearance trials.** Every precision from the catalog's `default_min` (fp4) up is
+routable, `unknown` and precisions the ladder does not name included; a precision is left
+out for an agent when the model catalog's `quantization.never` lists it, an accepted
+clearance excludes it there, or it is on a rung below `default_min`'s and no clearance
+allows it there. The routing table hands simpl_ia all of it
+(`RoutingTable.precision_policy(agent, model) → PrecisionPolicy(never, excluded, allowed,
+ladder, default_min, unknown) | None`, `None` when it excludes nothing; `model` the
+canonical name on a canonical target, else the provider's name, as clearances are keyed),
+every running canary (`RoutingTable.canary(agent, model) → CanaryPlan(trial_id,
+upstream, provider, share) | None`) and whether it has loaded the catalog
+(`RoutingTable.catalog_loaded()`: true after a load that read an active catalog passing its
+gate, or found none; a load that cannot read the offerings or the catalog leaves it false,
+so canonical targets refuse unsent).
+The trials that decide what to exclude are `simpl_core.llm_routing.trials` (the
+`agent-framework` extra):
+
+```python
+from simpl_core.llm_routing.trials import queue_replay_trial, run_due_trials
+
+result = await run_due_trials(db, max_trials=1)   # TrialPassResult(pruned_cases, reopened, queued,
+                                                  #   replays, completed, stopped, cancelled,
+                                                  #   errors, canaries_checked, canaries_ended,
+                                                  #   canaries_started, cost_usd,
+                                                  #   budget_exhausted)
+trial_id = await queue_replay_trial(db, agent="worker", provider="openrouter",
+                                    model="acme/lite-1", upstream="lite/fp8")
+```
+
+`run_due_trials(db, *, max_trials, settings=None, llm_client_resolver=None, clock=...)`
+(simpl_flow's `llm_routing_trials_flow`, daily, shipped off) **refuses every pass**: it
+raises `TrialRulesNotReady` before reading or writing anything, since the replay and canary
+decision rules cannot tell a better candidate from noise; nothing is run, spent or written.
+`queue_replay_trial` still queues a replay, which waits queued. The pass it refuses deletes
+the cases of trials that ended 90 days ago, reads every running canary, queues the
+re-trials provider-side changes call for, queues the replays due, runs up to `max_trials`
+replays oldest first, and starts the canaries of replays that passed. Nothing
+that costs money runs while the month's trial budget is 0 (the default). A subject is an
+`llm_agent` of an active pipeline version on a typed policy without tools (its own, its
+memory's or sandbox's: a replay would run them again); its primary target is the model
+tried. It is eligible with 200 good runs (producer runs that answered, outside trials and
+certification) in 14 days at one precision, its current one; its reference is the offering
+of the target that answered most of them. A replay is due for each other precision of the
+target below the reference's rung of the catalog's ladder, or off it, the cheapest offering
+per precision, unless the catalog never allows it, a clearance excludes it for the agent,
+or it was tried in the last 30 days. A zero-data-retention agent (its primary sets
+`require_zdr: true`, or `provider_routing.zdr: true` on OpenRouter) replays only on ZDR
+offerings, its judge calls too, every call pinning `zdr: true` in its OpenRouter routing
+(`replay_policy(..., zdr=True)`); inputs are not redacted.
+
+A replay re-runs the newest 300 good runs of the agent's latest prompt version (at least
+200, or it is cancelled) through `execute_agent(..., model_policy=)` with the definition's
+policy pinned to the reference twice (R1, R2) and to the candidate once (C) (reasoning,
+output mode, attempt budget, timeouts, output cap and temperature kept; `replay_policy`),
+each call writing its `agent_runs` row under node run `llm_routing_trial` (correlation
+`llm_routing_trial:<id>`). Each output field is compared with R1 by its schema type: enums,
+booleans, ids (`id`, `*_id`) and free mappings exactly, numbers within 5%, lists by set F1
+(at least 0.8), other strings as free text, which the judge decides when they differ beyond
+case and whitespace (agent `llm_routing_trial_judge` of `agent_policy.yaml` beside the
+package, config key `llm_routing_trials_root`, pinned to the cheapest listed offering of its
+model). A case whose R1 failed, or whose other runs got no answer (timeout, server), is
+kept and not compared. The excess disagreement is disagree(C, R1) − disagree(R2, R1); its
+bound is the exact Clopper–Pearson one-sided 95% upper bound of the cases only C disagreed
+on, less the share only R2 disagreed on. A replay passes when the bound is at most 2
+points, no error channel (`wrong_tool`, `bad_arguments`, `invalid_output`, from the retry
+prompts) rises more than 1 point over the reference's and the candidate has no new schema
+failure; it is `inconclusive` under 200 compared cases. Each case is stored with its cost
+and spent from the month's budget in one transaction; the replay stops (`stopped`) before
+a case the month's budget cannot cover and resumes in a later pass with room. A trial
+whose agent's or judge's ledger version, or a judge offering, is missing keeps its status
+with `result.blocked`, counted in `errors`, before any call.
+
+A replay that passed on the same target, for an agent whose primary target routes
+internally (canonical, or `routing: internal`), queues a canary: while `running` it is
+published to simpl_ia at a 10% share. Each pass reads the calls drawn into it (route log
+`canary` on `llm_routing.routing_decision`, its attempts, audit rows and validation runs),
+spends the chosen calls' cost (receipts, else the agent's token mix at the candidate's
+price) and ends it `fail` on a guardrail breach (an always-valid mSPRT on the validator
+failure rate, invalid answers and fix loops, each 2 points, and the latency, 1.25 times),
+`pass` or `fail` after 3 days and 300 chosen and control calls on the Newcombe upper bound
+of the bad-outcome rate's rise (no answer, or a failed validation) against 1.5 points,
+`inconclusive` after 14 days; it is `stopped` (unpublished) while the month's budget is
+spent. `TrialSettings` holds every threshold. The routing advisor turns finished trials into
+proposals: a failed one excludes that precision for the agent (`lower_precision`), a
+passed one of a cheaper model names it (`cheaper_model`); a trial's offerings carry
+`canonical` on a canonical target, which the advisor reads as the model. `queue_replay_trial`
+queues a replay of any listed offering against an eligible agent's reference (`LookupError`
+when the agent is not a subject or not eligible or the offering not listed, `ValueError`
+for a non-ZDR candidate of a ZDR agent; `None` when the same replay is open).
+
+`llm_routing.trial`: `id`, `kind` (`replay` | `canary`), `agent`, `model`, `reference` /
+`candidate` (`provider`, `model`, `upstream`, `precision`, `zdr`, `canonical`?), `status`
+(`queued` | `running` | `stopped` | `completed` | `cancelled` | `error`), `settings`,
+`parent_id` (the replay a canary follows), `created_at`, `started_at`, `updated_at`,
+`ended_at`, `cost_usd`, `result` (`verdict` `pass` | `fail` | `inconclusive` on completion,
+`reasons` and the figures). `llm_routing.trial_case`: `trial_id`, `case_no`,
+`agent_run_id`, `fields`, `agreement`, `cost_usd`, `compared_at`. `llm_routing.trial_budget`
+(`month`, `budget_usd`, `spent_usd`) and `llm_routing.trial_setting` (`monthly_budget_usd`,
+`updated_by`, `updated_at`; one row, 0 by default); `llm_routing.trial_budget_for(at)`,
+`spend_trial_budget(amount, at)` and `set_trial_budget(amount, by, at)`. For the dashboard
+(security invoker, `service_role` only):
+
+- `sales_view.llm_routing_trial_budget`: one row, `monthly_budget_usd`, `updated_by`,
+  `updated_at`, the current `month` (UTC) with its `budget_usd`, `spent_usd` and
+  `remaining_usd`.
+- `sales_view.set_llm_routing_trial_budget(p_budget_usd numeric, p_by text) →
+  llm_routing.trial_setting`: sets the monthly budget and the current month's; raises
+  `by_required` or `invalid_budget` (null or negative).
+
+**Re-trials after a provider-side change.** When the candidate or reference offering of
+the latest passed trial of an agent, model and candidate changes its precision
+(`quantization`) or build (`context_length`, `supported_parameters`) in
+`llm_routing.offering_listing_change`, or gets a `drift` finding, after that trial ended,
+the pass queues one fresh replay of the same agent, model and candidate through
+`queue_replay_trial`, its settings carrying `trigger: provider_change`, the `change`
+(`key` `listing:<id>` or `drift:<id>`, `kind`, offering, `at`, `details`) and `retrial_of`.
+A change is handled once (a trial naming its key, or one of the same subject created after
+it, stands for it). Every clearance the passed trial decided gets `evidence.reconfirm`
+(`retrial_id`, `change`, `marked_at`); its status is left as decided. A re-trial
+`queue_replay_trial` refuses is logged (`llm_routing.trials.retrial_skipped`) and tried
+again next pass. `llm_routing.clearance` gains `evidence` (JSON object, `{}` by default).
+
+`TrialRepository` reads and writes the tables and calls the functions. Publishing the
+judge is a ledger version: `simpl_core af_config_migrate --yaml
+src/simpl_core/llm_routing/trials/agent_policy.yaml --dest migrations/ --config-key
+llm_routing_trials_root --version 1 --parent 0 --prefix <migration number> --summary "..."
+--activate`, then a person applies the seed. The routing migration's step
+`clearance_trials` is applied before a host runs this simpl_core: every routing table
+load reads `llm_routing.trial`, and fails without it.
+
 Credentials are never authored in a policy document — the document names a
 provider, the host binds it. `Loader.validate_boot()` checks every typed policy
 against the resolver it will run on — the host's, or `default_llm_client_resolver()`
@@ -359,8 +1356,9 @@ when the host passes none — and fails if a binding is missing.
 **New versions declare typed policies only.** A new config version whose
 `llm_agent` declares `model` as a bare string is refused where versions enter the
 ledger: `af_config_migrate` and `ConfigVersionRepository.insert_version` both call
-`validate_new_version(content)` and raise `BareModelNameError` (a
-`ConfigAuthoringError` and a `ValueError`). A bare name leaves the provider to the
+`validate_new_version(content, catalog_names=...)` and raise `BareModelNameError` (a
+`ConfigAuthoringError` and a `ValueError`), or `UnknownCanonicalModelError` for a
+canonical model `catalog_names` does not list. A bare name leaves the provider to the
 host, which guessed it from the name. Versions already stored are never re-checked:
 a bare-name row still projects, loads and runs on the shared `llm_client`, so
 nothing running today changes. A host that publishes versions should map
@@ -380,7 +1378,9 @@ reasoning, fallback index — and the chain's attempts, as `LLMAgent`'s do.
 `LLMAgent.last_api` is the answering target's API, and `execute_agent` puts it
 beside `provider` in the execution's `audit` payload (`"api": "decisions"` for a
 decision model's answer), so a caller can tell the two apart without reading model
-names.
+names. `execute_agent(..., model_policy=)` and `execute_agent_stream(..., model_policy=)`
+run an `llm_agent` on another `ModelPolicySchema` than its row's (any other kind raises
+`ValueError`); the call is audited and accounted as the row's agent.
 `answered_target(client, run_result, agent_id=...)` names the target that answered
 a run built outside `LLMAgent`.
 
@@ -442,7 +1442,8 @@ An `lm_model` row refuses `prompt_id`, `output_schema`, `output_constraints`, to
 `http_timeout_seconds`), `stream_timeout_seconds` and the node-only fields
 (`implementation_class`, `default_context_projection_id`, `default_fix_strategy`,
 `cache_policy`, `global_validators_exclude`, `on_failure`) and `model.temperature`
-(its request format sets it); its targets refuse `reasoning` and `max_invalid_responses`.
+(its request format sets it); its targets refuse `reasoning`, `max_invalid_responses`,
+`attempt_timeout_seconds` and `max_output_tokens`.
 
 ```python
 from simpl_core.agent_framework import execute_agent
@@ -513,7 +1514,7 @@ fields, or into a `dict` field.
 with the message it always had (so `except RuntimeError` and rescue chains keyed
 on the text are unaffected), carrying `agent_id`, `failure`, the call's live
 attempt trail and `kind`, from `classify_producer_failure`: `thread` (every
-answer was unusable), `rejected` (the provider refused the request: 400, 413,
+answer was unusable: invalid, or cut off at its target's output cap), `rejected` (the provider refused the request: 400, 413,
 422), `infrastructure` (5xx, 429, 408, 401, 403, 404, a transport error, a
 deadline, a cancelled attempt, the call ceiling, a reply the client could not read
 as a completion: `UnexpectedModelBehavior`) or `unclassified` (attempts
@@ -524,7 +1525,8 @@ only when every attempt is. A caller that retries work decides what to charge
 from it, so an outage does not use up retries meant for bad input. It is raised
 from `AgentExecution.error`, the exception the call already reported: for a call no
 model in the chain answered, a `ModelChainFailed` whose message lists every model
-with its HTTP timeout, its model budget and what it did. An exception a caller
+with its HTTP timeout, its attempt deadline ("model budget") and what it did, a model
+whose answer was cut off at its cap included. An exception a caller
 raises from it therefore belongs to that alert, and `already_reported()` says so.
 
 Tests use `FixedClientResolver` or `OfflineModelResolver` from
@@ -601,6 +1603,167 @@ call `node_run.record_node_run_late(handle)` first and write only if it returns
 `True`.
 
 Full guide: `docs/agent_framework/11-operating-it.md#turning-the-audit-off`.
+
+### Cost per pipeline run
+
+**Every cost recorded inside a node run names the run.** `open_node_run` binds
+simpl_tracker's `LLMAccountingScope(node_run_id=, pipeline_run_id=)` for the node's
+duration, so a model receipt, a scraping or data-provider charge, a speech or Recall
+receipt and a `track_cost` total recorded inside the node carry both ids (simpl_tracker's
+recorders read them from the scope from simpl-tracker 0.8.32; an id the caller passes
+wins). A nested node run's scope replaces `node_run_id`; `LLMAgent`'s own scope (process
+name, agent run id, attribution) opens inside it. A host whose tracker has no
+`llm_accounting` module runs the node unscoped and logs
+`agent_framework.llm_agent.accounting_unavailable` once.
+
+**`agent_framework.pipeline_run_costs`** keeps one row per pipeline run and pipeline:
+a sub-pipeline shares its root's `pipeline_run_id`, so the key is
+`(pipeline_run_id, pipeline_id)`. Columns: `is_root`, `parent_pipeline_id` (the pipeline
+of the node run that entered it; NULL for a root), `started_at` / `ended_at` (earliest
+start, latest end of its node runs), `status` (`failed` when one of its node runs is
+`failed`, `failed_closed` or `error`; `running` when one still runs; else `succeeded`),
+`end_node_id` (the node of its node run that ended last), `own_cost_usd`,
+`total_cost_usd` (own plus every pipeline below it), `unpriced_entries` /
+`total_unpriced_entries` (entries without a known amount), `cost_by_service` (own, by
+cost service name), `model_calls` (own `ai_llm` entries), `computed_at`, and
+`estimated_cost_usd` / `total_estimated_cost_usd` (own, and own plus every pipeline below
+it: the failure-cost estimates of `cost_tracking.cost_estimate` that
+`cost_tracking.estimate_counts(receipt_id)` admits, that is no late bill replaced them and
+their provider's bill for that UTC day is not loaded; 0 without any). Estimates are never
+part of `own_cost_usd` or `total_cost_usd`.
+
+- An entry belongs to the run its `service_cost_entry.pipeline_run_id` names, and to the
+  pipeline of its node run; an entry naming the run but no node run of it (recorded
+  between nodes, or under a node run that has no row) counts in the run's root.
+- A pipeline run whose node runs were never written (`audit: false` on the root, or a
+  sampled-out run) has no row; an unaudited sub-pipeline's costs land in its root.
+- An estimate counts like an entry: in the run its `pipeline_run_id` names, under the
+  pipeline of its `node_run_id`, else under the run's root
+  (`agent_framework.pipeline_run_estimates(runs)`). Without `cost_tracking.cost_estimate`
+  the estimated amounts are 0.
+- `agent_framework.pipeline_node_costs` (`pipeline_run_id`, `pipeline_id`, `node_id`
+  (NULL: entries without a node run), `started_at` (the pipeline row's), `cost_usd`,
+  `entries`): each node's known amounts and entries, written with its run's rows.
+- `agent_framework.refresh_pipeline_run_costs_for(runs)` recomputes the given runs,
+  replacing all their rows in both tables, and returns the `pipeline_run_costs` rows
+  written; `agent_framework.refresh_pipeline_run_costs(p_since)` runs it over every run
+  with a node run started at or after `p_since`, and
+  `agent_framework.refresh_changed_pipeline_run_costs()` over the runs that changed since
+  its last run: a node run started or a cost entry written from 5 minutes before the time
+  `pipeline_run_costs_watermark` stores (the last day on a first run), and the runs of the
+  last day still running; it then stores the time it read up to. A late bill changes an
+  entry without writing one, so the nightly refresh picks it up. With `pg_cron` and the
+  analytics switch on, `pipeline_run_costs_recent` runs the changed runs' refresh every 15
+  minutes and `pipeline_run_costs_nightly` the window refresh at 02:30 UTC over the last 3
+  days; without it, a host schedules the same calls. A first fill after the migration and
+  simpl_tracker's run-id backfill: `SELECT agent_framework.refresh_pipeline_run_costs(now()
+  - interval '7 days')`. `estimated_costs_refresh` (04:45 UTC daily) runs it over the last
+  21 days, the window failure-cost estimates are written over, together with the response
+  time refresh, while failure estimates are in use (the switch on, or an estimate of the
+  last 21 days). `pipeline_run_costs_retention` (03:55 UTC, always) calls
+  `agent_framework.prune_pipeline_run_costs()`, which deletes the rows of pipelines started
+  more than 90 days ago, with their node rows, in batches.
+
+Reads, each over the runs started in `[p_from, p_to]` (UTC days), as `sales_view`
+functions of the same name and arguments (security invoker, execute for `service_role`):
+
+| Function | Rows |
+|---|---|
+| `pipeline_cost_summary(p_from date, p_to date, p_include_estimates boolean DEFAULT false)` | per `pipeline_id`: `runs`, `is_root` (a root in one of them), `own_avg_usd`, `own_p50_usd`, `own_p95_usd`, `total_avg_usd`, `total_p50_usd`, `total_p95_usd`, `unpriced_entries` (own), `end_nodes` (jsonb, end node → runs), `own_estimated_usd`, `total_estimated_usd` (average estimates per run); roots first |
+| `pipeline_cost_trend(p_pipeline_id text, p_from date, p_to date, p_include_estimates boolean DEFAULT false)` | per UTC `day` with runs: `runs`, the same six averages and percentiles, `own_estimated_usd`, `total_estimated_usd` |
+| `pipeline_cost_runs(p_pipeline_id text, p_from date, p_to date, p_limit int DEFAULT 50, p_before timestamptz DEFAULT NULL, p_include_estimates boolean DEFAULT false)` | the pipeline's `pipeline_run_costs` rows, newest first, at most `p_limit` (1 to 1000), started before `p_before` (pass the last row's `started_at` for the next page); the stored `estimated_cost_usd` / `total_estimated_cost_usd` come last as `own_estimated_usd` / `total_estimated_usd` |
+| `pipeline_run_cost_detail(p_pipeline_run_id text)` | `(kind, key, pipeline_id, cost_usd, entries)` for kinds `node`, `agent` (the agent run's `agent_id`, else the entry's `process_name`), `model` (an `ai_llm` entry's requested model, else its `model_or_sku`) and `service`; a NULL key is an entry with no node run, agent run or model. Each kind's rows add up to the run's `total_cost_usd` |
+| `cost_by_pipeline_node(p_from date, p_to date)` | `(pipeline_id, node_id, cost_usd, entries, runs)` from the stored `pipeline_node_costs`; `node_id` NULL for entries with no node run |
+
+Costs are the entries' known amounts (`cost_usd_exact`, else `cost_usd`); an entry
+without one adds nothing to a cost and is counted in `entries` and the unpriced counts.
+Entries of every environment count. With `p_include_estimates` true, the own and total
+amounts, averages and percentiles of the first three reads add each run's estimates; the
+estimated columns are there whatever the flag. The routing migration's step
+`pipeline_run_costs` reads `service_cost_entry.pipeline_run_id` and `node_run_id`, which
+simpl_tracker's routing cost tracking migration adds; the step before it,
+`node_runs_pipeline_started_at_index`, makes sure of the `node_runs` index its refresh
+reads, `idx_node_runs_pipeline_started_at` (`pipeline_id, started_at DESC`, production's
+own), building it `CONCURRENTLY` only where it is missing; the rollback keeps it. The
+refreshes find their runs pipeline by pipeline through it
+(`pipeline_runs_started_since(p_since)`), so a node run without a `pipeline_id` brings
+no run in. Its step `estimated_run_costs` adds the estimates to the pipeline costs,
+the call log and the
+Activity rollup (the estimate readers find nothing while `cost_tracking.cost_estimate` or
+`cost_tracking.estimate_counts` is missing), and a caller passing `p_include_estimates`
+needs it.
+
+### LLM call log and model exchange
+
+**Every LLM run's exchange is stored once, beside its `agent_runs` row.** `LLMAgent.check`
+and `stream` capture the call's pydantic-ai messages (the answered run's whole history,
+else what was exchanged before it failed) into a `ModelExchange` on `last_exchange`, and
+`audit_snapshot()` and `execute_agent`'s `audit["exchange"]` carry it. Each writer stores
+it in the session of the run's row: `DbAgentRunRecorder` (from a snapshot), the
+validate/fix engine, `record_lm_model_run` and the experiment rounds. A consumer that
+builds its own `ProducerAuditSnapshot` from an `LLMAgent` passes
+`exchange=agent.last_exchange` (or uses `agent.audit_snapshot(inputs)`); without it the
+row has no exchange. An `lm_model` call captures none: its request is built from its
+inputs and its answer is its output.
+
+- `agent_framework.agent_run_messages` (one row per run, deleted with it, kept 30 days):
+  `messages`, `reasoning_chars` (thinking characters stored), `turns` (model responses),
+  `tool_schema_ids`: the `agent_framework.tool_schemas` rows (`tool_name`, `schema` =
+  `{name, description, parameters_json_schema[, strict]}`, unique `schema_sha256` of its
+  canonical JSON) of the function tools offered, in order (the output tool is not stored:
+  it is the agent definition's `output_schema`).
+  A message is `{"kind": "request" | "response", "role": "user" | "assistant", "parts"}`
+  (a request adds `instructions` when sent, a response `model_name`, `provider_name`,
+  `finish_reason`, `state` when known). A part has `part_kind` (pydantic-ai's), `role`
+  (`system`, `user`, `tool`, `assistant`), `tool_name` / `tool_call_id` where it has
+  them, and its content (`content`, `args` for a tool call) or a reference:
+  `{"ref": "prompt"}` (the system prompt, when the `agent_runs` row names it: `prompt_id`
+  at `prompt_version`, or a `prompt_composition` pointer),
+  `{"ref": "inputs"}` (the user prompt, when it is the row's `inputs` rendered; under a
+  `request_layout`, `{"ref": "inputs", "paths": [...]}` for a block's user message, the
+  inputs at those dotted paths, and `{"ref": "inputs", "without": [...]}` for the last
+  user message, the inputs without the paths the blocks named, each with the block's
+  `"cache_point"` when it ended in one),
+  `{"ref": "tool_call", "sequence_number": n}` (a call the tool recorder kept, and its
+  return when the row holds the same value), `{"ref": "output"}` (the final answer, when
+  the row's `output` holds it: the same JSON, or with the keys the framework adds,
+  `_confidence`, `_completion`, the thinking under `reasoning`, or a verdict of it).
+  Everything else is inline (assistant text, thinking, tool calls no tool ran, rejected
+  answers, retry prompts, a request layout's system prompt parts), masked with
+  simpl_tracker's `mask_secrets` (text that is JSON is masked as its structure).
+- `agent_runs` has no column of the exchange: a run is written whether or not these
+  tables exist. A failure storing any of them logs `agent_framework.model_exchange.*`
+  (or `agent_framework.llm_agent.exchange_capture_failed`) and leaves the row out (the
+  schemas: `tool_schema_ids` empty); the run and its `agent_runs` row are never
+  affected. Without a `prompt_version` or a composition, the system prompt stays inline
+  in the messages. The run's prompt is the ledger row its `agent_runs` row names, hashed
+  by the framework's own hashes: the definition's `body_sha256`, or the composition
+  pointer's; the run path never adds a `prompt_definitions` row.
+- `PromptRegistry.record_execution(executable, context=, agent_run_id=)` marks each
+  executed version's change event after the model answered and never raises: a version
+  with no change event, or a failed write, logs
+  `agent_framework.prompt_registry.execution_not_recorded` with `prompt_name`,
+  `prompt_version` and `agent_run_id`.
+
+The Logs page reads two `sales_view` functions (wrappers of the `agent_framework` ones,
+security invoker, execute for `service_role`):
+
+| Function | Returns |
+|---|---|
+| `llm_call_log(p_from timestamptz, p_to timestamptz, p_filters jsonb DEFAULT '{}', p_limit int DEFAULT 50, p_before timestamptz DEFAULT NULL, p_before_id uuid DEFAULT NULL)` | LLM runs (`model` set) created in `[p_from, p_to)` (a NULL bound is open), newest first, at most `p_limit` (1 to 1000), and with `p_before` only those with `(created_at, id) < (p_before, p_before_id)` (pass the last row's `created_at` and `agent_run_id` for the next page). `p_filters` matches exactly on `pipeline_id`, `node_id`, `agent_id`, `model`, `provider`, `outcome`; another key raises `invalid_parameter_value`. Columns: `agent_run_id uuid`, `created_at timestamptz`, `pipeline_id text`, `pipeline_run_id text`, `node_id text` (of the run's node run), `node_run_id uuid`, `agent_id text`, `agent_version text`, `model text`, `provider text`, `outcome text` (`answered` with an output, else `failed`), `latency_ms int`, `attempts int` (its `llm_routing.attempt` rows, else the length of its `attempts` trail), `cost_usd numeric`, `input_tokens bigint`, `output_tokens bigint` (its receipts by `agent_run_id`, a duplicate left out, cost from their cost entries; NULL when none), `has_messages boolean`, `estimated_cost_usd numeric` (the run's failure-cost estimates by `cost_estimate.agent_run_id` that `estimate_counts` admits, never part of `cost_usd`; NULL when none) |
+| `llm_call_detail(p_agent_run_id uuid) RETURNS jsonb` | NULL for an unknown run, else `{run, prompt, tool_schemas, messages, tool_calls, attempts, route, costs, estimates}`: `run` the `agent_runs` row plus its node run's `pipeline_id`, `pipeline_run_id`, `node_id`, `prompt_definition_id` (the `prompt_definitions` row named `prompt_id` at `prompt_version`, without a composition), `prompt_sha256` (that row's `body_sha256`, else the composition pointer's; null when the prompt is in no definition and there is no pointer) and its `agent_run_messages` row's `tool_schema_ids` (null without one); `prompt` `{resolved_by, rows, composition}` (without a composition, the row named `prompt_id` at `prompt_version`: `"prompt_version"`; else the composition's member rows in order, a missing one with `id` and `body` null: `"composition"`; NULL when none applies); `tool_schemas` the rows of `tool_schema_ids` in order; `messages` the stored list with each reference resolved in place and kept (`content`, or `args` for a tool-call part, set to the prompt body, the run's `inputs` (at an inputs reference's `paths`, or without its `without` paths, followed by its `cache_point` as a list when it has one: `agent_framework.referenced_inputs`), its `output`, or the tool call's `input_args` / `output`; `tool_call` the `tool_call_runs` row; `resolved` false when the row is gone), NULL without a stored row; `tool_calls` the `tool_call_runs` rows by `sequence_number`; `attempts` the `llm_routing.attempt` rows in sequence, each with `receipts`, `input_tokens`, `output_tokens`, `cost_usd` of its receipts (`routing_attempt_id = attempt_key`); `route` the `llm_routing.decision_explained` rows; `costs` the cost entries of the run's receipts; `estimates` the run's `cost_tracking.cost_estimate` rows that `estimate_counts` admits, by `created_at`. Lists are `[]` when empty |
+
+The routing migration's steps `agent_run_messages` (tables, retention, reads)
+and `agent_runs_llm_index` (`idx_agent_runs_llm_created`, built `CONCURRENTLY` outside a
+transaction) store and serve the exchange; `llm_call_log` is planned for each call's
+filters, and the steps `agent_runs_llm_provider_index` and `agent_runs_llm_model_index`
+(each one index built `CONCURRENTLY` outside a transaction) serve a `provider` or `model`
+filter, and `idx_node_runs_pipeline_started_at` a `pipeline_id` filter; `agent_runs`
+keeps its shape, so a host runs this simpl_core before them too (each exchange write then
+fails in its savepoint and is logged). With `pg_cron`, `agent_run_messages_retention` runs
+`CALL agent_framework.prune_agent_run_messages()` daily (a procedure deleting 5,000 rows
+a batch, each committed, with a pause between); without it, a host schedules the same
+call.
 
 ### Streaming producers
 
@@ -964,6 +2127,20 @@ editing an applied version, or re-running its migration, changes nothing.
 `af_config_migrate` writes the seed migration that carries a version. It applies
 nothing. Reverting is the same operation pointed backwards --
 `activate_config_version(<key>, <earlier version>)`.
+Every activation checks the parent (`agent_framework.activate_config_version`, which
+`ConfigVersionRepository.activate`, the config ledger's activate endpoint and the seeds
+call): a version activates only when no version of its key is active, it is the active
+one, its `parent_version` is the active one, or it is an ancestor of the active one (a
+rollback). Any other raises `activation_refused` (`check_violation`;
+`ActivationRefused` from the repository, a 409 from simpl_api) before any write: a seed
+generated on a parent that is no longer active fails and must be regenerated on the
+active version.
+The checked form `activate_config_version(key, version, expected_active, content_hash)`
+also refuses unless the active version is `expected_active` (NULL: none) and the version
+holds `content_hash`, and changes nothing when the version is already active with that
+hash. Generated activations (expecting the parent), the advisor's revert, simpl_api's
+endpoint when given `expected_active_version` and the dashboard use it; the two-argument
+form stays for files already written.
 It is the sole supported YAML seed generator; do not restore or alias retired
 `sync_yaml`.
 
@@ -987,6 +2164,12 @@ git `user.email` unless you pass `--created-by` or set
 It refuses, writing nothing, when the document fails the authoring gates, when
 it is identical to its parent, or when the target files already exist (pass
 `replace=True` only for a version applied nowhere).
+
+`--config-kind model_catalog` (`config_kind='model_catalog'`, key `model_catalog` only)
+seeds a model catalog version: the document passes the catalog's write gate instead of
+the pipeline rules, and the INSERT sets `config_kind` (a pipeline seed leaves the column
+to its default and is written as before). A pipeline document naming canonical models
+is checked against `--catalog` (`catalog=`), by default the catalog simpl_core ships.
 
 `--delta` (`delta=True`) writes a seed that carries only the lines changed since
 `--parent`, whose seed must be in `--dest` (full or delta). Applied, it reads the
