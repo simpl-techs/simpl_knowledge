@@ -2680,7 +2680,9 @@ what research finds is later work. "Questions" (`request.questions`, a policy's
     (`request_customer_kind_created_idx`, `search_call_customer_idx`).
     `osint.er_label.customer_id` keeps its ON DELETE SET NULL.
   - **profile_read is internal and automatic** (T24): a lead's profile on a profile
-    platform, read for its positions and activity; it writes no scraper inbox row.
+    platform, read for its positions and activity. From X58 (`20261123120000`) the
+    research worker queues one scraper inbox row per reader it tries (kind
+    `profile_read_<reader type>`), so a fetcher reads and the extractor parses.
     - **No caller asks for one:** T3's public submit refuses kind `profile_read`. The
       research search pass (T4/T5) starts one, as a child of a person research request
       (`parent_request_id`, no action on delete: a parent with a read is never deleted),
@@ -2701,7 +2703,8 @@ what research finds is later work. "Questions" (`request.questions`, a policy's
       `customer_id` (usually the parent's), not the parent's research budget. It takes the
       parent's `source_type` and `source_id`, the lead, the parent's `company_id`, and an
       idempotency key from the parent (`profile_read:<parent id>:<platform>`). What it read
-      is kept by identifier (`raw_page_object_key`); facts built from it are later work.
+      is kept by identifier (`raw_page_object_key`), with the job rows it inserted
+      (`lead_experience_ids`, X58); other facts built from it are later work.
       The relay writes its progress into the parent's log (event type `profile_read`, dedup
       key `profile_read:<child id>:<status>`); the parent does not wait for it.
     - **Starting one** (`RequestAdmission.profile_read(parent, profile, policy)`, the
@@ -2748,8 +2751,16 @@ what research finds is later work. "Questions" (`request.questions`, a policy's
       but a person research carries the seat its submit named in `seat_user_id`):
       `seat_user_id` (the `sales."user"` whose seat read the profile), `proxy_request_id`
       (the `extension_proxy.request` the seat's read went through; the relay's "the seat's
-      answer has arrived" rule reads it) and `raw_page_object_key` (where the raw page is
-      stored; the page is not in Postgres). A seat's light-move profile views and its
+      answer has arrived" rule reads it), `raw_page_object_key` (where the raw page is
+      stored; the page is not in Postgres) and `lead_experience_ids` (X58, `bigint[]`: the
+      `sales.lead_experience` rows the read inserted, never the rows the lead already had;
+      `{}` when none was new, NULL when it wrote none; no foreign key; each id positive,
+      none NULL, none twice: `osint.is_lead_experience_id_list`). The
+      research worker (`scraping_research`, UPDATE on the whole table) writes it in the
+      update that ends the read, copied from the extraction's result; no trigger limits
+      it, and `osint_caller` has no UPDATE. A research read selects it from 0.8.461, so
+      `20261123120000` is applied before any service runs that version. A seat's
+      light-move profile views and its
       research reads are counted in one place (`services.light_moves.seat_views`), against
       the seat's `view_daily_limit`, with the policy's `max_views_per_seat_per_day` as
       research's share.
@@ -3013,7 +3024,8 @@ service's own database login. It admits and reads; the research worker runs ever
   - `osint.policy` SELECT; `osint.request` SELECT, INSERT (admission writes the request);
     `osint.request_event` SELECT; `osint.request_submission` SELECT, INSERT;
     `osint.search_call` and `osint.research_source` SELECT; `scraping.research_inbox`
-    SELECT, INSERT (fetch and crawl); `scraping.research_crawl_page`, `scraping.pages` and
+    SELECT, INSERT of fetch and crawl rows only (a RESTRICTIVE rule,
+    `osint_caller_inbox_kinds`, `20261123120000`); `scraping.research_crawl_page`, `scraping.pages` and
     `scraping.page_versions` SELECT (page metadata of every page, since research may reuse
     the landing crawl's copy; never text).
   - EXECUTE on two SECURITY DEFINER functions, which run with their owner's rights:
@@ -3153,7 +3165,9 @@ heads = await requests.heads(open_request_ids)  # many states in one query
   `over_page_cap`; `SourceDecision`), `resolved_subject` (#513's `ResolvedSubject`,
   fields a newer worker added ignored; None until the worker writes it), and
   `profile_reads` (its children and the reads its `profile_read` events name: status,
-  reason, raw object key; never the seat or its proxy request, which are one customer's).
+  reason, raw object key, `lead_experience_ids`: the `sales.lead_experience` rows a read
+  inserted, `[]` when none was new, None when it wrote none; never the seat or its proxy
+  request, which are one customer's).
   `FetchRead`: the inbox row's status and the page. `CrawlRead`: `counts` and the pages of
   the `crawl_page` events after the cursor. `SearchRead`: every hit with its query and
   source.
@@ -3191,7 +3205,9 @@ heads = await requests.heads(open_request_ids)  # many states in one query
   lead_experience_ids, seat_answer_key)` is written when a profile read ends, first in the read's own log,
   then copied by the worker to the parent's once the parent holds no claim;
   `lead_experience_ids` are `sales.lead_experience`'s bigint ids (they were typed UUID
-  before 0.8.428, which no stored event used); `seat_answer_key` is where a seat's answer
+  before 0.8.428, which no stored event used) and name the rows written and the rows
+  already there together, where the read's `osint.request.lead_experience_ids` names only
+  the rows it inserted; `seat_answer_key` is where a seat's answer
   that could not be used is kept, when the read went on to its next reader.
 - **Test doubles** (`services/osint/testing.py`), shipped with the package:
   - `OsintRequestsApi`: the API as a `Protocol` (`submit_*`, `read`, `follow`, `heads`,
@@ -3229,8 +3245,21 @@ job reason `research` they are extracted with is simpl_scraping's
 (`088_extraction_jobs_research_reason.sql` there).
 
 - `ResearchInbox` (`scraping.research_inbox`): the outbox from `osint.request` to the
-  scraper, one row per URL a request wants (unique per request), written in the
-  transaction that writes the request. Kinds `research`, `fetch`, `crawl`. A research row
+  scraper, one row per URL a request wants (research, fetch and crawl rows unique per
+  request and URL, `research_inbox_request_url_key`, partial since X58; a plain
+  `research_inbox_request_url_idx` serves lookups by request), written in the
+  transaction that writes the request. Kinds `research`, `fetch`, `crawl`, and one per
+  profile reader, `profile_read_<reader type>` (`PROFILE_READ_SEAT`,
+  `PROFILE_READ_OLOSTEP`; `20261123120000`, X58): the research worker writes one per reader
+  a read tries, naming the read's own request and its profile URL, so the Olostep row can
+  follow a seat row the seat refused; each reader runs once per read
+  (`research_inbox_profile_read_key` on request and kind). Only the scraper's logins
+  insert them (`osint_caller` is refused), and the drain seeds one only for an open
+  profile read of that URL whose policy lists the reader. The check takes
+  any reader's kind by its pattern, so a new `ProfileReader` type needs a value in
+  `ResearchInboxKind`, no migration. A profile read row names its extraction profile (the
+  extractor config for its reader's answer), moves as a research row does but never
+  `reused`, and ends `extracted` naming its `extraction_job_id`. A research row
   carries its `subject_type` and research profile and no retention: research facts are
   kept (`20261117100500` dropped `facts_needed_until`). A fetch or crawl row has no
   profile and no text columns: it asks for no text (`20261117100600` dropped
