@@ -2892,6 +2892,19 @@ search. The seed migrations' headers explain every key (`20261112100100`, `20261
     Second, the research worker moves `pages_due_at`: before it, research ends at its
     first wait, 180 s (version 2: 600 s), and search at 30 s (version 2: 60 s), whatever
     each still finds.
+  - **Push-down host lists** (research; next plan X68): `search.push_down_host_lists`,
+    `osint.host_list` keys, empty by default and not in the defaults, so a version stored
+    before the key never changes. The research worker (simpl_scraping 0.8.191 or later)
+    decides a hit on a listed host, or a subdomain of one, after every other hit before
+    the page caps: still fetched when the caps leave room, never dropped. Version 4 of
+    person and company (version 3 with `["research_push_down"]`) and the list's first
+    hosts (pitchbook.com, crunchbase.com, dealroom.co, scholar.google.com) are seeded by
+    `20261123150000`, inactive. Activate it, or any later research version that names a
+    list, only once every service that loads OSINT policies runs simpl_core 0.8.464 or
+    later: an older one refuses the key (`extra="forbid"`). A version that names no list
+    leaves the key out of its document, so it loads on any simpl_core. Topic policies
+    refuse the key: topics keep the engine's order. A host goes on or off the list with a
+    row, no new version.
   - **Per source type budgets** (research, profile_read and search):
     `budget.by_source_type: {source_type: {max_requests_per_customer_per_day}}`, empty by
     default. A listed source type's requests count against its own cap and the kind's, so
@@ -2983,7 +2996,8 @@ search. The seed migrations' headers explain every key (`20261112100100`, `20261
   inactive and resolved over the kind's defaults, under a per-key advisory lock; `activate(policy_key=, version=)`
   makes it the key's one active version and returns an `Activation` (`policy`, `previous`,
   `changed`). Both refuse a document its model refuses and a host list
-  (`search.excluded_host_lists`) with no host in `osint.host_list`; `add_version` also
+  (`search.excluded_host_lists`, `search.push_down_host_lists`) with no host in
+  `osint.host_list`; `add_version` also
   refuses a key that already holds another kind. A version's content never changes.
 - **Stop a kind** by activating a version whose daily budget is 0
   (`budget.max_requests_per_customer_per_day` for research, profile_read and search,
