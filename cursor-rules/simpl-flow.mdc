@@ -359,6 +359,13 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   and an audit per type kept across runs (`er_audit`: precision, recall and the
   auditor's agreement with itself, read on 95% lower bounds). It writes edges, questions
   and audits only; identity applies them. One run at a time (`CANCEL_NEW`).
+- `gcp_er_replay_flow` (no schedule, started by hand, 2 vCPU / 8 GiB) is entity
+  resolution's phase 1: checked examples from posts' company tags where Graphia read an
+  organization (simpl_core `graphia.tag_examples`, row-store dataset
+  `er_checked_examples`), and today's identity rules replayed on them with the tag hidden
+  (`er/replay_stage.py`, simpl_core `services.dedup.replay`, dataset `er_replay_outcomes`).
+  Its result and a Markdown artifact (`er-replay`) give precision and recall by rule, with
+  Wilson lower bounds. It reads the posts, the registry and the log; it writes nothing else.
 - `gcp_open_graph_flow` (no schedule, started by hand) labels LinkedIn posts with
   llmgraph (LangChain's `LLMGraphTransformer`) once per teacher, as training data. A
   teacher is a model in one llmgraph mode, listed in
