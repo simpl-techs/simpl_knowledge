@@ -440,7 +440,9 @@ doppler run --config dev -- python -m simpl_tracker.jobs.openrouter_costs pricin
 
 `pricing` reads `GET /api/v1/models/{model}/endpoints` (no key needed; `OPENROUTER_API_KEY`
 is sent when set) for every OpenRouter model with an open price row, every model the
-ledger saw requested in the last 30 days (`cost_tracking.llm_models_requested`) and every
+ledger saw requested in the last 30 days (`cost_tracking.llm_models_requested`: the
+rollup's recorded model for the days it has counted, the ledger's requested model for the
+days still to count) and every
 `--model`. The prompt, cache read, cache write and completion prices become
 `input_tokens/none`, `input_tokens/read`, `input_tokens/write` and `output_tokens/none`,
 each only when listed and parsable. A changed tag opens from the day of the sync and
