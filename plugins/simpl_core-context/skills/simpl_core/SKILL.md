@@ -6027,8 +6027,13 @@ flight per process. `embed(question)` embeds once per collection and, with a `Co
 `markers` writer, writes the code markers (`write_markers(question, client)`, the caller's
 model). `passage_finder(db, marker_client=None)` opens one on the production collections and,
 with a marker client, on the active `landing_markup` dataset (`ROW_STORE_URI`); without a row
-store it reads text and posts only (logged `company_passages.code_off`). Needs the `search`
-extra; `NEBIUS_API_KEY` and the Milvus settings.
+store it reads text and posts only (logged `company_passages.code_off`). The code reader caches
+the markup table's key index in Lance's default caches, which grow toward the whole index on a
+long walk (about 0.9 GB for 360 sites). A caller short of memory passes
+`passage_finder(..., code_session=lance.Session(index_cache_size_bytes=...,
+metadata_cache_size_bytes=...))` (or `open_code_reader(db, session=...)`) and reads slower;
+callers that pass none keep the defaults. Needs the `search` extra; `NEBIUS_API_KEY` and the
+Milvus settings.
 
 ### Sales datasets (`sales_datasets`) and text anonymization (`anonymization`)
 
