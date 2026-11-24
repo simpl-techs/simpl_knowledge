@@ -325,14 +325,16 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   dataset lives and which flow writes it:
   `docs/knowledge-graph-storage.md`.
 - `gcp_graphia_identity_flow` (every hour at :15 UTC, plain image) runs the identity
-  service's micro-batches over the runs the extraction log gained, every variant's (the
-  registry read through a read-only connection, nothing writes `sales.*`; the uncertain
-  band to the pending link requests), then those requests settled by models
-  (`resolve_links`, `er.resolution`: applied only at `nuextract_min_confidence` and
-  `teacher_min_confidence`, NuExtract's only on a proposal tied to the documents beyond
-  the name; `links_dry_run` with `links_limit` asks both models and applies
-  nothing, its decisions kept as `dry-run:`; `recheck_links` decides the links the
-  models applied before again, kept, moved or undone, `recheck_dry_run` deciding only; `identity_batches` caps the run's micro-batches, the next run goes on from the watermark; `company_groups` decides organizations by rules version 6, the registry's rows of one company read as one (two LinkedIn pages kept apart) and linked by what our data holds of them, names looked up in any letter case (simpl_core's `ix_company_name_lower` must exist), generic and place names held as no company; on in the hourly schedule; `redecide: N` (hourly: 500, with `merge_twins` and `follow_merges`) decides again by the current rules the `N` most mentioned names held "no company" by an older rules version, `N` name links of an older version (or of common or generic words) they no longer make (released) and `N` open requests, holds a name the models linked alike for every author, closes the requests of names that hold a row, undoes earlier group merges the current groups keep apart, merges entities on rows of one company and, with `merge_twins`, merges the registry's page twins it meets through simpl_core's reversible merge, `redecide_dry_run` deciding only; `follow_merges` makes identity follow the registry's company merges and their undos, migration 196), then as asked the next graph generation of a variant's runs
+  service's micro-batches over the runs the extraction log gained, every variant's (each
+  new unit placed with no lookup: a unit keyed by a registry id on that row's node, every
+  other in an entity of its own or, for the mergeable types, the one its form sits in),
+  then follows the entity resolution feed (`er.service_apply.follow_feed`: an answer
+  change moves its unit onto the product row's node or back, a registry merge or its
+  undo is followed). Which registry row an organization or a person is, is the service's
+  answer only (plan §13.1): `er_resolve_flow` sends the units, people included once
+  their employer resolved, and applies its answers; this flow decides no link and writes
+  nothing in `sales.*`. `identity_batches` caps the run's micro-batches, the next run goes
+  on from the watermark. Then as asked the next graph generation of a variant's runs
   (`generation`, `variant`, `publish`), then the published generation's entity promotion
   into the golden zone the matcher's `entity` predicate reads (`promote`,
   `promotion_config`; migrations 153 and 154), then, with `measure` or once
@@ -342,10 +344,10 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   (`promotion.job.record_log_measurement`, the same report): each entity type's verdict on
   the teacher's span labels and each relation type's on its fact labels, recorded as a
   `measured` promotion run that writes no golden row (migration 187; of no generation,
-  migration 194). The hourly schedule runs with `links_limit` 800, `merge_every_hours`
-  24 and `company_groups`, and does not measure: `gcp_graphia_measurement_flow` (daily at 03:45 UTC, 4 vCPU /
-  16 GiB; about 6 minutes) runs the same flow with `place` false (no
-  placement, links or lock) and `measure`, no `generation`: building a whole generation to
+  migration 194). The hourly schedule runs with `merge_every_hours` 24 and does not
+  measure: `gcp_graphia_measurement_flow` (daily at 03:45 UTC, 4 vCPU / 16 GiB; about 6
+  minutes) runs the same flow with `place` false (no placement, feed or lock) and
+  `measure`, no `generation`: building a whole generation to
   measure it took over 4 h and 16 GiB on 2026-11-12. Once a day,
   before the generation, same-meaning names of the mergeable types are merged under the
   newest `knowledge_graph.er_merge_config` (every type off in `v1`; migration 188), and
@@ -359,13 +361,14 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   and an audit per type kept across runs (`er_audit`: precision, recall and the
   auditor's agreement with itself, read on 95% lower bounds). It writes edges, questions
   and audits only; identity applies them. One run at a time (`CANCEL_NEW`).
-- `gcp_er_replay_flow` (no schedule, started by hand, 2 vCPU / 8 GiB) is entity
-  resolution's phase 1: checked examples from posts' company tags where Graphia read an
-  organization (simpl_core `graphia.tag_examples`, row-store dataset
-  `er_checked_examples`), and today's identity rules replayed on them with the tag hidden
-  (`er/replay_stage.py`, simpl_core `services.dedup.replay`, dataset `er_replay_outcomes`).
-  Its result and a Markdown artifact (`er-replay`) give precision and recall by rule, with
-  Wilson lower bounds. It reads the posts, the registry and the log; it writes nothing else.
+- `gcp_er_name_replay_flow` (no schedule, started by hand, 4 vCPU / 16 GiB) measures
+  entity resolution's name stages: checked examples from posts a Graphia variant read that
+  tag a company (simpl_core `graphia.tag_examples`, row-store dataset
+  `er_checked_examples`), each run through the name stages in shadow with the tag hidden
+  (simpl_core `resolution.name_replay`, dataset `er_replay_outcomes`). Its result and a
+  Markdown artifact (`er-name-replay`) give precision and recall, the stages in order and
+  each mechanism alone per segment, with Wilson lower bounds; each mechanism's bound is
+  recorded as `resolution.reading.replay_lower`. It calls no model.
 - `gcp_open_graph_flow` (no schedule, started by hand) labels LinkedIn posts with
   llmgraph (LangChain's `LLMGraphTransformer`) once per teacher, as training data. A
   teacher is a model in one llmgraph mode, listed in
