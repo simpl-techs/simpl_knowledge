@@ -2477,6 +2477,19 @@ run.report()  # overall, by method, by segment: precision and recall with Wilson
 - Checked examples lean to clean names (a tag writes the page's own name): their precision
   is an upper bound for free text.
 - `simpl_core.utils.proportions.wilson_lower_bound` is the interval every switch reads.
+- `read_tagged_post_ids(db, reads, variant_name=..., limit=..., seed=...)` samples among
+  the posts a Graphia variant read (`LogReads.served_sources`, the runs' doc keys): a sample
+  of `sales.post` (`tagged_post_ids`) yields few examples, since Graphia reads about one
+  post in ninety.
+- **The service's name stages** (`resolution.name_replay`): `resolve_examples(examples,
+  company_name_stages(profiles, cache), policy=...)` runs each example as the mention
+  Graphia's run would send, its tag hidden (`example_mention`), every stage in shadow, so
+  nothing is applied or written. `mechanism_answers` scores each mechanism on its own
+  answers, `pipeline_answers` the stages in order (the first closing answer the policy
+  uses); wrap either in `AnsweredStage` for `replay`. `replay_bounds` gives each
+  mechanism's precision lower bound per `class_segment`, recorded with
+  `ReadingRepository.record_replay` (`resolution.reading.replay_lower`, read back by
+  `replay_bounds`); `mechanisms_markdown` is the report.
 
 ### The resolution contract (entity resolution, build item 2)
 
@@ -2506,12 +2519,12 @@ placed = await service.place(mention, policy, session=session, source="crm_pull"
   `unknown`, with the method that reached it (`hard_key`, `stored_name`, `rule`, `scorer`,
   `judge`, `research`) and the entity as `company:<id>` / `lead:<id>`. There is no human
   verdict.
-- `answer_from_outcome` reads today's outcomes: a hard-key match is `is` by `hard_key`; a
-  lead matched by name within its company is `is` by `rule`; the same person at another
+- `answer_from_outcome` reads today's outcomes: a hard-key match is `is` by `hard_key`
+  (the lead resolver matches no name since 2026-11-19); the same person at another
   company than the one asked about is `is` with `scope = out`; `blocked` is `absent`;
   `ambiguous` is `unknown`.
 - A **consumer policy** (`ConsumerPolicy`) says which methods it accepts (always
-  `hard_key`; add `rule` to take name-within-company lead matches), whether a miss gets a
+  `hard_key`; add `rule` to take the name rules' matches), whether a miss gets a
   placeholder, and whether an out-of-scope `is` is linked or refused. Policies are versioned
   in `resolution.policy`: `PolicyRepository.publish` adds the next version and makes it the
   active one; a version never changes.
@@ -2656,7 +2669,7 @@ resolutions = await run_stages(stages, mentions, switches=board, policy=policy,
     request, `IndexEmployerPeople(store)` for a worker); two are candidates.
   - `PipelineMatchStage(session)` (`rule.pipeline_match`): the one lead the customer's
     seats work, by first and last name at that company or the work address's site
-    (`ingestion.pipeline_match.find_pipeline_lead`, unchanged).
+    (`resolution.pipeline_match.find_pipeline_lead`).
 - `ResolutionService.verify` also calls a person `different` when the lead's stored
   LinkedIn profile is not the one the mention gives (`profiles_contradict`).
 
@@ -2677,13 +2690,346 @@ decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution
   inside a customer, an author company or a country, else alone.
 - `register` attaches each named mention (`er_case_mentions`) once and counts it as
   support. `of_mentions` reads cases without writing.
-- `decide` appends a decision (`er_decisions`, id made from its inputs, superseding the
+- `decide` appends a decision (`er_case_decisions`, id made from its inputs, superseding the
   case's last) and one `er_link_uses` row per link of its chain; a closing verdict
   decides the case, `unknown` and `absent` leave it open. A reused answer is refused.
   `decisions(case_ids)` reads the history; `standing_on(link_keys)` the decisions that
   followed each link.
 - `HeldVerdictStage` (`stage.held`, stage 3): a decided case's verdict, `reused`, with its
   decision id and method; a `several` or open case passes its candidates on.
+
+### The judge, lanes and the lane run (entity resolution, build item 5)
+
+- **Judge** (`resolution.judge`, `resolution.judge_agent`): `JudgeStage(model, cache,
+  evidence, cases)` (`stage.judge`) asks one typed `JudgeQuestion` per case (up to 8
+  companies labelled `C1`..., grouped, in a fixed order; up to 6 passages pooled from the
+  case's mentions, one per source first) and maps the `JudgeReply` to an answer by
+  `judge`. With no candidate it answers by `rule`: `absent` for a specific name, else
+  `unknown`. A case with 20 mentions or more is asked twice, the candidates reversed; two
+  answers that differ are `unknown`. The last judged decision on the same reading is
+  reused. `LedgerJudge(loader, resolver, db)` runs the ledger agent
+  `entity_resolution_judge` (config key `entity_resolution_root`,
+  `resolution/resolution_policy.yaml`: DeepSeek's own `deepseek-flash`, a GLM fallback, 90 s).
+  `judged_links` writes an applied judged answer back as a weak `names` link (a brand's
+  name for `part_of`). The host supplies an `EvidenceSource` (passages by source row).
+- **Lanes** (`resolution.lanes`): a lane holds the `workpool` lease
+  `lane_resource(shard)` and a `CaseStore(store, shards=n, shard=k)`, which writes only
+  its shard (`cases.route` splits mentions by shard). It stages learned links with
+  `StagedLinks`; `ensure_compaction` then `compaction_runners(store, shards=n)` fold every
+  staging shard into `er_links` and the name index, idempotently (a link refuted before
+  the compactor saw it is kept ended: `LinkStore.keep_ended`).
+- **Lane run** (`resolution.worker.resolve_in_lane`): registers the lane's mentions, runs
+  the stages, records one decision per case for an answer no earlier decision made (with
+  its chain and what it read), and stages what the judge learned.
+
+### Re-check, feed and measurement (entity resolution, build item 6)
+
+- **Fixer** (`resolution.fixer`, `resolution.revert`, `resolution.recheck`,
+  `resolution.guard`): `recheck_lane(...)` runs one pass on a lane's shard. Plans a stopped
+  run left open, what stood on links ended since the last pass, cases decided by an older
+  stage version (not answers on keys) and cases on a company the registry merged away are
+  marked stale, resolved again as a dry run, and written as a fix plan
+  (`resolution.fix_plan`). No person approves, rejects or answers for a plan: a plan under
+  20 units is applied at once; a larger one is audited first (`AuditGuard`: a sample of
+  the dry run's changed answers checked by `entity_resolution_auditor`) and applied when
+  the audit's lower bound passes 0.80, otherwise held (`held_reason`, `audit`) with each
+  mechanism the audit found wrong moved back to `shadow`. With no auditor a large plan is
+  held. The consumer rebuilds its mentions (`MentionSource`).
+- **Feed** (`resolution.feed`): `er_changes`, read by `FeedReader(store).read(consumer,
+  after_seq=cursor)`. A decision that moves a case writes one change per attached
+  mention; `RegistryRelay(db, store).run()` adds the registry's company merges and undos,
+  read below `pg_snapshot_xmin` (cursor in `resolution.relay_cursor`), for every
+  consumer. Lanes and the relay stage changes; the compactor folds them.
+- **Measurement** (`resolution.measurement`, `resolution.audit`): labels in `er_resolution_labels`
+  by kind (`later_key`, `audit`, `revert`), never blended. `next_switch` moves a switch
+  `on` at a lower bound of 0.85 (150 later keys, or replay and audit both before that)
+  and back to `shadow` under 0.80; `off` never moves by itself. `move_switches` writes the
+  moves with their numbers. The audit samples decisions per stage (`audit_sample`) and
+  asks `entity_resolution_auditor` (GLM, another family than the judge).
+  `summarize_day` and `DailySummaryRepository` write `resolution.daily_summary`;
+  `ReadingRepository` keeps each mechanism's last reading per segment in
+  `resolution.reading` (later-key and audit labels right and judged, lower bounds), which
+  the Entity resolution tab shows beside the switch.
+- **Unknowns** (`resolution.unknowns`): `UnknownsReader(cases, describe=, sources=)` is
+  what the tab's Unknowns list and drawer read, through the graph explorer service.
+  `page(limit=)` lists the open cases whose last answer is `unknown`, most mentioned
+  first (`CaseStore.unknown`), with their names, consumers and customers;
+  `case(case_id)` gives every decision on one case, the companies they read described
+  (`registry_describer`) and the passages of its mentions, read again from their consumer
+  and pooled as the judge pools them. Before the cases exist (`CaseStore.stored()`) both
+  answer nothing. Nobody settles a case from it.
+- **Lanes**: `lanes.LANES` (8) is the shard count of every case, link and change dataset;
+  every flow and reader uses it, since another count reads other datasets.
+- **Graphia's mentions** (`graphia.resolution_mentions.GraphiaMentionSource(reads,
+  document_companies=None, employers=None)`): Graphia's units rebuilt as mentions from
+  their unit ids (`LogReads.unit_mentions`, `LogReads.served_runs`), and their passages.
+  The resolving side passes each sales document's own companies and `employers` (each
+  organization unit -> the company its answer is), so a person is rebuilt as the resolve
+  run sent it; a reader that only shows passages passes neither.
+- **Graphia's units as mentions** (`graphia.resolution_mentions`): `units_of` gathers the
+  organization and person units of a batch's runs, and a site author (an organization
+  keyed `host:`) no text names. `mention_of(unit)` is one mention per unit (consumer
+  `graphia`, the unit id as `source_ref`; `unit_mention_id(unit_type, unit_id)` gives its
+  id from the unit alone). A person is sent only once the documents pair it with exactly
+  one company (`employments(roles, runs)` reads the staff and role change facts, a former
+  or left job pairs none; `person_mentions(units, employments, answered, runs)` takes the
+  company an organization unit is keyed by or its answer, the first title, the latest
+  document day). Reading a unit's case: `possible_rows(case)` (open, last answer
+  `unknown`: its candidates), `refused_rows(case)` (last answer `absent`: its
+  candidates), `open_unit_rows(cases, limit=)` (every Graphia unit whose case is open with
+  rows still possible, for promotion).
+- Requires migration `20261118140000_resolution_fix_plan_daily_summary.sql` after
+  `20261118120000_resolution_schema.sql`.
+
+### Merges and the confirm flow (entity resolution, build item 7)
+
+- **Every merge is journaled and can be undone.** `ReversibleCompanyMerge`
+  (`sales.company_merge`) and `ReversibleLeadMerge` (`sales.lead_merge`, migration
+  `20261118160000_lead_merge_journal.sql`) merge only when the merge just moves rows, and
+  `undo(merge_id, by=)` puts it back in one transaction. A lead merge moves connections (an
+  update of `lead_id`: nothing wakes); it keeps the source's contacts in full, since a
+  contact the target holds is dropped and a primary one demoted, and the undo puts each
+  back. A merge that would fold two threads of one user, or drop any other row, raises
+  `MergeNotReversible` with every reason. `CompanyMergeService` and `LeadMergeService` are
+  no longer exported: they are the private engine of the journaled merges, and
+  `tests/test_dedup_merge_surface.py` fails when another module names them.
+- **The merge door** (`resolution.merges.MergeDoor(db, links)`): `merge(source, target,
+  proof, by=, now=, run_id=)`, or `merge_in(session, ...)` on the caller's transaction
+  then `settle(outcome, ...)` after its commit. The proof (`resolution.merge_proof`:
+  `MergeProof`, `EntryPath`, `ProofKind`) is two entry points that collide (different
+  keys, no shared link or source, one path of keys), the same page on both rows, or a
+  placeholder's own key (`KEY_LOOKUP`). An ended `same` link refuses the merge; a merge
+  the journal refuses is held in `resolution.held_match` ("matched, not merged"); either
+  way a trusted `same` link is recorded. `resolution.merge_proof` needs no row store, so
+  `simpl_core.services.dedup` imports without the `row-store` extras.
+- `LeadTwinMerger(door)` and `LeadPlaceholderReconciler(door)` merge only through the door
+  (`MergeIn`): twins on an agreeing LinkedIn identity, or the email every twin holds and
+  the name; a placeholder on a key it carries. An identity the people search found by the
+  placeholder's name is held (`NAME_SEARCH`), never merged, and nothing is created on it
+  (decided 2026-11-18). The company placeholder reconciler is gone.
+- **The confirm flow** (`resolution.confirm.ConfirmFlow(links, examples)`):
+  `confirm_names` promotes a weak `names` link a checked example (a tag on the same name)
+  reaches, ends it for a specific name tagged elsewhere, and counts a contradiction, each
+  under the `confirm.checked_example` switch (`shadow` counts only). `compact` writes a
+  link on a merged company's survivor (`compact.shortcut`, its path the links it stands
+  on) and folds one fact's sources into one link (`compact.fold`). `LinkStore.end` ends
+  what stands on an ended link and releases a fold's other links; `LinkStore.promote`,
+  `LinkStore.fold`. Links carry `confirmed_by`, `sources`, `folded_into`; readers skip a
+  folded link. Checked examples carry `name_key`, read by `of_name_keys`.
+- The registry relay copies lead merges and undos into the feed as well as company ones.
+
+### The scorer and the yield (entity resolution, build item 8)
+
+- **Stage 5's facts** (`resolution.facts`): `candidate_facts(ctx)` gives each candidate a
+  vector named by `FEATURES` (`FACTS_VERSION`): exact name, how it was found, the name's
+  class, country, followers, size, what our data holds, the document's own company, a
+  shared site, its group. A stage puts them in `StageOutput.facts`; the worker keeps them on
+  the decision (`Decision.facts`, `facts_version`), so a new scorer re-scores the past.
+- **The scorer** (`resolution.scorer`): a logistic regression (`fit_logistic`, plain
+  Python) on the facts. `ScorerStage` runs after the rules and before the judge; without a
+  model it records the facts only. Three uses, three switches: `scorer.order` (the
+  judge's candidates in its order, cut to the judge's number), `scorer.drop` (candidates
+  under `drop_below` dropped), `stage.scorer` (a candidate alone over `settle_above` is
+  the answer, method `scorer`). `ScorerRepository` (`resolution.scorer_model`):
+  `save` makes the next version and puts every scorer switch that was on back to shadow;
+  `latest`.
+- **Training** (`resolution.scorer_training`): `training_rows` builds rows from checked
+  examples with the key hidden (`example_mention`), `train` fits on the `tune` split and
+  chooses the settling score (precision lower bound 0.85 over 30 settled) and the dropping
+  score (1% of true rows), `replay_scorer` replays on the `test` split's later half. The
+  measure step feeds the replay's lower bound to the settling switch.
+- **The yield** (`resolution.yield_table`): each lane run adds per stage and segment
+  (`<kind>/<name class>/<candidates band>/<consumer>`) how many mentions it saw, answered
+  and settled (applied, not `unknown`), and its model calls (`resolution.stage_yield`).
+  `YieldGate` keeps a gated stage (`run.GATED`: the judge) off a segment where it settled
+  nothing over 500 mentions, but on a stable 2% sample; `run_stages(gate=)`.
+### The wider search (entity resolution, build item 9)
+
+- **When** (`resolution.wider.WiderSearchStage`): a company mention with no candidate after
+  the rules, or whose candidates all score under the scorer's `drop_below`, or whose case
+  the judge last answered `absent` or `unknown` with hints (`judge_hints`: `hint:<name>=`
+  reasons). Every other mention is passed over (`StageOutput.passed`, not counted as a run
+  in the yield). The sources run after the rules and before the scorer and the judge.
+- **Four sources, each its own stage, switch and yield row** (`WIDER_STAGES`, all in
+  `run.GATED`): `stage.wider.loose_keys` (`LooseKeys`: the name index on looser names, see
+  `looser_names`; a looser name more than `PER_SOURCE` companies share is left out),
+  `stage.wider.full_text` (`FullText`: BM25 over the companies collection),
+  `stage.wider.similar` (`SimilarCompanies`: the companies whose description reads like the
+  document around the name, with the hinted sector and country), `stage.wider.site_text`
+  (`SiteText`: the companies of the sites whose pages hold the name). Each adds at most
+  `PER_SOURCE` companies a mention lacks, tagged `found_by=("wider.<source>",)`, to the
+  candidate cache (`CandidateCache.extend`), with their strength.
+- **A source searches only where its switch is `on`**: `shadow` is no search, since a
+  candidate the judge is not shown measures nothing. The yield counts a source as having
+  settled a mention when the applied answer names a company it found first
+  (`Resolution.found_first`).
+- **Wiring**: `company_stages(..., companies=CompanySearch, sites=SourceSearch)`; without
+  them only the looser keys run. `simpl_core.search.companies.open_company_search` opens the
+  companies collection's search (`by_words`, `like`); `SourceSearch.landing_hosts` reads the
+  landing pages' keyword half. Resolution takes both through protocols
+  (`CompanyTextSearch`, `SiteSearch`), so it imports no search module.
+- **The judge is asked at most twice on one state of the evidence**: it reuses its last
+  answer when it is shown the same companies, in any order (the answer's `candidates`), and
+  a hint search that adds companies asks it once more.
+
+### Matches, creation and placeholders (entity resolution, build item 10)
+
+- **Stage 8, research both sides of a match** (`resolution.match`, `resolution.match_research`):
+  a question is two company rows we hold (`MatchQuestions`, row store `er_match_questions`,
+  keyed by the pair, asked once). The lane worker opens them for the rows a lookup grouped
+  as one company (`group_pairs`, bare rows left out), the companies one mention's known
+  paths reach (`path_pairs`), and a row stage 9 created beside each candidate of its name
+  (`create.created_pairs`). `MatchResearch.run` (the confirm flow) takes the open ones in
+  order of what stands on their rows (connections, then leads), `PER_PASS` a pass:
+  - each side loaded by id as research loads a subject (`osint.resolution.SubjectResolver`);
+    a missing row, a placeholder (`origin = 'placeholder'`) or a row a lead waits on is
+    refused;
+  - `compare_held`: the same LinkedIn page is one company (`same_page`), two pages are two,
+    a site both rows hold with one page between them is one company (`collision`);
+  - else each side's own site: the crawl's stored pages (`CrawledSites`, the first
+    `IDENTITY_PAGES`), or its landing page asked of the research API as a fetch
+    (`HomePageFetches`: one page, internal, source type `entity_resolution`, purpose
+    `entity_confirm`; a refused fetch is asked again next pass), read for their structure only
+    (`page_keys`: links and schema.org `sameAs`). `compare_sites`: both sides pointing at
+    each other (a home that moved to the other's site, a declared page) is one company, and
+    so is a site declaring the page of a row with no site of its own (it has nothing to
+    point back with); one way between two sites, or a page only linked, is `one_way`
+    (never merged); a side with no page whose site names another page is `different`;
+    nothing is `weak`;
+  - `same` goes through the merge door (the row without a page into the one with it, else
+    the one less stands on into the other), journaled, or is held.
+- **Stage 9, create** (`resolution.create.CreateStage`, `stage.create`, last): a mention
+  nothing closed that carries a site naming a company or a LinkedIn page
+  (`writers.hard_identity_key`) gets a real row keyed by it through
+  `CompanyPlacementService.resolve_or_create` (resolved again under the key locks; origin
+  `entity_resolution`; recorded resolved in the claim ledger, so a key never creates twice).
+  Only while the stage's switch is `on`, and only for a consumer whose policy creates
+  (today company-from-domain's claims): `run_stages` skips a stage marked `creates` under
+  any other policy, and the fixer's dry run never runs one. A name never creates.
+- **Name stages by consumer** (`resolution.claims.NAME_STAGES`, 2026-11-23): a consumer that
+  matches by name runs by default only the name stages with a counterpart in its matching
+  before entity resolution; `rule.dominant_row` and `stage.stored_name` had none and act
+  only once switched on. `ConsumerPolicy.name_stages` carries the set (`None`: all of
+  `NAME_MATCHING`).
+- **One-way pointer** (`match.ONE_WAY_MERGE`, `stage.match.one_way`): a row with no site of
+  its own, whose page another row's site declares, merges only once that switch is on;
+  off, the pair stays `one_way`. A reconciler merge of an address-only placeholder into the
+  one lead its team works under the same name (ENG-1285) is journaled with its own proof
+  kind, `team_namesake`, never as a key lookup.
+- **Placeholders** are settled through their claim's case (build item 11 below), not by a
+  reconciler of their own.
+
+### The product's claims (entity resolution, build item 11)
+
+- **Pending claims are cases** (`resolution.claims`): `PendingClaims.read` turns the pending
+  rows of `sales.unresolved_company_claim` and `sales.unresolved_lead_claim` (oldest
+  first, `CLAIMS_PER_PASS` of each) into mentions of their ledger `source`, the consumer
+  (`inbound`, `crm_blocklist`, `conversation_processor`...), named by the claim's own name
+  or its placeholder's. Each consumer runs under its published policy, else
+  `claim_policy(source)` (`CLAIM_POLICIES`, from the plan's "Accepts": identifiers only
+  for a source with none).
+- **Settling** (`ClaimSettlement.settle`, on the caller's session; the caller commits, then
+  settles the merges with the door): `is` on a key merges the placeholder into the row the
+  key reaches through the merge door (a key lookup from the claim's own key, journaled),
+  or resolves a claim with no placeholder; `not_an_entity` retires the claim
+  (`resolution_state = 'retired'`, `mark_retired` on both ledgers), the placeholder kept; a
+  rule's or the judge's `is` is a proposal and changes nothing; an answer naming the
+  placeholder itself waits. A placeholder gone abandons its claim, one promoted resolves it
+  on itself, a lead placeholder parked on a company a lead waits on is left to the
+  conversation backfill's lead reconciler.
+- **People in the lanes**: `company_stages(..., people=True)` adds the people ladder (own
+  side, a name at its employer from the person name index, the customer's pipeline); the
+  two stages that read on a session run through `people.SessionPerRun`, a session per run.
+- **The name indexes** (`resolution.index_refresh.refresh_name_indexes`): the first run
+  builds the company and person name indexes from the whole registry, later runs read what
+  changed since the cursor (`name_index`), and the sweep tombstones companies gone. The
+  resolve run finds companies by name only through them.
+- **Callers resolve through the service, with no name matcher of their own.** Name matching
+  is a consumer's opt-in (`ConsumerPolicy.name_matching`; the name stages act by default
+  for it, a measured switch still winning: `name_matching.opted_in`). A request reads the
+  switch board on its own session (`switches.read_board(session)`). Moved so far: inbound
+  (`ingestion.company_placement.SignalCompanyPlacement`, also simpl_api's call linker),
+  the conversation's named company (`ingestion.conversation_company`, consumer
+  `conversation_processor`, the person's current roles as the mention's
+  `document_companies`), email thread people (`email.thread_people`), inbound's lead
+  lookup by name, CRM pull and link (`crm.crm_entity_onboarding`: `CRM_POLICY`, hard keys
+  over the resolver's strict linking policy; a miss gets a real row on its own site or
+  page with the CRM's origin, else a placeholder; several rows fitting raise
+  `crm_company_unplaced`) and the CRM blocklist (`crm.flow.blocklist`). Placeholders go
+  through `ResolutionService.place`, which also takes a company claim carrying only a
+  name under a placeholder policy (the caller decided the name is free), and creates on
+  the mention's own hard key under a policy with `create` (`resolve_or_create`, origin
+  the caller's `source`). An identifier's `is` names the key that matched first in its
+  `reasons` (`linkedin_url`, `landing_host`, `email`...). `Placement.identity_key` is the
+  ledger key a placeholder or created row stands on. The conversation processor's company
+  lookups go through `resolve`. Still direct, on purpose: meeting facts' and email sync's
+  pipeline lookups (the corroborated matcher itself: meetings want the customer's pipeline
+  lead over an address lead no seat holds, and email sync needs the pipeline row's
+  company); lookups by address or domain alone (the email lane, the processor's person,
+  which is unscoped because the lane writes its people's addresses globally); and company
+  import (`resolve_prepared_identities`, a name breaking host ties; its callers are
+  simpl_api's, and the dialog is an open product decision).
+- **The person name index** (`er_person_name_index`) also holds the leads whose own row
+  places them at a company they hold no experience at (`sales.lead.company_id`, key
+  `lead|company|placed`, incrementally by `updated_at`), so the worker's people ladder sees
+  them by name. Such a row is never tombstoned: a stale one only ever makes a candidate.
+- **A name is not enough for a person** (decided 2026-11-19; `resolution.person_evidence`,
+  facts read by `resolution.person_facts.PersonFacts`). `rule.name_employer` (experiences
+  at the employer, or the lead's own `company_id`) and `rule.pipeline_match` (the
+  customer's seats' leads there) return the leads a full name reaches as candidates. The
+  one candidate nothing contradicts is `is` only when a role at the company is open on the
+  mention's day (`Mention.seen_on`, today by default; with no experience there, the lead's
+  own row or the customer's connection) and one more fact agrees: the mention's title
+  (`Mention.title`; acronyms read as their words, rank words alone never agree), its
+  country, or an address on the company's site or a sister domain. Another LinkedIn
+  profile, every role there ended, or another country rule a candidate out. A customer's
+  mention is offered only the leads the customer may see (`PersonFacts.visible`). The lead
+  resolver matches no name: its two name paths (`leads_named_at_company`, and
+  `find_lead_by_name_and_company`'s `ILIKE '%name%'` first row) and the email lane's
+  `resolve_lead_by_name_and_company` are gone. Both rules are version 2.
+- **A referred colleague** (consumer `outreach_referral`, decided 2026-11-19): a name at a
+  company with no address gets a real stand-in lead when the caller passes `origin` to
+  `place` (`writers._stand_in_by_name`), its claim keyed by the mention
+  (`unkeyed:<source>:<source_ref>`), never by the name: the same referral finds it again,
+  another one naming the same person gets its own. A search's profiles are weighed by the
+  person rule (`resolution.profile_pick.pick_profile`: the name, then a role at the company
+  now and an agreeing title); several plausible go to the one judge as a person question
+  (`person_question`, `JudgeQuestion.kind == "person"`, candidates `P1`...), and only its
+  `is` at the consumer's `min_lower_bound` names one (`judged_profile`). The judge's
+  question and reply live in `resolution.judge_question` (no row store: simpl-outreach has
+  no pyarrow); `NameKind` and `Relation` in `resolution.vocabulary`; the lazy ledger judge
+  in `judge_agent.JudgeOnFirstQuestion`.
+- **The old verdicts as cases** (`resolution.legacy`, worker-only: pyarrow through `cases`,
+  never imported by `resolution/__init__`; plan §15 before cutover, step 3):
+  `legacy_method(decided_by)` maps Graphia's `er_assignment.decided_by` (author_anchor,
+  strong_key, key:* → hard_key; teacher, nuextract, model:, recheck: → judge;
+  `er_service:<m>` → m; the rest → rule); `legacy_answer` gives one case's answer (one row:
+  `is` by the weakest method; several rows, or a row beside a held nil verdict: `several`; a
+  nil verdict alone: `absent`; nothing held: no decision, never `unknown`).
+  `import_legacy(...)` registers mentions as a live run does and decides each case at most
+  once at `stage.legacy@0`: a case another stage decided is kept, a legacy-decided one is
+  widened (batches commute, a re-run writes nothing), shards without a store are `skipped`.
+  `SettledClaims` pages the ledgers' resolved and merged claims; `claim_placement` puts each
+  on its row (hard_key for domain, LinkedIn and email keys). `LEGACY_VERSIONS`
+  (`stage.legacy` at 1), merged into the fixer's current versions, makes every non-key
+  import stale, so the fixer re-plans it.
+- **The fixer re-plans by impact** (`recheck.by_impact`: most mentioned first, then longest
+  decided, then case id), at most `STALE_PER_PASS` (twice `AUDIT_SAMPLE`: 80) stale cases per
+  pass and shard; the rest wait, and a plan re-selected by version is capped the same way.
+  `recheck_lane` and `Reverter.dry_run`/`apply` take `policy_of(consumer)`: mentions are
+  grouped by consumer and each group resolved under its own policy (`revert.by_policy`).
+  `apply` leaves out a mention rebuilt under a name whose case lives on another shard
+  (`CaseStore.on_own_shard`, logged), rather than failing the plan on every pass.
+  `measurement.measured()` drops `stage.legacy` decisions, so the import gets no audit,
+  reading or switch. `PolicyRepository.active_all()`; `legacy.claim_row(row)` is the row a
+  claim stands on now.
+- **A name a person gave for their own company** (`Mention.own_company`: a form's typed
+  company, the company a reply says it answers for): `rule.unique_exact` links the one
+  company carrying it whatever its size, and `rule.document_company` also takes a document
+  company whose name the words named start or that starts them ("GMB Finance" names "GMB
+  Finance Solutions Srl"). For any mention, a LinkedIn page it gives contradicts a row with
+  another page. Rules version 7.
+
 ### Email word lists
 
 Three tables in the `mappings` schema hold the words simpl_core's email checks
@@ -4113,7 +4459,8 @@ search. The seed migrations' headers explain every key (`20261112100100`, `20261
     max_cost_usd_per_day}}` (fetch and crawl: `max_pages_per_day`), empty by default: a
     listed source type's internal requests count in a bucket of their own, alone; the
     others share the one internal bucket under the per-customer caps (the behaviour
-    before the key). Every listed source type must be in `source_types`.
+    before the key). A cap set to `null` is no cap: the bucket is counted and never
+    refused for it. Every listed source type must be in `source_types`.
   - **Purposes** (every kind): `purposes`, the list a request's `purpose` must be in;
     `null` by default, which takes any purpose (the behaviour before the key).
   - **Version 2 seeds** (`20261118130200`, inactive): person, company, topic, fetch, crawl
@@ -4126,6 +4473,17 @@ search. The seed migrations' headers explain every key (`20261112100100`, `20261
     production). `profile_read_linkedin`'s version 2 is `20261119200000`'s (entity
     resolution added, with the same internal buckets), and its version 3
     `20261120110000`'s (Olostep's call 120 s).
+  - **Entity resolution uncapped** (`20261123170000`, inactive): the `entity_resolution`
+    bucket's caps all `null` (uncapped) over the version before, on the same six keys:
+    version 5 of person and company (over the push-down seed's version 4), version 4 of
+    topic and search (over the heartbeat seed's version 3) and version 3 of fetch and crawl
+    (over version 2); the agent's and the planner's buckets unchanged. Version 2's caps were
+    guesses that would stop entity resolution's volume on its first day, and the worker
+    records no cost yet, so no dollar cap measures anything. Activate a key only once every
+    service that loads research policies (simpl_api's admission, simpl_scraping's worker,
+    each caller) runs a simpl_core that takes a null cap: an older one cannot parse these
+    versions. The file fails, writing nothing, unless all six versions end uncapped. Not
+    copied into `tests/setup_test_db.sql`.
   - Research's `freshness_days` is the fresh-facts window. No kind has a page text key:
     Postgres keeps no page text.
   - **Schema versions:** a stored version is never rewritten, so a key leaves through a
@@ -5829,15 +6187,17 @@ and its closest chunk's exact cosine, maybe another chunk), and `keyword_rank` a
 `keyword_score` (BM25, no fixed scale).
 Cosines compare well within a kind, only roughly across kinds.
 `SourceSearch.resolve_leads(name)` finds leads by name in the lead profiles' collection;
-`resolve_companies(db, text)` a company by URL or domain (normalized landing host),
-LinkedIn URL or exact name; `resolve_lead_by_linkedin(db, url)` a lead by profile URL,
-all through Postgres' indexes; LinkedIn URLs match whatever host, trailing slash,
-query or case they are pasted with (`lead_linkedin_url_variants`,
-`company_import_service.parse_import_identity`). `resolve(db, search, text)` is what one
-search box needs, as a `Resolution(companies, leads)`: a profile URL gives a lead,
-another LinkedIn URL or a URL with a scheme a company, a word that looks like a domain
-(`anna.rossi`) both a host and a name lookup, any other text the exact company name and
-the lead name search.
+`resolve_companies(db, text)` the companies entity resolution answers for a URL, a
+domain, a LinkedIn company URL or a name (`ResolutionService.resolve` under the live
+switches, then `ResolutionService.candidates` for a name: any letter case, legal forms,
+letters run together, LinkedIn pages), `matched_by` the answer's method (`hard_key`,
+`rule`...) or how the lookup found the row (`name`, `joined`, `legal_form`, `page`);
+`resolve_lead_by_linkedin(db, url)` a lead by profile URL, whatever host, trailing slash,
+query or case it is pasted with (`lead_linkedin_url_variants`). All read Postgres only.
+`resolve(db, search, text)` is what one search box needs, as a
+`Resolution(companies, leads)`: a profile URL gives a lead, another LinkedIn URL or a URL
+with a scheme a company, a word that looks like a domain (`anna.rossi`) both a site and a
+name lookup, any other text a company name and the lead name search.
 
 `simpl_core.anonymization` is the anonymizer on its own, for any text whose people are
 known, for the step after identity linking:
@@ -5923,10 +6283,15 @@ passage = await document_passage(reads, ontologies, doc_key, variant_name=...)
   refused. A run whose fingerprint is not loaded raises `LookupError`
   (`log.ontology_of`): reload after a new version is registered.
 - **Steps** (`steps`): what identity and promotion make of a graph, for an explorer.
-  `read_identity(db, graph.nodes)` reads each unit's entity (`er_assignment`), follows
-  redirects to the canonical entity, and reads its registry anchor (`company:<id>` /
-  `lead:<id>`), the unit's link decision, an open link request and the anchors ruled
-  out. `read_promotion(db)` reads the newest `promotion_config` (as
+  `read_identity(db, graph.nodes, cases=None)` reads each unit's entity
+  (`er_assignment`), follows redirects to the canonical entity, and reads its registry
+  anchor (`company:<id>` / `lead:<id>`); the link state is the case of the unit's mention
+  (`CaseStore.of_mention_ids`): `link_method`, `link_p`, `link_anchor` from its answer
+  (none while it has none or is `unknown`), `open_review` when it is open with rows still
+  possible, `ruled_out` the rows an `absent` refused. Pass the explorer's warm
+  `CaseStore(store, shards=LANES, shard=None)` as `cases`; without it a store is opened on
+  `ROW_STORE_URI` for the call (cold), and with no row store named the link state is
+  empty. Before the cases exist it is empty too. `read_promotion(db)` reads the newest `promotion_config` (as
   `promotion_rules.PromotionRules`, also simpl_flow's) and the newest `done` or
   `measured` run's report (a measurement that wrote no golden row, simpl_flow 187). `graph_steps(graph, identity, promotion)` gives `GraphSteps`: `extracted`
   counts, `identity` (units folded into entities: per entity type units, entities,
@@ -6402,14 +6767,13 @@ is enabled by revision 2 (`migrations/20261016b_enable_profile_positions.sql`); 
 
 `simpl_core.services.lead_positions.positions_to_experience(session, lead_id=…,
 positions=…, source=…, today=None)` writes those positions; it never commits.
-- **Companies:** found by numeric LinkedIn id: the row holding the id; else, for a
-  position held on `today`, the lead's own company when it carries the position's name
-  (case and spacing aside), holds no id and sits on no other page
-  (`CompanyByIdService.attach_to`, which gives it the id and the page); else
+- **Companies:** found by numeric LinkedIn id: the row holding the id; else
   `CompanyByIdService.get_or_create`: the single id-less row on its LinkedIn company page
   (a real row first; a lone placeholder is promoted: it takes the id and `origin=source`,
   and its pending claims resolve to it), else a new row with `origin=source`. A position
-  without an id is skipped, never matched by name.
+  without an id is skipped. No name is compared, the lead's own company's included: a row
+  of the position's name without the id stays apart until entity resolution merges the two
+  on a key they share.
 - **Experience:** one `sales.lead_experience` row per position the lead does not have yet
   (`LeadRepository.add_experience_if_absent`, which returns the row found or written,
   `ExperienceRow(id, inserted)`).
@@ -6713,9 +7077,12 @@ webhooks; transport lives in simpl_ingestion) into leads owned by the right sell
   receiving customer: by LinkedIn profile, then by email through
   `LeadContactRepository.leads_for_addresses(customer_id=…, addresses=…, preferred_user_id=None)`
   (global rows and rows private to the customer's users; never Dummy or nameless leads),
-  then by exact full name at the company the signal names (exactly one lead with a public
-  identity or known to the customer). A lead found by email or name whose stored profile
-  contradicts the signal's is somebody else (`profiles_contradict`). When the profile names
+  then by entity resolution's name rules (`ResolutionService.resolve` under the `inbound`
+  policy, with the signal's job title): a full name at the company the signal names, or in
+  the customer's pipeline, among the leads the customer may see, and only when what we
+  hold corroborates it (`resolution.person_evidence`). A lead found by email or name whose
+  stored profile contradicts the signal's is somebody else (`profiles_contradict`). When the
+  profile names
   one lead and the address another the customer holds privately or works
   (`LeadContactRepository.leads_customer_knows_by_address(customer_id=…, address=…) ->
   list[KnownAddressHolder]`, worked longest first), the address's lead wins and the
@@ -6734,7 +7101,7 @@ webhooks; transport lives in simpl_ingestion) into leads owned by the right sell
   at or on their work domain's site
   (`UserLeadConnectionRepository.customer_leads_at_company(customer_id=…, company_id=…,
   site_host=…, limit=…) -> list[PipelineLead]`), by first and last name, accents and case
-  aside (`pipeline_match.find_in_pipeline`, `LeadMatch.PIPELINE_NAME`). Profile URLs go
+  aside (`resolution.pipeline_match.find_in_pipeline`, `LeadMatch.PIPELINE_NAME`). Profile URLs go
   through the one parser, `simpl_core.utils.linkedin_identity.linkedin_profile_identifier`
   (any LinkedIn host, the segment after `/in/`; a company page or another host is no
   profile).
