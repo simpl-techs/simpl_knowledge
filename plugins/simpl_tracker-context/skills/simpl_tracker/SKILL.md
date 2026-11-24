@@ -473,6 +473,14 @@ again from the top: every step can be applied again (created when missing, repla
 INVALID index dropped and built again, a definition a later step replaces skipped once
 that step has run).
 
+`migrations/20261125120000_price_hold_calibration_speed.sql` is applied after it the same
+way, and again after any later run of it (step `price_holds` creates
+`price_hold_calibration` with the body this file replaces): it builds
+`llm_receipt_unpriced_requests` `CONCURRENTLY` on `llm_request_receipt (provider,
+created_at) WHERE state = 'unpriced' AND external_request_id IS NOT NULL`, the read of
+`openrouter_costs settle`, and makes `price_hold_calibration` (same arguments and result)
+read only the billed calls its open holds can match. Its `_rollback.sql` undoes both.
+
 `cost_tracking.llm_token_prices` is the read for routing: one row per `provider`,
 `model` and `upstream_tag` with a token price open today at the provider's current tier,
 columns `input_usd_per_token`, `cache_read_usd_per_token`, `cache_write_usd_per_token`,
