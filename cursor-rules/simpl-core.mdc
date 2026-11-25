@@ -2975,6 +2975,16 @@ decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution
   it, for any mention. **A user is never a lead**: a lead claim the own side answers
   `is user:<id>` is retired, like `not_an_entity`. The people rules' `is` carries
   `people.PERSON_RULE_CONFIDENCE` (0.9), the pipeline match's included.
+- **The judge sees what the mention gives besides its name** (`JudgeQuestion.about`,
+  `JudgeMentionFacts`: the kind of record, `judge.RECORDS`; its site, LinkedIn page, email
+  domain, country, location, language) and each candidate's LinkedIn page. Prompt
+  `entity_resolution/judge-system` 2 holds those facts against the candidates' own and
+  answers `unknown` when only the name agrees. An `is` on a mention with a stand-in (a
+  claim, whose answer can merge its placeholder) is asked twice, the candidates reversed;
+  two answers that differ are `unknown`. `LedgerJudge` keeps each call as an
+  `agent_framework.agent_runs` row (question, reply or error, model, prompt), unless the
+  definition says `audit: false`. `JudgeOnFirstQuestion(..., config_version=)` asks a given
+  ledger version, for a replay before it switches on.
 - **A claim's stand-in** (`Mention.stand_in`, set by `company_claim_mention` and
   `lead_claim_mention`): the row the claim stands on, its placeholder or its caller's lead.
   `run_stages` keeps an answer naming it unapplied and drops it from the candidates, and
