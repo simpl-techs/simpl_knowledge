@@ -2959,6 +2959,16 @@ decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution
   query): the `SettlementPlan` `settle` acts on, `action` (`Settled`) and `target`, a
   `PlannedMerge` for a merge, else `reason` (`Unsettled`: `no_answer`, `open`, `below_on`,
   `other_kind`, `its_placeholder`, `parked`).
+- **A claim nothing settled is not asked again for nothing**: `settle(..., tried_as=)`
+  (the ladder version each consumer's claims ran under) records on a claim the whole ladder
+  left unsettled its `Tried` (`er_tried_version`, `er_tried_mention`, `er_tried_at`,
+  migration `20261127_claim_er_tried`), counted `unsettled`; a resolution with a failed
+  stage (`Resolution.failed`, from `StageOutput.failed`: the judge's model call) is not
+  recorded. `worth_trying(claim, version, now=)` asks it again once
+  `ladder_version(stages, policy=, board=, judge=)` (stage versions, policy, every switch
+  moved, `judge_agent.judge_version`) or `mention_key(mention)` changed, or after
+  `RETRY_AFTER` (7 days). `run.stage_list(stages_for, store, shards=)` gives the stages
+  for their versions alone.
 - **A claim's stand-in** (`Mention.stand_in`, set by `company_claim_mention` and
   `lead_claim_mention`): the row the claim stands on, its placeholder or its caller's lead.
   `run_stages` keeps an answer naming it unapplied and drops it from the candidates, and
