@@ -7093,6 +7093,9 @@ Three readers on an asyncpg connection ride on the operating snapshot
   they moved in 30 days or are dated in the next 14, upcoming first, counts for all.
   `we_wrote_before_the_call` checks a successful send from any seller of the same
   customer to the lead, since calls are handed to the colleague who takes them.
+  `meeting_at` is the call's current time. A `call.rescheduled` with no new time, later
+  than the last event that gave one, empties it: `moved_from_meeting_at` keeps the slot
+  it left and `moved_without_new_time_at` when, and the call is not listed as upcoming.
 - `conversations_waiting.conversations_waiting(conn, user_id=…)` → `conversations_waiting`:
   leads whose latest inbound message (14 days) has no later successful send, with the
   newest draft since (its `action_type`: `send_message` is a message, other types are
