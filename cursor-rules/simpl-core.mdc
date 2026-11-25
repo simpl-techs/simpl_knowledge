@@ -4481,9 +4481,10 @@ search. The seed migrations' headers explain every key (`20261112100100`, `20261
     fetch and a profile read have no `heartbeat` key. Version 3 of person, company and
     topic (180 / 120 / 900 s) and of search (30 / 20 / 120 s) is seeded inactive by
     `20261119140100`. Activate it only when two things hold. First, every service that
-    loads OSINT policies (simpl_api's admission, the research worker, any caller that
-    reads requests) runs simpl_core 0.8.427 or later: an older one refuses a document
-    that names `heartbeat` (`extra="forbid"`), so every submit and read under it fails.
+    loads OSINT policies (the research worker, the `osint_policy` command, any caller
+    that submits or reads requests) runs simpl_core 0.8.427 or later: an older one
+    refuses a document that names `heartbeat` (`extra="forbid"`), so every submit and
+    read under it fails.
     Second, the research worker moves `pages_due_at`: before it, research ends at its
     first wait, 180 s (version 2: 600 s), and search at 30 s (version 2: 60 s), whatever
     each still finds.
@@ -4531,10 +4532,10 @@ search. The seed migrations' headers explain every key (`20261112100100`, `20261
     (over version 2); the agent's and the planner's buckets unchanged. Version 2's caps were
     guesses that would stop entity resolution's volume on its first day, and the worker
     records no cost yet, so no dollar cap measures anything. Activate a key only once every
-    service that loads research policies (simpl_api's admission, simpl_scraping's worker,
-    each caller) runs a simpl_core that takes a null cap: an older one cannot parse these
-    versions. The file fails, writing nothing, unless all six versions end uncapped. Not
-    copied into `tests/setup_test_db.sql`.
+    service that loads research policies (simpl_scraping's worker, the `osint_policy`
+    command, each caller that submits or reads requests) runs a simpl_core that takes a
+    null cap: an older one cannot parse these versions. The file fails, writing nothing,
+    unless all six versions end uncapped. Not copied into `tests/setup_test_db.sql`.
   - Research's `freshness_days` is the fresh-facts window. No kind has a page text key:
     Postgres keeps no page text.
   - **Schema versions:** a stored version is never rewritten, so a key leaves through a
@@ -4695,6 +4696,29 @@ async for read in requests.follow(admission.request_id, max_wait_s=120):
 heads = await requests.heads(open_request_ids)  # many states in one query
 ```
 
+- **Answer within a time budget** (picked-fixes plan X73): `follow` already stops at
+  `max_wait_s`, and the request keeps running after it. A caller that must answer in, say,
+  10 s follows with that budget, answers from the last read, keeps the cursor and reads
+  the rest later. There is no other method to call:
+
+  ```python
+  async for last in requests.follow(admission.request_id, max_wait_s=10):
+      ...  # a crawl's pages come with each read's events: keep them as they come
+  answer_now(last)  # a research read's pages are every page found so far
+  if not last.complete:
+      keep(admission.request_id, last.next_cursor)  # the request is still running
+  # Later, from the kept cursor: one read, or follow again with a new budget.
+  rest = await requests.read(request_id, after=kept_cursor)
+  ```
+
+  `follow` always yields its first read, so `last` is set. The budget starts when `follow`
+  starts, not at the submit, and is not a hard limit: `follow` checks it before each
+  sleep, then reads once more, so its last read can end up to one read's query time after
+  `max_wait_s`. For a hard limit, pass the budget less the time the submit took and about
+  0.5 s for that last read. Expect a thin first answer from research: hits arrive at about
+  5-7 s and a page takes about 5 s more to be stored, so in the 2026-11-25 benchmark (8
+  requests) 28% of the final pages were stored by 10 s, and three requests had none.
+
 - **Submit** (`submit_research`, `submit_fetch`, `submit_crawl`, `submit_search`): one
   transaction each, which returns an `Admission` (`request_id`, `kind`, `status`,
   `outcome`, `retry_after_s`, `pages_due_at`, `deadline_at`, and for `fresh` `fresh_until`:
@@ -4782,8 +4806,14 @@ heads = await requests.heads(open_request_ids)  # many states in one query
   `hard_key` that matched), `skipped_hits` (each hit not fetched, with its `decision`:
   `excluded_host`, `identity_key_only` (a LinkedIn profile kept as the lead's identity key,
   never fetched), `other_profile` (another LinkedIn profile, for a lead with a stored one:
-  only the stored profile is the lead's key), `no_name_in_hit`, `over_host_cap`,
-  `over_page_cap`; `SourceDecision`), `resolved_subject` (#513's `ResolvedSubject`,
+  only the stored profile is the lead's key), `no_name_in_hit`, `same_page` (a copy of a
+  page the request already fetches: the same site name, the host's main label, and the
+  same path once a leading language or locale segment is removed; the query counts),
+  `document_link` (a URL whose path ends in one of the `research_page` scraper policy's
+  `skip_extensions`: a PDF, an office file, an image), `over_host_cap`, `over_page_cap`;
+  `SourceDecision`. `same_page` and `document_link` since simpl_core 0.8.522, migration
+  `20261125210000`: a reader on an older simpl_core fails on a request that holds either),
+  `resolved_subject` (#513's `ResolvedSubject`,
   fields a newer worker added ignored; None until the worker writes it), and
   `profile_reads` (its children and the reads its `profile_read` events name: status,
   reason, raw object key, `lead_experience_ids`: the `sales.lead_experience` rows a read
