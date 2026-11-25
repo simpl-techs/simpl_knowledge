@@ -2859,7 +2859,8 @@ decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution
 - **Four sources, each its own stage, switch and yield row** (`WIDER_STAGES`, all in
   `run.GATED`): `stage.wider.loose_keys` (`LooseKeys`: the name index on looser names, see
   `looser_names`; a looser name more than `PER_SOURCE` companies share is left out),
-  `stage.wider.full_text` (`FullText`: BM25 over the companies collection),
+  `stage.wider.full_text` (`FullText`: BM25 over the companies' descriptions; the name
+  column is not searched, as it was not in the companies' Zilliz collection),
   `stage.wider.similar` (`SimilarCompanies`: the companies whose description reads like the
   document around the name, with the hinted sector and country), `stage.wider.site_text`
   (`SiteText`: the companies of the sites whose pages hold the name). Each adds at most
@@ -2870,9 +2871,11 @@ decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution
   settled a mention when the applied answer names a company it found first
   (`Resolution.found_first`).
 - **Wiring**: `company_stages(..., companies=CompanySearch, sites=SourceSearch)`; without
-  them only the looser keys run. `simpl_core.search.companies.open_company_search` opens the
-  companies collection's search (`by_words`, `like`); `SourceSearch.landing_hosts` reads the
-  landing pages' keyword half. Resolution takes both through protocols
+  them only the looser keys run. `simpl_core.search.companies.open_company_search(
+  nebius_api_key=..., queries=...)` gives the companies dataset's search on the row
+  store's query service (`by_words`, `like`; `queries` gives the service's client, which
+  its owner closes); `SourceSearch.landing_hosts` reads the landing pages' keyword half
+  there too. Resolution takes both through protocols
   (`CompanyTextSearch`, `SiteSearch`), so it imports no search module.
 - **The judge is asked at most twice on one state of the evidence**: it reuses its last
   answer when it is shown the same companies, in any order (the answer's `candidates`), and
@@ -4992,11 +4995,11 @@ row, its id, its connection or its seller. Modules in `simpl_core.services.osint
     candidates by the subject's names, their mentions are read by id, and a tag whose URL
     is one of the subject's pages (slug decoded and case-folded, or the company page's
     numeric id) matches. A tag under another text is missed.
-  - Wiring: keyword-only needs Zilliz alone (`LandingSearch(store, dims=...)`,
-    `PostSearch(store, dims=...)`); topics' dense half and passages need the Nebius
-    embedders (`embed_query=embedder.embed_query`; `PassageFinder(store, landing_embedder,
-    posts_embedder)`). Limits per search are module constants (`OWN_SITE_HITS`,
-    `MENTION_SITES`, `POST_CANDIDATES`, ...).
+  - Wiring: keyword-only needs the query service alone (`RowStoreLandingSearch(queries)`,
+    `RowStorePostSearch(queries)`); topics' dense half and passages need the Nebius
+    embedders at each dataset's `QUERY_DIMS` (`embed_query=embedder.embed_query`;
+    `PassageFinder(queries, landing_embedder, posts_embedder)`). Limits per search are
+    module constants (`OWN_SITE_HITS`, `MENTION_SITES`, `POST_CANDIDATES`, ...).
 
 ### Object storage
 
@@ -5130,14 +5133,12 @@ merged = await labels.merge()          # shards/, keys/, manifest.json
   Credentials; no project needed) and `LocalManifest` on `LocalFileSystem`; any other
   filesystem is refused: no conditional write is known for it.
 
-### Processed rows and projections (`row_store`)
+### Processed rows (`row_store`)
 
 `simpl_core.row_store` keeps rows a process derives from Postgres (embeddings, detected
-languages, extracted fields) in a Lance table per dataset version, on GCS, before
-they are served from another system. The table is the source of truth for derived rows:
-a target such as a Zilliz collection is a strict projection of it, so it can be rebuilt
-or moved without computing anything again. LanceDB and DuckDB's `lance` extension read
-the table as it is. Needs the `row-store` extra (`pylance`) and the catalog migration
+languages, extracted fields) in a Lance table per dataset version, on GCS. The table is
+the source of truth for derived rows, and searches read it through the query service
+(`simpl_core.seek`). LanceDB and DuckDB's `lance` extension read the table as it is. Needs the `row-store` extra (`pylance`) and the catalog migration
 `migrations/20260929_row_store_catalog.sql` (schema `row_store`).
 
 ```python
@@ -5147,8 +5148,6 @@ await posts.ensure()                         # catalog row, table, indexes
 await posts.commit(rows, run_id=run_id)      # key, row_version, deleted?, fields
 rows = await posts.get(keys, ["text"])       # by key; tombstones included
 
-runner = ProjectionRunner(posts, "zilliz:sales_posts_v2", target, columns=[...])
-await runner.run(max_seconds=120)            # None when another runner holds the lease
 await posts.maintain()                       # indexes, bounded compaction and merges, cleanup
 await posts.build_index("vector")            # sections of a declared vector or text index
 ```
@@ -5164,7 +5163,8 @@ await posts.build_index("vector")            # sections of a declared vector or 
   page with cursors.
 - **A commit upserts by `key`, and a row replaces the stored one only if its
   `row_version` is not older**, so a replay is harmless. A deleted source row is a
-  tombstone (`deleted=True`, fields null) so projections see the delete. Mark source
+  tombstone (`deleted=True`, fields null), so a reader of changes (`Dataset.changes`)
+  sees the delete. Mark source
   work done only after `commit` returns; a `LeaseLostError` means it is not done.
 - **One writer per dataset.** Commits run under a Postgres lease that Lance's commit
   hook re-checks, which also numbers them; other writers wait up to `lease_wait`, then
@@ -5184,7 +5184,10 @@ await posts.build_index("vector")            # sections of a declared vector or 
   with 11 segments, so a commit's keys, not its bytes, size it. Reads find rows on a
   narrow column and take the others by row id;
   once `INDEX_NEW_ROWS_AT` (10k) rows are outside the indexes, the commit indexes them
-  as new segments, so no read scans more than that.
+  as new segments, so no read scans more than that. `build_index` and
+  `consolidate_index` index them too, under their commit's lease, before they commit
+  a section: no version has a vector or keyword section holding a fragment a scalar
+  index does not (a search filtering through one that is behind is five times slower).
 - **`maintain` costs the same however big the table grows.** It merges fragments
   smaller than `COMPACTION_TARGET_ROWS` (100k) into ones of about that size, never
   rewrites a full one, and rewrites at most `COMPACTION_MAX_ROWS` (250k) per run, one
@@ -5206,14 +5209,44 @@ await posts.build_index("vector")            # sections of a declared vector or 
   `COMPACTION_BATCH_BYTES` (16 MiB) of rows at a time, and importing the row store
   caps Lance's read-ahead at `IO_BUFFER_BYTES` (128 MiB, `LANCE_DEFAULT_IO_BUFFER_SIZE`
   unless the process sets it). Each step logs `row_store.maintain_step` as it starts.
+- **A spec may declare columns the store computes itself** (`DatasetSpec(computed=...)`):
+  `NarrowedVector("vector", 512)` is the row's vector cut to its first 512 components and
+  re-normalised (column `vector_512`), `HasValue("company_id", "has_company")` whether a
+  column holds a value. The store fills them at every commit from the row it is given:
+  **no writer sends them**, and they are outside the input schema and the fingerprint,
+  so declaring one is no new dataset version.
+  - A new table has them from the start. A table that holds rows takes them in place:
+    `Dataset.add_computed_columns()` (Lance records the columns, no data is written),
+    then `Dataset.fill_computed()` until `rows_left` is 0, a part a call, the lease held
+    for each commit alone. `DatasetHealth.computed_missing` and `computed_unfilled_rows`
+    say what is left.
+  - Until a column is filled, compaction leaves its unfilled fragments alone and no
+    index is built on it (a scalar index waits in `maintain`; `build_index(create=True)`
+    and `consolidate_index` raise).
+  - **Deploy order**: add them only after every writer and every maintenance of the
+    dataset runs a release that declares them. A release that does not still writes
+    the table once they are added: its rows lack the columns, its compaction merges them
+    into files that hold the columns empty (where `fill_computed` and the health no
+    longer see them), and its maintenance drops an index on a computed column.
+    `Dataset.computed_gaps()` finds such rows by value (a scan of the columns and their
+    sources over the fragments that hold them, about what a fill reads), and
+    `fill_computed(fragments=gaps)` fills them; `ComputedFill.column` and `.fragments`
+    say which it committed.
+  - `searched_vector(stored, query)` gives a kind its computed column and its one vector
+    index: on the vector cut to the width its queries have. Every searchable kind uses
+    it (`vector_1024`; `vector_512` for posts and landing pages), and posts declare
+    `has_company` (`posts.spec.ON_A_COMPANY_PAGE`). The stored 4,096 components are
+    indexed nowhere: measured, an index on them found 71% of the true best 100 companies
+    for a query of 1,024, an index on `vector_1024` 97.7% in a quarter of the time.
 - **Vector and full-text indexes are declared on the spec; on a filled table they are
   built on request.** Like the scalar indexes they are outside the fingerprint, so
   declaring one is no new dataset version.
-  - `DatasetSpec(vector_indexes=(VectorIndex("vector"),))`: `IVF_RQ` (1 bit a dimension,
-    cosine) on a fixed-size float list.
+  - `DatasetSpec(vector_indexes=(VectorIndex("vector_512"),))`: `IVF_RQ` (1 bit a
+    dimension, cosine) on a fixed-size float list, a computed one included.
   - `DatasetSpec(text_indexes=("text",))`: a BM25 (`INVERTED`) index under
     `TEXT_INDEX_OPTIONS`, one neutral analyzer for every language (split, lower case,
-    accents folded; no stemming, no stop words), the Zilliz collections' analyzer.
+    accents folded; no stemming, no stop words), the analyzer the Zilliz collections
+    searched with, so keywords are cut as they were.
   - They are kept as **sections**: segments each built from the rows of a run of
     fragments, by `Dataset.build_index(column)` alone. Lance's own update and merge of
     such an index open every segment (every section's centroids, every section's word
@@ -5264,11 +5297,6 @@ await posts.build_index("vector")            # sections of a declared vector or 
     one section's settings; the reader checks their keys.
   - Adding a dataset, moving a kind to a new version or changing a setting is an
     `INSERT`/`UPDATE`, picked up by the next run, with no deployment.
-- **A projection target gets full rows and deletes, never partial updates.** A
-  `ProjectionTarget` implements `upsert(table)` and `delete(keys)`, both idempotent. The
-  runner applies commits past the projection's watermark, one window at a time, and
-  never reads past an open commit. Registering a projection with `applied_seq = 0` and
-  running it is a rebuild.
 - **A reader without the spec opens the table by name.** `StoredTable(config,
   "sales_posts__v2")` gives `schema()`, `read(columns, where=...)` and `version()`: live
   rows only, `where` a pyarrow expression; with `pinned=True` all three see the version
@@ -5297,6 +5325,269 @@ await posts.build_index("vector")            # sections of a declared vector or 
   service account on Cloud Run, `gcloud auth application-default login` locally); no
   key is configured. Lance prefers `GOOGLE_*` credential variables in the environment,
   so set none for another account.
+
+- **A vector index is consolidated into one section over the table.**
+  `await dataset.consolidate_index(column)` builds one section from a snapshot without
+  the lease and commits it under the lease, removing every section the index had
+  (`IndexConsolidation`, log `row_store.index_consolidated`, with the search speed it
+  measured). `await dataset.consolidation_state(column)` reads the manifest only: `due`
+  when more than 5% of the rows sit outside the largest section. The 15-minute
+  maintenance keeps building small sections for new rows around it; a `build_index`
+  overtaken by a consolidation plans again once (`row_store.index_build_replanned`).
+  Nothing compacts the fragments under a consolidated section in `maintain`: clear dead
+  rows by hand with `Dataset.compact_held(max_rows=...)` (`HeldCompaction`, log
+  `row_store.held_compacted`) when `DatasetHealth.held_dead_share` grows.
+- **Logs to alert on**: `row_store.query.retried` (warning: a call retried a service
+  away for a moment), `row_store.query.service_fault` (error: a crash, a refused token,
+  an unreadable answer), `row_store.query.walk_restarted` (warning: a walk's ranking
+  expired, started again once), `row_store.query.walk_truncated` (warning: a walk cut
+  at `ABOVE_MAX_ROWS` or the reader's page cap, with its dataset and floor),
+  `row_store.query.groups_short` (warning: a grouped read came back full with fewer
+  groups than asked), `row_store.index_consolidated` (info: a consolidation committed,
+  with its measured search speed).
+- **Backup** (`row_store.backup`, runbook `docs/row-store-backup.md`):
+  `snapshot_tables(catalog, store, backup)` copies each table's data and manifest (no
+  index files), only the files the backup lacks, with create-only writes;
+  `prune_tables(catalog, store, backup, keep=30)` keeps the newest 30 records per table;
+  `restore_table(backup, target, record)` restores one version and drops its indexes;
+  `commits_after_snapshot` names the commits a restore lacks. `version_files(dataset,
+  indexes=...)` lists every file a version needs, its manifest last.
+
+### Searching the row store's tables (`row_store.table_search`)
+
+`AsyncLanceStore` (extra `row-store`; from `simpl_core.row_store.table_search`) searches the row store's Lance
+tables in worker threads: by meaning, by keywords and both, paginated. The query
+service (simpl_seek) reads every table through it; a batch job may open one in
+process. Its writes and index builds serve tests and one-off loads: `RowStore` writes
+and maintains the tables. Its results are its own types (`SearchResult`,
+`PaginatedSearchResult`, `GroupBy`, `VectorPoint`); it depends on no simpl_ia vector
+store.
+
+```python
+from simpl_core.row_store.table_search import (
+    AsyncLanceStore, LanceStoreConfig, LanceTableConfig, LanceHybridSearchConfig,
+    LanceDenseLeg, LanceTextLeg,
+)
+
+config = LanceStoreConfig(
+    root_uri="gs://bucket/tables",
+    tables={"companies": LanceTableConfig(id_column="key", live_filter="NOT deleted")},
+    read_only=True,
+)
+store = AsyncLanceStore(config)
+page = await store.search_paginated("companies", vector, limit=50, filter={"country": "IT"})
+more = await store.search_paginated("companies", vector, limit=50, filter={"country": "IT"},
+                                    cursor=page.next_cursor)
+```
+
+- **Order and pages.** Every search orders rows by score, then id (Milvus's tie rule),
+  asks Lance for the whole window `offset + limit` and widens it while the boundary score
+  is tied: two reads of a page agree and pages concatenate. `max_window` (16,384) bounds
+  `offset + limit`; walk deeper with `next_cursor` or an iterator.
+- **Cursors** pin the table versions the first page read, so commits between pages never
+  repeat or skip rows. On an exact search (no vector index, or `use_index=False`) the next
+  page reads only rows past the last one, and pages concatenate to one search. Through an
+  index the next page holds the best rows after the last `(score, id)` returned, of a
+  search as deep as the window: a cursor walk never repeats a row and comes in score
+  order, but misses a row a deeper page's candidates find above the last one returned
+  (each page takes its candidates from a search of its own depth). A caller that needs
+  every row of a walk asks them in one page, or through an exact search. Pages asked by
+  `offset` alone are windows of separate searches: through an index they can repeat or
+  skip rows; use the cursor.
+  **Grouped cursors are the exception**: with `group_by` the cursor pins the versions but
+  goes on by offset, so through an index a walk can repeat or skip a group between pages;
+  it is complete only when each page is exact (a filter keeping at most `exact_filter_rows` rows).
+- **Dense** scores are cosine similarity at the stored width. `score_dims=N` on the table
+  re-scores candidates on the first N components, re-normalised (a migration comparison
+  tool), also per call. Knobs: `LanceSearchParams` per call, table and store (`nprobes`
+  100 per index segment; `rescore_factor` 2: the store reads the vectors of the best
+  `k × 2` candidates in sorted batches and scores them exactly; Lance's own
+  `refine_factor` off; `prefilter` on; the metric is always passed). A probe count is a
+  ceiling too: a filtered search that comes back with fewer rows than it asked, and than
+  its filter keeps (counted up to the page, rows outside the index included), is asked
+  again at 4 and 16 times the count, then with the count as a floor and no ceiling
+  (Lance then probes every partition), stopping once it holds them; each widening is
+  logged at info (`lance.probes_widened`, counts tried and `elapsed_ms`).
+  A filtered search whose filter keeps at most `exact_filter_rows` (4,096) rows scores
+  them all exactly without the index. Counting them costs the whole filter through its
+  scalar indexes (54 ms for an `IN` of three values on 23.9M rows, 143 ms for a range
+  keeping most of 19.8M), so a filter found to keep more is remembered for the opened
+  version of its table: the conditions every search carries are counted once (a search
+  of 100 went from 354 to 215 ms on posts and from 183 to 130 ms on landing pages). A
+  ceiling set alone (`maximum_nprobes`) keeps the
+  inherited count as its floor; a ceiling you set can leave a filtered page short.
+  `score_dims` on a search that reads every filtered row (no vector index yet, or an
+  exact search) refuses past `max_fetch` rows with `LanceExactScanTooLargeError`, a
+  size cap and no `LanceIndexError`: its `index_missing` says whether the table has no
+  vector index (a reader answers an index not built) or exact scoring was asked over
+  too many rows (the caller narrows or splits its filter). A search that filters
+  after ranking (`prefilter=False`) still filters first wherever it scans listed
+  fragments (the rows outside the index), which pylance requires.
+- **Rows outside the index**: `unindexed` on every dense, text and hybrid search:
+  `include` scans them (complete), `skip` leaves them out (as fast as the index), `refuse`
+  raises `LanceUnindexedRowsError` when there are any. `include` scans at most
+  `LanceStoreConfig.max_unindexed_rows` of them (100,000; `None` lifts it): the scan
+  reads every such row, so its cost grows with them and not with the rows asked. Past
+  the bound the search raises `LanceUnindexedScanTooLargeError` and scans nothing: a
+  `LanceIndexError` (an index too far behind its table), not a
+  `LanceUnindexedRowsError` (nothing the caller asked is refused). A column with no
+  index has every row outside it, so a table larger than the bound is searched there
+  only with `use_index=False`, which asks for every row and is not held to the bound.
+  A row counts as outside when an
+  index the search reads does not hold it: the vector or text index, and every scalar
+  index its filter (or the table's live filter) reads; a vector or INVERTED index on a
+  filter column is not one a prefilter reads. While such a scalar index lags,
+  the search lists its fragments itself instead of trusting Lance's `fast_search`,
+  which would drop the lagging rows from an equality filter and keep tombstones through
+  a negated one. That read is correct but slow: Lance then reads the filter fragment by
+  fragment (460 ms against 60 for the scan of 200 candidates on 11.6M rows, a tombstone
+  index 1,346 rows behind being enough), on every search of the table. The writer
+  keeps it from happening (simpl_core indexes the waiting rows before it commits a
+  vector or keyword section); the store logs `lance.filter_index_behind` (warning, once
+  per opened version: table, fragments, rows) when it does.
+  `unindexed_rows(collection, column=None, filter=None)` and
+  `index_stats` count them from the manifest.
+  `has_index(collection, column=None)` says, from the manifest too, whether a column has
+  a vector or keyword index at all: a search of one without still answers by scoring
+  every row, so a caller that serves a column only through its index asks first.
+- **Rows that store no vector** have no score. Wherever the store scores stored
+  vectors itself (re-scored candidates, a filter that keeps few rows, named rows scored
+  exactly, any `score_dims` search) it leaves them out, as Lance's own exact scan
+  does, and a read `with_vectors=True` returns `vector=None` for them. Before, one such
+  row among those scored failed the whole search (`cannot reshape array`); a fifth of
+  the companies store no vector.
+- **Keyword**: `text_search(..., sparse_field=column or [columns])` with `LanceTextParams`
+  (or/and, boosts, fuzziness, phrase). A column without an INVERTED index raises
+  `LanceIndexError` (Lance alone would scan every row). The store writes every query
+  itself, so it knows the columns one reads: it takes no ready `FullTextQuery`.
+- **Hybrid**: `hybrid_search(table, LanceHybridSearchConfig(legs=[...]))` fuses as Milvus 2.6
+  does, in float32: RRF `sum(1/(k+rank))`, weighted with `norm_score`; each leg contributes
+  `max(3 * limit, 100)` rows unless set. `column_aliases` maps other names (Milvus's
+  `dense`, `*_sparse`) to the table's columns.
+- **Grouping**: `group_by=GroupBy(field, size, strict)` on search, text and hybrid; `offset`
+  and `limit` count groups. Grouped dense search picks a path with
+  `LanceSearchParams(scoped=...)`: `exact`, `index` or `approx_then_exact`.
+- **Filters**: the Milvus filter dict grammar (`LanceFilterTranslator`) plus `or` / `and`; a
+  string is raw Lance SQL. Lists longer than 1,024 values become balanced `IN` groups.
+- **Shards**: `LanceTableConfig(tables=[...], route=...)` makes one logical table of several;
+  dense results merge exactly, keyword results by raw BM25 score (each shard's statistics)
+  or by rank (`text_merge="rank"`).
+- **Reads**: `count` (raises on failure, never 0), `get_by_id`, `retrieve`, `scroll` (id
+  order, cursor), `query_iterator` (one version, storage order), iterators for search,
+  text and hybrid (they log `lance.walk` with the rows read).
+- **Memory**: one `lance.Session` per store bounds the index (512 MiB unless
+  `index_cache_bytes` says) and metadata (128 MiB) caches, and scans buffer at most
+  128 MiB; Lance's defaults are 6 GiB, 1 GiB and 2 GB. A serving deployment sizes the
+  index cache to its indexes: smaller, a search costs seconds, and the store warns at a
+  table's first open. Stores share one cache, of one cap, with
+  `AsyncLanceStore(config, session=...)` (`.session`). Lance keys the cache by table URI:
+  a table under two roots (bucket and local copy) is held twice, and the warning counts
+  every store on the session by URI. `cache_bytes()` reports what the caches hold;
+  `list_indexes` the bytes of each index. `AsyncLanceStore(config, executor=...)` runs
+  that store's blocking pylance calls on its own `concurrent.futures.Executor` (default:
+  the loop's), so a slow root's stuck reads cannot take every other store's threads.
+- **Versions and restores**: reads inside `at_versions({table: version})` open that
+  version from its own manifest (cached per table and version), never checked out of the
+  dataset open at the latest. `forget(table)` drops what the store keeps of a table
+  replaced under it (a restore): the next read opens it again, and a read already opening
+  it when it is forgotten keeps nothing of what it opened.
+- **Writes** (`create_collection`, `upsert*`, `delete*`, `create_vector_index`,
+  `create_text_index`, `create_scalar_index`, `optimize`) are refused with
+  `LanceReadOnlyError` when `read_only=True`: keep tables another process maintains
+  read-only.
+
+### simpl_seek, the row store query service (`simpl_core.seek`)
+
+One query service answers searches of the row store over HTTP; a reader never names a
+table, a version or SQL.
+
+- **The contract** (`seek.contract`, re-exported by `simpl_core.seek`):
+  `nearest`, `words`, `fused` (reciprocal rank with `rank_constant` and `candidates`,
+  60 and 1,024 by default: the Zilliz rankers'), `best_per_owner` (the best rows of each
+  company or site of a list), `rows` (by condition, paged by key), `lookup` (by key),
+  `above` (every row over a score by meaning or by keywords, paged, at most
+  `ABOVE_MAX_ROWS`). A `Condition` is a value, a list or a `Between` per column, all
+  holding; `None` asks for no value, alone or in a list; a time is ISO 8601 text.
+  `unindexed` says what a search does with rows outside the index: `include`, `skip` or
+  `refuse`. `precision` says how much of the vector index a search by meaning reads
+  (`nearest`, `fused`, `above` with a vector). `standard` is the dataset's settings (400
+  probes, five times the rows re-scored, fewer times for a deep page): measured, 32 to
+  68 ms for the best 100 and 97% to 99% of the true ones found, 95.5% of the best 5,000
+  companies at twice the rows. A caller sets its own multiple with `rescore` on the
+  request (`RowStoreSearcher.with_rescore(n)`, or `rescore=n` on `RowStorePostSearch`
+  and `RowStoreLandingSearch`): twice the rows found 89% to 95% for 200 stored vectors
+  read on a page of 100, five times reads 500, ten times 1,000 for under a point more
+  where it was measured (100 probes); on the best 5,000 companies ten times found 97%
+  in 0.82 s against 95.5% in 0.24 s. The service keeps a caller's multiple while the
+  search re-scores at most 65,536 vectors. `full` reads every partition and finds
+  99.9% to 100%: **costly**, 0.3 s (companies) to 0.8 s (landing pages) of one processor
+  for the best 100 and more for a deeper page, and the service answers two at once (a
+  third gets `QueryUnavailableError` and the client tries again). Use it for a question
+  asked now and then, never for a page a user waits on or a loop; a request that names
+  its rows is exact without it. A table is served by meaning once its vector index is
+  built (`IndexNotReadyError` until then). The same error answers a search, by meaning
+  or by keywords, of a table with more than 100,000 rows outside an index it reads:
+  the service scans those rows only up to that bound (`unindexed="skip"` is still
+  answered, without them). Caps are
+  named in the contract (`ABOVE_MAX_ROWS`, `EXACT_MAX_ROWS`,
+  `PAGE_MAX_ROWS`, `KEYS_MAX`, `OWNERS_MAX`, `PER_OWNER_MAX`, `FUSED_CANDIDATES`):
+  readers import them, never copy them. `AboveRequest.max_rows` is required.
+- **Errors, siblings named by what the caller does**: `QueryUnavailableError` (away:
+  retry later; the only one the client retries), `IndexNotReadyError` (an index being
+  built, or too far behind its table), `QueryServiceFaultError` (token refused, a crash, an unreadable answer) and
+  `QueryRefusedError` with `UnknownDatasetError` and `WalkExpiredError`. A reader never
+  catches them by class (a test fails on an `except` naming one outside `seek`):
+  `query_outcome(error)` reads any failure, groups and wrapped errors included, as
+  `Outcome.AWAY`, `NOT_READY`, `FAULT` or `REFUSED`. Interactive: simpl_api's handler
+  answers it. Batch: `BatchBreaker(step=...)`, `async with breaker.item(id,
+  dataset=...) as item`, asking `breaker.skips(dataset)` first; the service away stops
+  the step (the item left as it was), an index not ready stops only the items of its
+  dataset (`IndexNotReadyError.dataset`, which crosses the wire), a fault fails the item
+  (`item.failed`) and the step goes on, anything else is raised; `optional=True` for a
+  part the step can go without. A part of a search over several
+  goes through `answer_or_not_ready`; calls run together through `in_task_group`.
+- **The client**: every host calls `check_seek_settings()` once at start
+  (`ROW_STORE_QUERY_URL` and `ROW_STORE_QUERY_TOKEN` set, neither with spaces or a line
+  break around it, the URL `http(s)://host`; else `ValueError`, values never in the
+  message). `SeekClient.from_env(profile)` makes a client; `open_seek(profile)` opens
+  one for a piece of work (a client belongs to the event loop that made it). The
+  `Profile` is what the reader is, never a timeout of its own: `INTERACTIVE` (retries
+  an outage 10 s, a call 20 s at most), `INTERACTIVE_WALK` (10 s, 120 s), `BATCH` (150 s,
+  300 s), `HEALTH` (no retry, 2 s). A reader never wraps a call in a timeout of its own:
+  an outage would reach it as a bare `TimeoutError`. A request that cannot be sent
+  (httpx's `LocalProtocolError` / `UnsupportedProtocol`) is a `QueryServiceFaultError`,
+  never retried, logged by type only (its message quotes the token).
+- **Walks**: `walk_above(client.above, request, reader=...)`, with `request.max_rows`
+  the most the reader wants (`ABOVE_MAX_ROWS` for every row the service walks), ranks in
+  `WALK_STAGES` (10,000, then 100,000, then the cap) so the first page never waits for
+  half a million rows, yields each row once, and ends with `walk.cut`: None, or a `Cut`
+  saying why (`limit`, `service_cap`, `page_cap`, `deadline`) and where. A reader that
+  must tell a whole answer from a partial one reads `walk.cut`, nothing else.
+  `walk_pages` reads one request's pages (a `rows` walk).
+- **The service's database role**: `simpl_seek_reader`
+  (`migrations/20261123100000_row_store_seek_reader_role.sql`) reads
+  `row_store.dataset_configs` and nothing else, through a row-level security rule of its
+  own; a maintainer gives it its login and password by hand.
+- **The service is the only system for these searches**: there is no other backend to
+  fall back to. An interactive reader answers 503 on `QueryUnavailableError`; a batch
+  step retries. The service is its own repository, simpl-techs/simpl_seek: the engine,
+  the local mirror and the app live there. simpl_core gives what it and the readers
+  share: the contract, the wire, the client, and the datasets served by kind
+  (`search.served.SERVED`, versions from the active `row_store.dataset_configs` rows).
+  The kinds' readers are `search.index.row_search.RowStoreSearcher` and the kinds'
+  `RowStore*Search` classes (posts, landing pages, website facts), each query scored at
+  its kind's `QUERY_DIMS`.
+- **The evaluation** (`seek.evaluation`): every reader is gated on every run,
+  per dataset and operation, against exact answers: recall by meaning through the index
+  mean / worst 0.90 / 0.50, by meaning on stored vectors (`best_per_owner`, or at most
+  `EXACT_MAX_ROWS` rows named) and by keywords and fused 0.98 / 0.80, precision 0.98 /
+  0.80, every score by meaning within `SCORE_TOLERANCE` of the exact cosine, a fused
+  answer over listed rows ranking its word matches where its keyword half puts them, at
+  least 5 measured cases, p95 under 1 s for interactive readers. An empty walk page
+  that names a next one fails the case. A failing reader logs
+  `row_store.query.evaluation_failed`, alerts #data-lake, and the host fails its run.
+- **Agent memory and ops files stay on Zilliz**: three small collections whose source
+  is Postgres, not row store tables.
 
 ### Work pools: queues, leases, instances (`workpool`)
 
@@ -5434,9 +5725,9 @@ async with db.session_scope() as s:
 
 `simpl_core.search.index` turns a kind of object into a searchable index: a ledger of
 one row per document, documents built into rows of a row-store dataset (embedded once
-per distinct text, stored vectors reused by key), and a Zilliz collection kept as a
-strict projection. Posts are the first kind (`PostsKind`); a new kind implements
-`DocumentKind` and reuses the rest.
+per distinct text, stored vectors reused by key), searched through the row store's query
+service (`RowStoreSearcher`). Posts are the first kind (`PostsKind`); a new kind
+implements `DocumentKind` and reuses the rest.
 
 ```python
 indexer = DocumentIndexer(
@@ -5457,50 +5748,38 @@ async with BatchPipeline(indexer, run_id=run_id, depth=3, on_result=record) as p
             break
 # leaving the block waits for every batch to commit (or gives them back on an error)
 
-collection = ZillizCollectionSpec(log_name="my_kind", columns=(...), schema=..., entity=...)
-await create_collection(milvus, "my_kind_v1", collection, dims=512)
-runner = projection_runner(dataset, milvus, "my_kind_v1", collection, dims=512)
+# searched through the query service, a hit made by the kind's HitShape
+MY_KIND = ServedDataset(name="my_kind", shape=HitShape(columns=(...), fields=...),
+                        owner="company_id", query_dims=512)
+searcher = RowStoreSearcher(queries, MY_KIND, embed_query=embedder.embed_query)
+groups = await searcher.run_hybrid_groups(dense, text, {"language": ["it"]}, limit=10,
+                                          group_by="company_id")
 ```
 
-A keyword-only kind (BM25 and typed filters, no embeddings) has a dataset without
-`vector` (and needs no `embedding_model` or `text_hash`), no embedder, and a collection
-without `dense`; every function that takes the collection's width takes `dims=None`:
-
-```python
-indexer = DocumentIndexer(ledger=..., kind=MyKind(...), dataset=dataset, name="my_kind")
-
-def schema() -> tuple[Any, Any]:  # no width
-    return keyword_schema(add_fields=fields, inverted=(...), sorted_fields=(...))
-
-def entity(row: Mapping[str, Any]) -> dict[str, Any]:  # no vector
-    return {"id": row["key"], ..., "content": cap_utf8(row["text"])}
-
-collection = ZillizCollectionSpec(log_name="my_kind", columns=(...), schema=schema, entity=entity)
-await create_collection(milvus, "my_kind_v1", collection, dims=None)
-runner = projection_runner(dataset, milvus, "my_kind_v1", collection, dims=None)
-searcher = HybridSearcher(milvus, collection="my_kind", dims=None, output_fields=[...])
-async for batch in searcher.query_rows({"host": hosts, "uses_https": False}):
-    ...  # every row passing the filter, no search and no 1,024 cap
-```
-
-- `keyword_schema(add_fields=, inverted=, sorted_fields=, id_max_length=)` is
-  `hybrid_schema` without `dense`: `id`, the kind's fields, `content` and its BM25
-  `sparse` (filled by Zilliz, no embedding). `add_fields` may add ARRAY and nullable
-  fields.
-- Without an embedder the indexer skips the vectors step (nothing is embedded, and
+- `RowStoreSearcher` (`search.index.row_search`): `run` (dense, keyword or fused,
+  grouped here on a read `HITS_PER_GROUP` times deeper), `run_hybrid_groups` (each half
+  grouped, fused by group: `FusedGroup` with each half's `HalfRank`),
+  `chunk_similarities` (exact cosines of given keys), `best_per_group` (the best hit of
+  each owner: exact for a list of owners, from the best of the dataset otherwise).
+  `with_precision("full")` gives a searcher whose searches through the index read all
+  of it (costly, see `precision` above); the default is `standard`.
+  `with_rescore(n)` gives one that re-scores `n` times the rows it asks for instead of
+  the dataset's five (`search.served.DEFAULT_RESCORE`); not with `full`, which sets its
+  own.
+  Conditions are said on a hit's fields (`ServedDataset.condition` sends a time as ISO
+  8601 text, and a value a hit shows for a null asks for the null too). Its concurrent
+  requests run in a task group (`in_task_group`): the first failure cancels the rest
+  and is raised itself. Walks read `PAGE_MAX_ROWS` (10,000) rows a page, `MAX_WALK_PAGES`
+  pages at most (`walk_pages`), and start again once when their ranking expired.
+- A keyword-only kind (typed tests and words, no embeddings) has a dataset without
+  `vector` (and needs no `embedding_model` or `text_hash`) and no embedder:
+  `DocumentIndexer(ledger=..., kind=MyKind(...), dataset=dataset, name="my_kind")`.
+  Without an embedder the indexer skips the vectors step (nothing is embedded, and
   `max_text_chars` does not apply); claim, build, the unchanged check, tombstones,
-  commit and settle are the same, and `BatchPipeline` still groups the commits.
-- A keyword-only kind has no `max_text_chars` limit, so its `entity` must cap
-  `content` itself (`cap_utf8`, `CONTENT_MAX_BYTES`), as the hybrid kinds do.
-- `HybridSearcher.query_rows(conditions, output_fields=, batch_size=,
-  batch_timeout_s=60.0)` reads through simpl_ia's `query_iterator` (simpl_ia >=
-  0.8.20): the filter is a template, its values sent apart from its text; a batch
-  slower than `batch_timeout_s` raises simpl_ia's `MilvusError` (naming the
-  collection and the rows read so far) and closes the read; no consistency level (the
-  collection's default); vector fields are left out of the payloads, ARRAY fields of
-  any length kept. The filter dict takes simpl_ia's negations (`ne`, `not_in`, a
-  `not` wrapper, each the only key of its field's dict) and `{"is_null": True}`; a
-  null field fails every test but `is_null`, negations included.
+  commit and settle are the same, and `BatchPipeline` still groups the commits. Its
+  readers read rows through the service (`rows`), as the website facts do.
+- A hit's `content` is cut at `CONTENT_MAX_BYTES` (`cap_utf8`), as the collections cut
+  it, so a snippet or a judge's passage keeps its length.
 
 - A document of several rows keys them `row_key(doc_key, part, ...)`; its stored keys
   come from `stored_row_keys(dataset, doc_keys)`, one read through the key index.
@@ -5509,7 +5788,7 @@ async for batch in searcher.query_rows({"host": hosts, "uses_https": False}):
 - `BuiltDocument.companion` rows (`CompanionRow`, whatever the outcome) go to the
   indexer's `companion` dataset in the same batch, rewritten only when
   `companion_hash` differs from the `doc_hash` stored with them: a change to them alone
-  never rewrites the document's own rows nor reaches their projection.
+  never rewrites the document's own rows.
 - A scoped run indexes exactly a selection: a kind's `ScopeWalk` stages a page of the
   scope (`ScopePage.pending` = its documents due now) and
   `run_batch(batch_size=..., keys=page.pending)` claims only those, then
@@ -5582,8 +5861,8 @@ async for batch in searcher.query_rows({"host": hosts, "uses_https": False}):
 
 Company websites, as the crawl stores them (`scraping.pages` rows of representation
 `default` only; OSINT research's copies, `research`, never enter the index or mark a site
-changed), in the row store and a Zilliz collection
-behind the `landing_pages` alias: one document per site (`h:{host}`), its pages' text
+changed), in the row store (the `landing_pages` dataset, searched through the query
+service): one document per site (`h:{host}`), its pages' text
 chunked along each page's elements (1,200 to 1,800 characters: `CHUNK_SOFT_CHARS`,
 `CHUNK_HARD_CHARS`), its template (menu, footer) once, copies of a line or a chunk left
 out, every page with text kept however short. Its markup goes to its own dataset without
@@ -5594,8 +5873,8 @@ comments; only embedded binary file bytes are cut). Markup rows share the text r
 (each chunk's and the template's markup), plus one per page, `h:{host}#p:{page id}`: the
 page's `<html>`, `<head>`, `<body>` and trailing markup (a line on many of the site's pages
 only on the first page that has it) and the markup of what its text rows leave out. A site
-without text keeps its markup. Markup is neither embedded nor sent to Zilliz, and a change
-to it alone rewrites markup rows only. Sites enter the index through scoped runs
+without text keeps its markup. Markup is neither embedded nor searched by meaning, and a
+change to it alone rewrites markup rows only. Sites enter the index through scoped runs
 (e.g. Italian companies, or `all`: every company); the general run keeps them in step
 with the crawl.
 
@@ -5622,7 +5901,8 @@ indexer = landing_indexer(db, sources=sources, dataset=landing_dataset,
                                                   query_task=landing.QUERY_TASK),
                           detect_language=detect)
 
-search = LandingSearch(milvus, dims=512, embed_query=embedder.embed_query)
+# embedder at landing.QUERY_DIMS (512); queries: the query service's client accessor
+search = RowStoreLandingSearch(queries, embed_query=embedder.embed_query)
 hosts = await hosts_for_companies(db, company_ids)       # host -> company ids
 hits = await search.search(text="impianti fotovoltaici",
                            filters=LandingSearchFilters(hosts=list(hosts)),
@@ -5651,12 +5931,13 @@ found = await search.best_per_company(
   storing anything, on the ICP's companies (`PreviewScope.ICP`, read from
   `opportunity.icp_company_matches` 1,024 at a time, 6 pages at once, no page started
   after 20 s: `cut_short` and `companies_searched` / `icp_companies` say how far it got)
-  or the whole index (`PreviewScope.ALL`: the best 1,024 sites or chunks). Zilliz comes
-  from the environment (`AsyncMilvusStore.from_env`), the collection's width from the
-  alias (`dense_dims`).
+  or the whole index (`PreviewScope.ALL`: the best 1,024 sites or chunks), read through
+  `queries` (the query service's client, which the caller owns); the topic is embedded
+  at `QUERY_DIMS`. A failed search fails the preview with the service's error, raised
+  itself.
 
 ```python
-async with open_landing_preview(db, nebius_api_key=key) as previewer:
+async with open_landing_preview(db, nebius_api_key=key, queries=queries) as previewer:
     preview = await previewer.preview(
         WebsiteSignalQuery(topic="ISO 9001 certified", min_score=0.5,
                            keywords=KeywordFilter(["ISO 9001"])),   # either or both
@@ -5679,13 +5960,13 @@ preview.companies_matched, preview.matches[0].company_name, preview.matches[0].h
   and `section`.
 - The ledger and cursors are simpl_flow migration 075; bodies need an `S3ObjectStore`
   over the crawl's bucket (`simpl-web-pages`). Install `simpl-core[search]`: the row
-  store, lxml and the Zilliz parts.
+  store and lxml.
 
 ### Company search (`search.companies`)
 
-Every company with a description, in the row store and a Zilliz
-collection behind the `sales_companies` alias: one row per company, keyed by its id, its
-text the description (as `sales_companies_hybrid` embedded it).
+Every company with a description, in the row store (the `sales_companies` dataset,
+searched through the query service: simpl_api's company search): one row per company,
+keyed by its id, its text the description (as `sales_companies_hybrid` embedded it).
 
 ```python
 scanner = CompanyScanner(db)
@@ -5701,17 +5982,18 @@ await indexer.run_batch(batch_size=1000)
 
 - `DiscoverResult.found` is what a discovery added or marked; `walk_done` once every
   company has been walked. A flow passes `discover` as the `refill` of its batch loop.
-- `COMPANY_COLLECTION` keeps the replaced collection's field names (`id`, `content`,
-  `sparse`, `dense`, `name`, `description`) and adds typed `industry_id`,
+- A company hit (`COMPANY_HIT`, `search.companies.row_search`: `SALES_COMPANIES`,
+  `company_columns`, `company_result`) keeps the replaced collection's field names
+  (`description` and `content` both the description, `name`) beside `industry_id`,
   `industry_name`, `country`, `city`, `location`, sizes, `follower_count`, URLs,
-  `created_at` (epoch seconds) and `language`.
+  `created_at` (epoch seconds) and `language`. A query is scored at `QUERY_DIMS` (1,024).
 
 ### Website facts search (`search.website_facts`)
 
 What each company site runs and shows (simpl_scraping's `sales.website` and
-`sales.website_technology`), in the row store and a keyword-only Zilliz collection behind
-the `website_facts` alias: no embeddings, typed filter fields and BM25 on a short
-keyword text. One document per site (its `sales.website` host): `{host}#site` with every
+`sales.website_technology`), in the row store (the `website_facts` dataset, read through
+the query service): no embeddings; a condition's typed tests and keywords are judged on
+each site's rows. One document per site (its `sales.website` host): `{host}#site` with every
 site fact, `{host}#tech#{digest}` per technology. A site can have technology rows and no
 site row. What moves on every sighting (`last_seen_at`, `seen_on_url`, `evidence`) is
 not indexed; a match reads it from Postgres.
@@ -5723,7 +6005,6 @@ await scanner.sweep()               # nightly, and the first fill: every site by
 
 indexer = website_facts_indexer(db, dataset=facts_dataset)  # website_facts_dataset_spec(), no embedder
 await indexer.run_batch(batch_size=500)
-# projection: projection_runner(dataset, milvus, name, WEBSITE_FACTS_COLLECTION, dims=None)
 
 errors = await check_condition(db, condition)       # before ANY save; [] = valid
 # A signal on an ICP: check_condition, then the ICP's company filters (simpl_api's save rule)
@@ -5731,13 +6012,9 @@ errors = await website_facts_signal_errors(db, filter_json, icp_id=icp_id)
 condition_in_words(parse_condition(condition))       # "sites running PHP past end of life"
 await technology_names(db, search="apache", category=None,
                        listing_tool="list_website_technologies", save_tool="create_icp_signal")
-search = WebsiteFactsSearch(milvus)                  # the website_facts alias
+search = RowStoreWebsiteFactsSearch(queries)         # the query service's client accessor
 found = await search.matching_companies(db, parse_condition(condition), company_ids)
 shown = await website_facts_evidence(db, parse_condition(condition), list(found.values()))
-
-# The index check: the collection against Postgres; differences posted to #data-lake
-report = await run_website_facts_index_check(db, "website_facts_v1", announce=True)
-report.clean, report.differences, report.summary()
 ```
 
 - **Signals on an ICP** (0.8.322): `WEBSITE_FACTS_KIND` is how every prompt that lists
@@ -5753,7 +6030,7 @@ report.clean, report.differences, report.summary()
   an agent picks a field from (the Sales Domain skill; simpl_api's catalog route and the
   dashboard's signal form once they read it): show the groups in `FIELD_GROUPS` order and the fields in
   `SITE_FIELDS` order within each group. `SITE_FIELDS` keeps its order, which is the
-  dataset's and the collection's, so groups change no index. A reader built against an
+  dataset's, so groups change no index. A reader built against an
   older simpl_core may meet a group it does not know: show its fields anyway (under
   their key or an "Other" heading), never drop or refuse them.
 - **What the follow pass sees, and what waits for the sweep** (0.8.304): the follow pass
@@ -5767,56 +6044,18 @@ report.clean, report.differences, report.summary()
   reads about `page` jobs however far behind the cursor is and whatever the table's
   statistics say: 277k jobs behind, a page had read and joined all of them and hit the
   statement timeout (2026-11-06, 2026-11-07).
-- **The index check** (`index_check`, 0.8.304): whether the collection holds what
-  Postgres holds. `run_website_facts_index_check(db, collection, *, settings=
-  IndexCheckSettings(), announce=True, alert=data_lake_alert_async, today=None) ->
-  IndexCheck` opens Zilliz from the environment (`MILVUS_URI`, `MILVUS_TOKEN`), checks,
-  and with `announce` posts the differences through `alert` (any coroutine with
-  `data_lake_alert_async`'s shape). `check_website_facts_index(db, store, collection,
-  settings, *, today)` does the check on an open store; `announce_index_check(report,
-  *, alert)` posts. `configured_collection(db, kind)` reads a kind's
-  `params.index.collection` from `row_store.dataset_configs`. `IndexCheck`:
-  `collection`, `checked` (what each part looked at, in numbers), `differences`
-  (`IndexDifference`: `check`, `what`, up to 20 `hosts`), `clean`, `summary()`.
-  Parts: (a) counts (within `count_tolerance`, 0.5%) and ledger rows failed or stuck;
-  (b) 200 random sites plus three chosen cases, row by row and field by field; (c)
-  fixed signals on 1,000 random sites (every site field with each of its operators, a
-  yes/no field both `true` and `false`, every technology test, the keyword rules, and
-  combined ones), through `WebsiteFactsSearch` and through `matching_hosts` on
-  Postgres; (d) sites the extractor wrote (finished `website_signals` jobs) 15-60
-  minutes ago, drawn evenly among the sites written then, the one path the follow pass
-  promises within minutes. Left out of (b)
-  and (c): sites the extractor wrote within the hour, those pending, and those whose
-  facts moved since the ledger's last mark (`awaiting_sweep`, counted in `checked`: the
-  scanner's own fingerprint, `scan.site_fingerprints`, differs from `source_hash`; the
-  crawl writer's site rows and the risk command wait for the nightly sweep, which is no
-  difference); refused hosts everywhere. Not clean when it compared too little: a table
-  with no row for the login, or (b), (c) or (d) comparing under half the sites it
-  drew, with why ((d) since 0.8.314). A fill is pending sites the index never held (`stored_at` null): over
-  `fill_pending` (1,000) of them it reports a fill in progress instead of counts,
-  stuck rows and freshness; the sweep's re-marks of held sites never count. Run it
-  once the nightly sweep's marks have drained (an hour or more after the sweep); earlier
-  it is still right, with less to compare. Every read has its own statement timeout
-  (60 s, the counts 180 s). Its reads take about 4 passes of `sales.website` (70 MB),
-  one count of `sales.website_technology`, primary-key reads of the samples, and the
-  extractor's recent jobs mapped to hosts 2,000 a statement (the last hour twice, 45
-  and 15 minutes once each: about 120 short statements at 80k jobs an hour). Before
-  0.8.314 one statement joined a whole window of jobs to its pages and timed out on
-  production (2026-11-08).
 - **`matching_hosts(db, condition, hosts, *, today, sites=None)`**: what a parsed
   condition matches in Postgres, by the condition's own rules: most site tests in SQL
   (`SITE_TESTS`, one per operator), versions on the site row as the index builds it
   (`BUILT_ROW_TESTS`, `version_prefixes`), technology tests
   per row (version prefix by `version_prefixes`, `required` / `covers`), keywords
   through `KeywordFilter` on the rows' keyword texts. It reads the built rows itself
-  when a condition needs them; pass `sites=BuiltSites.of(sources)` to reuse them. The
-  check's other side; a test asks every operator of `OPERATORS` and every field of
-  `SITE_FIELDS` through both.
+  when a condition needs them; pass `sites=BuiltSites.of(sources)` to reuse them.
 - **`site_match(condition, rows, *, today)`** (`row_match`, 0.8.352): one site judged on
   its rows as the website facts dataset holds them (`MATCH_COLUMNS`: a day as a
-  `date`), for readers of the row store (simpl_flow's
-  opportunity matcher v2). A `SiteMatch` or None; a test asks it for the same sites as
-  `WebsiteFactsSearch` on every kind of test and on today's signals' shapes.
+  `date`): what `RowStoreWebsiteFactsSearch` and simpl_flow's opportunity matcher v2
+  ask. A `SiteMatch` or None; its keyword texts are every row holding the keywords,
+  each once.
 
 - **The condition** (a signal filter's condition, `collection: "website_facts"`; every
   part given must hold, at least one):
@@ -5846,10 +6085,8 @@ report.clean, report.differences, report.summary()
     (`SITE_FIELDS`, `OPERATORS`): `is` (yes/no); `in`, `not_in` (one value);
     `starts_with` (`php_version`, whole parts); `has_any`, `has_all`,
     `lacks` (lists); `before`, `after` (`YYYY-MM-DD`); `lt`, `gt`, `between`
-    (`[low, high]`, inclusive). A text or list value must be one some site holds now
-    and fit its slot in Zilliz (128 bytes for a
-    one-value fact, 256 for a list item, 512 for a technology name); a fact no site
-    holds at all is refused as not collected yet. A list held empty (`[]`) counts as collected: it says nothing was
+    (`[low, high]`, inclusive). A text or list value must be one some site holds now,
+    of any length; a fact no site holds at all is refused as not collected yet. A list held empty (`[]`) counts as collected: it says nothing was
     found.
   - `keywords`: words or phrases (`KeywordFilter` rules) in the keyword text of the
     site's rows (a technology's name and categories; the site's clue names and
@@ -5907,19 +6144,16 @@ report.clean, report.differences, report.summary()
   Suggestions are worked out for at most 5 unknown values of a test. `parse_condition`
   raises `ConditionError` (`.errors`); `active_categories(db)`, `site_vocabulary(db)`
   and `free_text_values(db, asked)` give the lists themselves.
-- **`WebsiteFactsSearch.matching_companies(db, condition, company_ids, today=None)`** ->
-  company id -> `SiteMatch(host, technologies, keyword_texts)`; `matching_sites(condition,
-  hosts)` the same by host. Companies map to hosts as for landing
-  (`hosts_for_companies`, `www.` ignored); companies sharing a site share its match.
-  Technologies, then site tests, then keywords, each on what the one before left; no
-  score. Search errors raise (a failure is never "nothing matched"). Since 0.8.318 up to
-  `HOSTS_PER_QUERY` (4,096) hosts go to Zilliz together: the technology tests are one
-  filter query, the site tests one more (a field tested twice adds one), and the keyword
-  part searches 1,024 hosts at a time (`MAX_TOP_K`, its cap on groups); before, every
-  part was cut at 1,024. A filter query reads every passing row, several a host
-  included. `hosts_per_search(condition)` is how many companies or hosts a caller
-  paging them should pass at once: 4,096 without keywords, 1,024 with (the opportunity
-  matcher's page size).
+- **`RowStoreWebsiteFactsSearch(queries).matching_companies(db, condition, company_ids,
+  today=None)`** -> company id -> `SiteMatch(host, technologies, keyword_texts)`;
+  `matching_sites(condition, hosts)` the same by host. Companies map to hosts as for
+  landing (`hosts_for_companies`, `www.` ignored); companies sharing a site share its
+  match. Every row of the sites asked is read through the service (`rows`, by host,
+  `HOSTS_PER_READ` hosts a walk of 10,000-row pages; only the row kind and columns the
+  condition tests) and judged by `site_match`; no score. Search errors raise (a failure
+  is never "nothing matched"). `hosts_per_search(condition)` is how many companies or
+  hosts a caller paging them should pass at once: 4,096 without keywords, 1,024 with
+  (the opportunity matcher's page size).
 - **`website_facts_evidence(db, condition, matches)`** -> host -> plain JSON: `host`,
   `url`, `technologies` (10 of the matched, `MAX_TECHNOLOGIES`, the worst first:
   highest `max_severity`, then end of life passed, then by name (`worst_first`);
@@ -5930,7 +6164,7 @@ report.clean, report.differences, report.summary()
   `technologies_matched` (how many matched), `site` (the tested facts), `keywords` (the
   texts that held them). One read per table by primary key, hosts and names sent as
   arrays: a page of any size is a few parameters.
-- **Preview** (`open_website_facts_preview(db)`): `previewer.preview(condition,
+- **Preview** (`open_website_facts_preview(db, queries=queries)`): `previewer.preview(condition,
   scope=PreviewScope.ICP, icp_id=..., limit=...)` on the ICP's companies, or
   `PreviewScope.ALL` on every site of the ledger stored at least once (one marked
   again or failing included), to estimate a signal's reach beyond its ICP (signals
@@ -5951,13 +6185,16 @@ report.clean, report.differences, report.summary()
   than a copy wherever source hosts must match what the index can hold, e.g. a sample
   of hosts to check against the index (`WEBSITE` from `search.website_facts.tables`):
   `select(WEBSITE.c.host).where(ledger_key_refusal(WEBSITE.c.host).is_(None))`.
+- `COLLECTION` (and `WEBSITE_FACTS_ALIAS`, the same value) is the `collection` a website
+  facts condition holds, `"website_facts"`: a value saved signals carry and the matcher
+  dispatches on, not a collection anything reads.
 - The ledger and cursors are the simpl_flow ledger migration `website_facts_search_index`
   (`tests/setup_test_db.sql` holds the DDL to copy). Install `simpl-core[search]`.
 
 ### Post search (`search.posts`)
 
 LinkedIn posts and plain reposts, one record per appearance on a page, stored in the
-row store and projected into Zilliz behind the `sales_posts` alias. Nothing is added
+row store (the `sales_posts` dataset, searched through the query service). Nothing is added
 to `sales.post` / `sales.post_repost` (no trigger, no index): `PostSearchScanner` reads
 them and marks rows of `sales.post_search_index` (simpl_flow
 `migrations/065_post_search_index.sql`) pending. `discover()` (every run) adds ids above
@@ -5967,11 +6204,12 @@ record columns changed (among those whose `updated_at` moved, compared by
 changed, rows whose source is gone, and records built from a changed post
 (`depends_on`). `PostSearchIndexer.run_batch`
 claims them, builds records (`build_record`), embeds each distinct text once
-(`NebiusPostEmbedder`), commits, and settles the rows. The
-Zilliz collection follows through `posts_projection_runner`.
+(`NebiusPostEmbedder`), commits, and settles the rows. Searches read the dataset through
+the query service.
 
 ```python
-search = PostSearch(milvus, dims=512, embed_query=embedder.embed_query)
+# embedder at posts.QUERY_DIMS (512); queries: the query service's client accessor
+search = RowStorePostSearch(queries, embed_query=embedder.embed_query)
 hits = await search.search(
     vector=company_embedding,                       # or text=..., keywords=...
     filters=PostSearchFilters(company_ids=ids, is_repost=False, languages=["en", "it"]),
@@ -5986,17 +6224,19 @@ hits = await search.search(
   same vector). `company_id` is the page the row is on; `is_company_post` is about the
   original author; reposts are dated by their activity id.
 - **The dataset's vector width is a parameter** (`posts_dataset_spec(dims=...)`); a new
-  width is a new dataset version. A Zilliz collection of any narrower width is a
-  projection of the stored vectors, no embedding again.
+  width is a new dataset version. A query is scored on the stored vectors' first
+  `QUERY_DIMS` (512) dimensions, a wider query vector (a 1,024-d company embedding) cut
+  to them, so no width needs embedding again.
 - **Search:** the keyword half is sent as given (the analyzer is language-neutral, no
   stemming); pass `keywords` to add word forms and translations without changing the
-  dense query. `one_per_company` groups on the server; lists over 1,024 companies are
-  searched in chunks. `min_score` is refused on hybrid (fused) scores.
+  dense query. `one_per_company` keeps each company's best post; lists over 1,024
+  companies are searched in chunks. `min_score` is refused on hybrid (fused) scores. A
+  date window (`posted_after`, `posted_before`) is sent as ISO 8601 text.
 - **Which companies have a matching post** (`best_per_company`): a topic (vector +
   `min_score`), keywords that must be in the text (`KeywordFilter`), or both. With
   `company_ids` the answer is complete (every listed company with such a post, and its
-  best post); without, it comes from the best 1,024 of the collection, a person's own
-  posts left out (`PostSearchFilters(has_company=True)`).
+  best post); without, it comes from the best 1,024 of the dataset, a person's own
+  posts left out (they belong to no company).
 
 ```python
 hits = await search.best_per_company(
@@ -6006,12 +6246,12 @@ hits = await search.best_per_company(
 )
 ```
 
-- **Keywords** are words or phrases matched on the post text the way the collection's
-  analyzer reads it (`analyzer_words`: letter/digit runs, lowercased, accents folded):
+- **Keywords** are words or phrases matched on the post text the way the full-text
+  index's analyzer reads it (`analyzer_words`: letter/digit runs, lowercased, accents folded):
   whole words, a phrase's words together and in order, no stemming (list "SDR" and
   "SDRs"). Hits from these searches carry `content`. Keywords that are all single words,
-  matched `any`, are one grouped BM25 search per list of groups (no candidate check);
-  phrases or `all` take the checked path, which reads every candidate's text.
+  matched `any`, are one keyword `best_per_owner` per list of companies (no candidate
+  check); phrases or `all` take the checked path, which reads every candidate's text.
 
 ### Company passages (`search.company_passages`)
 
@@ -6022,18 +6262,20 @@ vectors)` takes `CheckedCompany` rows (id, name, site host, and `about`: what Si
 database says, which the finder does not read) and returns, per company, up to
 `CLOSEST_PASSAGES` passages by meaning across website and posts, up to `KEYWORD_PASSAGES` more
 holding the question's words (BM25), then its site's code lines holding the question's
-markers. Searches are grouped, `COMPANIES_PER_SEARCH` (256) companies at a time, at most 4 in
-flight per process. `embed(question)` embeds once per collection and, with a `CodeReader` and a
+markers. Searches are `best_per_owner` on the query service, `COMPANIES_PER_SEARCH` (256)
+companies at a time, at most 4 in flight per process, run in a task group: the first that
+fails cancels the rest, and its error (`QueryUnavailableError`, ...) is the caller's.
+`embed(question)` embeds once per dataset at its `QUERY_DIMS` and, with a `CodeReader` and a
 `markers` writer, writes the code markers (`write_markers(question, client)`, the caller's
-model). `passage_finder(db, marker_client=None)` opens one on the production collections and,
-with a marker client, on the active `landing_markup` dataset (`ROW_STORE_URI`); without a row
-store it reads text and posts only (logged `company_passages.code_off`). The code reader caches
+model). `passage_finder(db, marker_client=None, queries=queries)` opens one on the production
+datasets through `queries` (the query service's client, the caller's) and, with a marker
+client, on the active `landing_markup` dataset (`ROW_STORE_URI`); without a row store it
+reads text and posts only (logged `company_passages.code_off`). The code reader caches
 the markup table's key index in Lance's default caches, which grow toward the whole index on a
 long walk (about 0.9 GB for 360 sites). A caller short of memory passes
 `passage_finder(..., code_session=lance.Session(index_cache_size_bytes=...,
 metadata_cache_size_bytes=...))` (or `open_code_reader(db, session=...)`) and reads slower;
-callers that pass none keep the defaults. Needs the `search` extra; `NEBIUS_API_KEY` and the
-Milvus settings.
+callers that pass none keep the defaults. Needs the `search` extra and `NEBIUS_API_KEY`.
 
 ### Sales datasets (`sales_datasets`) and text anonymization (`anonymization`)
 
@@ -6102,11 +6344,11 @@ await indexer.run_batch(batch_size=500, run_id=run_id)
   vectors. A message's fingerprint holds its conversation's message count and newest
   message, so a new message rebuilds its whole conversation (same company and people
   on every row); unchanged texts keep their vectors.
-- **Zilliz** (`sales_datasets.zilliz`): one hybrid collection per chunked kind
-  (`COLLECTIONS`), read through its alias (`ALIASES`: the kind's name), partitioned by
-  `company_id`, with the entity id to group by, `title`, `dated_at`, `language` and
-  each kind's filter ids. A lead's row opens with their name, so a keyword search finds
-  a lead by name.
+- **Searched through the query service**, each kind's dataset by its name: a hit
+  (`sales_datasets.hits.HIT_SHAPES`) has the entity id to group by, `company_id`,
+  `title` (`TITLE_COLUMNS`), `dated_at` (epoch seconds), `language` and each kind's
+  filter ids; a query is scored at `QUERY_DIMS` (1,024). A lead is found by name through
+  its name column and its text (the leads' text columns).
 - **Every row has a company** (`companies`). A lead: their most current experience
   (`LeadRepository.current_experience_company_ids`), else their user-lead connections;
   never `sales.lead.company_id`. A conversation: its `primary_company_id`, else the
@@ -6183,29 +6425,31 @@ no `embedded_text` is refused (matcher v2 embeds the text, never a stored vector
 
 ### Search over Graphia's sources (`search.graphia_sources`)
 
-`open_source_search(nebius_api_key=...)` gives a `SourceSearch` over seven collections:
-the five chunked sales kinds', the posts' and the landing pages'. `search(text,
+`open_source_search(nebius_api_key=..., queries=queries)` gives a `SourceSearch` over
+seven datasets through the query service (`queries`, the caller's client): the five
+chunked sales kinds', the posts' and the landing pages'. `search(text,
 filters=SourceSearchFilters(kinds, company_ids, hosts, languages), per_kind, limit)`
-embeds the text once per collection with its kind's query instruction, runs each
-collection hybrid (dense and BM25) grouped by source, and fuses the collections by RRF
-on their ranks. Each `SourceHit` names its Graphia `source` and `document` (a landing
+embeds the text once per kind with its query instruction and at its `QUERY_DIMS`, runs
+each kind hybrid (dense and BM25) grouped by source, and fuses the kinds by RRF on their
+ranks. The kinds are searched at once in a task group: the first failure cancels the
+rest and is raised itself. Each `SourceHit` names its Graphia `source` and `document` (a landing
 chunk: its page's first document, `landing_document_key(host, url)`), the chunk's row
 `key`, `title`, `content`, `company_id` or `host`, `dated_at` and its `rank`. Its
 `score` only encodes that rank; what was measured is `similarity` (the exact cosine
 between the query and the chunk shown, from its stored vector; None if the row left
-the collection), `dense_rank` and `dense_score` (the source's place in the semantic half
+the dataset), `dense_rank` and `dense_score` (the source's place in the semantic half
 and its closest chunk's exact cosine, maybe another chunk), and `keyword_rank` and
 `keyword_score` (BM25, no fixed scale).
 Cosines compare well within a kind, only roughly across kinds.
-`SourceSearch.resolve_leads(name)` finds leads by name in the lead profiles' collection;
+`SourceSearch.resolve_leads(name)` finds leads by name in the lead profiles' dataset;
 `resolve_companies(db, text)` the companies entity resolution answers for a URL, a
 domain, a LinkedIn company URL or a name (`ResolutionService.resolve` under the live
 switches, then `ResolutionService.candidates` for a name: any letter case, legal forms,
 letters run together, LinkedIn pages), `matched_by` the answer's method (`hard_key`,
 `rule`...) or how the lookup found the row (`name`, `joined`, `legal_form`, `page`);
 `resolve_lead_by_linkedin(db, url)` a lead by profile URL, whatever host, trailing slash,
-query or case it is pasted with (`lead_linkedin_url_variants`). All read Postgres only.
-`resolve(db, search, text)` is what one search box needs, as a
+query or case it is pasted with (`lead_linkedin_url_variants`). The last two read
+Postgres only. `resolve(db, search, text)` is what one search box needs, as a
 `Resolution(companies, leads)`: a profile URL gives a lead, another LinkedIn URL or a URL
 with a scheme a company, a word that looks like a domain (`anna.rossi`) both a site and a
 name lookup, any other text a company name and the lead name search.
@@ -6901,7 +7145,7 @@ Approving it (`execute_pending_action_command`) writes `sales.icp_signal` throug
 
 - `customer_brain.sales_domain_pending_action` accepts the type only after `migrations/20261109_sales_domain_pending_icp_signal_create.sql` (rollback beside it); apply it before a release that queues it.
 - **Deploy order:** the migration, then the dashboard with the approvals card (simpl_dashboard 0.1.408), then simpl_api relocked on this release (approving applies the proposal), then simpl_flow relocked (the agent proposes), then switch an account on. Roll back in reverse: switch accounts off, simpl_flow, simpl_api, the dashboard, then the migration's rollback (it refuses while an `icp_signal_create` row exists).
-- The agent's host (simpl_flow) and the approving host (simpl_api) need the `search` extra, the website facts check's reads (SELECT on `sales.website`, `sales.website_technology`, `scraping.technology_rule_versions` past RLS), and, for the agent's count, Zilliz as `AsyncMilvusStore.from_env` reads it.
+- The agent's host (simpl_flow) and the approving host (simpl_api) need the `search` extra, the website facts check's reads (SELECT on `sales.website`, `sales.website_technology`, `scraping.technology_rule_versions` past RLS), and, for the agent's count, the query service's settings (`ROW_STORE_QUERY_URL`, `ROW_STORE_QUERY_TOKEN`: the count opens its own client, `open_seek`).
 - `db_read_user_icps` (the agent's tool) lists each ICP's signals: `signals` (newest 20: `title`, `kind` post / website / website_facts / article / sql, `enabled`, `in_words` for website facts) and `signals_total`. The seed that rides on every model turn carries `signals_total` only (`db_read_user_icps(ctx, signal_lists=False)`).
 
 ## Regenerating a draft (asynchronous)
