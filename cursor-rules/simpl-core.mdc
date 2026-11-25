@@ -2970,6 +2970,11 @@ decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution
   moved, `judge_agent.judge_version`) or `mention_key(mention)` changed, or after
   `RETRY_AFTER` (7 days). `run.stage_list(stages_for, store, shards=)` gives the stages
   for their versions alone.
+- **No placeholder is a candidate** (`rules.CandidateCache`): a company of origin
+  `placeholder` is a claim's stand-in, no identity, so no rule, scorer or judge ever answers
+  it, for any mention. **A user is never a lead**: a lead claim the own side answers
+  `is user:<id>` is retired, like `not_an_entity`. The people rules' `is` carries
+  `people.PERSON_RULE_CONFIDENCE` (0.9), the pipeline match's included.
 - **A claim's stand-in** (`Mention.stand_in`, set by `company_claim_mention` and
   `lead_claim_mention`): the row the claim stands on, its placeholder or its caller's lead.
   `run_stages` keeps an answer naming it unapplied and drops it from the candidates, and
