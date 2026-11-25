@@ -33,7 +33,7 @@ poetry add "simpl-core[composio-sdk] @ git+https://github.com/simpl-techs/simpl_
 Use extras only when needed:
 
 ```bash
-poetry add "simpl-core[novu,composio-sdk] @ git+https://github.com/simpl-techs/simpl_core.git@main"
+poetry add "simpl-core[composio-sdk] @ git+https://github.com/simpl-techs/simpl_core.git@main"
 poetry add "simpl-core[agent-framework] @ git+https://github.com/simpl-techs/simpl_core.git@main"
 poetry add "simpl-core[mailbox] @ git+https://github.com/simpl-techs/simpl_core.git@main"
 poetry add "simpl-core[parquet] @ git+https://github.com/simpl-techs/simpl_core.git@main"
