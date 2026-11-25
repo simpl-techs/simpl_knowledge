@@ -2956,6 +2956,23 @@ decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution
   an answer naming the placeholder itself waits. A placeholder gone abandons its claim, one promoted resolves it
   on itself, a lead placeholder parked on a company a lead waits on is left to the
   conversation backfill's lead reconciler.
+- **Planning before settling** (`ClaimSettlement.plan(session, claim, resolution)`, a
+  query): the `SettlementPlan` `settle` acts on, `action` (`Settled`) and `target`, a
+  `PlannedMerge` for a merge, else `reason` (`Unsettled`: `no_answer`, `open`, `below_on`,
+  `other_kind`, `its_placeholder`, `parked`).
+- **A claim's stand-in** (`Mention.stand_in`, set by `company_claim_mention` and
+  `lead_claim_mention`): the row the claim stands on, its placeholder or its caller's lead.
+  `run_stages` keeps an answer naming it unapplied and drops it from the candidates, and
+  `CandidateCache` never offers it, so a placeholder its own key finds goes on to the
+  stages that can name the row it stands for. Requests and Graphia's mentions have none.
+- **The claims pass as a dry run** (`resolution.claims_dry_run.dry_run_claims(db, store,
+  stages_for=, shards=)`): every pending claim (`PendingClaims.peek`, never stamped)
+  through the whole ladder, each consumer under `full_policy` (every method, every name
+  stage, nothing created), every mechanism on in memory (`FULL_LADDER_BOARD`, stage 9
+  off), then the settlement's plan for each. It writes nothing: stages run through
+  `run_stages`, never a lane; the case store is read with `shard=None`. The judge's and
+  the searches' calls are paid and recorded with sub-process `claims_dry_run`.
+  `ClaimsDryRun.markdown(run_id=)` and `.rows()` report it.
 - **People in the lanes**: `company_stages(..., people=True)` adds the people ladder (own
   side, a name at its employer from the person name index, the customer's pipeline); the
   two stages that read on a session run through `people.SessionPerRun`, a session per run.
