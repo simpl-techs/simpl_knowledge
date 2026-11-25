@@ -2803,11 +2803,15 @@ decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution
   proof, by=, now=, run_id=)`, or `merge_in(session, ...)` on the caller's transaction
   then `settle(outcome, ...)` after its commit. The proof (`resolution.merge_proof`:
   `MergeProof`, `EntryPath`, `ProofKind`) is two entry points that collide (different
-  keys, no shared link or source, one path of keys), the same page on both rows, or a
-  placeholder's own key (`KEY_LOOKUP`). An ended `same` link refuses the merge; a merge
-  the journal refuses is held in `resolution.held_match` ("matched, not merged"); either
-  way a trusted `same` link is recorded. `resolution.merge_proof` needs no row store, so
-  `simpl_core.services.dedup` imports without the `row-store` extras.
+  keys, no shared link or source, one path of keys), the same page on both rows, a
+  placeholder's own key (`KEY_LOOKUP`), or a case's decision no key made (`DECISION`,
+  with a `DecisionRef`: stage `name@version`, method, source row, case decision id). An
+  ended `same` link refuses the merge; a merge the journal refuses is held in
+  `resolution.held_match` ("matched, not merged"); either way a `same` link is recorded:
+  trusted for a key, of the decision's origin (`rule`, `judged`) with its `decision_id`
+  for a decision, trusted by the merge and weak when only held. `resolution.merge_proof`
+  needs no row store, so `simpl_core.services.dedup` imports without the `row-store`
+  extras.
 - `LeadTwinMerger(door)` and `LeadPlaceholderReconciler(door)` merge only through the door
   (`MergeIn`): twins on an agreeing LinkedIn identity, or the email every twin holds and
   the name; a placeholder on a key it carries. An identity the people search found by the
@@ -2937,13 +2941,18 @@ decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution
   or its placeholder's. Each consumer runs under its published policy, else
   `claim_policy(source)` (`CLAIM_POLICIES`, from the plan's "Accepts": identifiers only
   for a source with none).
-- **Settling** (`ClaimSettlement.settle`, on the caller's session; the caller commits, then
-  settles the merges with the door): `is` on a key merges the placeholder into the row the
-  key reaches through the merge door (a key lookup from the claim's own key, journaled),
-  or resolves a claim with no placeholder; `not_an_entity` retires the claim
-  (`resolution_state = 'retired'`, `mark_retired` on both ledgers), the placeholder kept; a
-  rule's or the judge's `is` is a proposal and changes nothing; an answer naming the
-  placeholder itself waits. A placeholder gone abandons its claim, one promoted resolves it
+- **Settling** (`ClaimSettlement(door, switches=, segment=class_segment).settle(...,
+  decisions=)`, on the caller's session; the caller commits, then settles the merges with
+  the door): `is` on a key merges the placeholder into the row the key reaches through the
+  merge door (a key lookup from the claim's own key, journaled), or resolves a claim with
+  no placeholder; a rule's, a stored name's, the scorer's or the judge's `is` does the
+  same on a `DECISION` proof once someone moved its mechanism's switch `on` for the
+  claim's segment (`SwitchBoard.moved`: a consumer's default name stages answer, never
+  merge; no board passed: keys only), naming the case decision from `decisions`
+  (`LaneRun.decision_ids()`, by mention id) or the reused answer's own; below `on` it is
+  a proposal and changes nothing; `not_an_entity` retires the claim
+  (`resolution_state = 'retired'`, `mark_retired` on both ledgers), the placeholder kept;
+  an answer naming the placeholder itself waits. A placeholder gone abandons its claim, one promoted resolves it
   on itself, a lead placeholder parked on a company a lead waits on is left to the
   conversation backfill's lead reconciler.
 - **People in the lanes**: `company_stages(..., people=True)` adds the people ladder (own
