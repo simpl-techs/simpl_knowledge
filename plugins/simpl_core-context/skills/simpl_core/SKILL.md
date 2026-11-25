@@ -5237,8 +5237,9 @@ await posts.build_index("vector")            # sections of a declared vector or 
     the table once they are added: its rows lack the columns, its compaction merges them
     into files that hold the columns empty (where `fill_computed` and the health no
     longer see them), and its maintenance drops an index on a computed column.
-    `Dataset.computed_gaps()` finds such rows by value (a scan of the columns and their
-    sources over the fragments that hold them, about what a fill reads), and
+    `Dataset.computed_gaps()` finds such rows by value (a scan of the computed columns
+    alone over the fragments that hold them, then the source vector of their null rows
+    only, read by row id), and
     `fill_computed(fragments=gaps)` fills them; `ComputedFill.column` and `.fragments`
     say which it committed.
   - `searched_vector(stored, query)` gives a kind its computed column and its one vector
