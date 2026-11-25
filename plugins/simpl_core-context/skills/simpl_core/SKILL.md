@@ -4735,15 +4735,18 @@ heads = await requests.heads(open_request_ids)  # many states in one query
   LinkedIn seat its profile read may spend, an active user of the customer or lent to it
   through an open `sales.identity_loan`; an internal request (no customer) names none; None:
   the read goes to the public page, never a seat (Q16 (a)); stored on the request, not
-  compared on a retry, and a joined or fresh run keeps its own), `FetchSpec(url, max_age_s)`, `CrawlSpec(start_url, max_age_s)`
-  (`max_age_s` None: the policy's `default_max_age_s`), `SearchSpec(queries, engines,
+  compared on a retry, and a joined or fresh run keeps its own), `FetchSpec(url, max_age_s)`, `CrawlSpec(start_url, max_age_s,
+  policy_key)` (`max_age_s` None: the policy's `default_max_age_s`; `policy_key`, default
+  `crawl`: an active crawl policy, `book_probe` for the book discovery run's probes; the
+  request pins its version, whose `scraper_policy` the drainer seeds under once
+  simpl_scraping reads it), `SearchSpec(queries, engines,
   timelimit)`. URLs must be http or https with a host. No text a request carries (key,
   topic, query, word to exclude, URL) may hold a control character (`NO_CONTROL_CHARACTERS`
   in `policy.py`; a query's tabs and newlines are folded to spaces first).
 - **Order** (`admission.py`): lock the budget bucket (policy kind and customer, or
   internal); the idempotency key, read from `osint.request_submission` (`outcome`
   `existing` when the retry asks for the same: research the same `subject_key` and
-  `policy_key`, fetch and crawl the same URL and `max_age_s`, search the same `queries`,
+  `policy_key`, fetch and crawl the same URL, `max_age_s` and policy key, search the same `queries`,
   `engines` and `timelimit`, every kind the same `purpose`; a default left out is resolved
   under the version the first submit pinned. It returns the request the first submit got,
   created, joined or fresh, even when that run has failed or stopped being fresh since; a
@@ -4761,7 +4764,9 @@ heads = await requests.heads(open_request_ids)  # many states in one query
 - **Budgets:** a customer's requests count in its bucket: research and search in requests
   (the kind's cap, and a source type's own cap from `by_source_type`); fetch in pages (one
   each); crawl at the policy's `pages_per_crawl` until its inbox row finishes, then the
-  pages it admitted, at least 1. An internal request of a source type listed in
+  pages it admitted, at least 1. A page budget counts only the requests under its own
+  policy key, so `book_probe`'s crawls never spend `crawl`'s buckets. Only page counts
+  are per key: request counts and the dollar cap still count every request of the kind. An internal request of a source type listed in
   `budget.internal_by_source_type` counts in that source type's own bucket, alone: requests
   (`max_requests_per_day`; fetch and crawl: pages, `max_pages_per_day`) and dollars
   (`max_cost_usd_per_day`: a finished request at its `cost_usd`, a running one at least at
@@ -4772,7 +4777,8 @@ heads = await requests.heads(open_request_ids)  # many states in one query
   was counted, a cap of 0).
 - **Refusals** (`RefusalReason`): `unknown_customer`, `not_found` (no lead or company has
   the id), `placeholder` (a placeholder company or a Dummy lead: #513's own check),
-  `no_active_policy`, `policy_kind_refused` (a research `policy_key` of another kind),
+  `no_active_policy`, `policy_kind_refused` (a research or crawl `policy_key` of another
+  kind),
   `source_type_refused`, `purpose_refused`, `budget_spent`, `private_address` (a private,
   loopback, link-local or otherwise non-public IP, `localhost`, `.local`, `.internal`,
   `.home.arpa`, a one-label host or an all-digit last label; no DNS lookup, `addresses.py`
@@ -4819,7 +4825,10 @@ heads = await requests.heads(open_request_ids)  # many states in one query
   inserted, `[]` when none was new, None when it wrote none; never the seat or its proxy
   request, which are one customer's).
   `FetchRead`: the inbox row's status and the page. `CrawlRead`: `counts` and the pages of
-  the `crawl_page` events after the cursor. `SearchRead`: every hit with its query and
+  the `crawl_page` events after the cursor, each with the `media_type` and `http_status`
+  `scraping.research_crawl_page` holds. simpl_scraping's drainer fills them for stored
+  pages only, so failed and skipped pages read None today; book corpus plan P2 copies the
+  fetch job's HTTP status onto failed pages (no failed page's media type is recorded). `SearchRead`: every hit with its query and
   source.
 - **Without events:** `heads(request_ids)` (at most 500, one query by primary key): a
   `RequestState` per id (`status`, `final`, `expired`, `last_sequence`, `deadline_at`,
