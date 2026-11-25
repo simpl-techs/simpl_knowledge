@@ -42,16 +42,14 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
 - Use `simpl_tracker` for tracking/logging and `simpl_orm` for shared database patterns.
 - `gcp_post_search_index_flow` (every five minutes) adds new posts to `sales.post_search_index` (migration 065) by reading
   `sales.post` / `sales.post_repost` (no trigger or index on them), claims pending rows,
-  builds and embeds post records (Nebius, Qwen3-Embedding-8B), commits them to the row
-  store on GCS, and with a collection keeps that Zilliz collection in step. A backlog
-  (a backfill marks every post) drains through the schedule; by hand with
-  `promote_alias` it moves that alias to the collection once caught up. The logic lives in simpl_core (`row_store`, `search.posts`);
-  needs the Doppler `ROW_STORE_URI`, `NEBIUS_API_KEY` and `MILVUS_*` keys; the job's
-  service account reaches the bucket (no Google key in the environment). Alerts are
-  the shared search index ones (below).
+  builds and embeds post records (Nebius, Qwen3-Embedding-8B) and commits them to the row
+  store on GCS, where the row store's query service (simpl_seek) searches them. A backlog
+  (a backfill marks every post) drains through the schedule. The logic lives in
+  simpl_core (`row_store`, `search.posts`); needs the Doppler `ROW_STORE_URI` and
+  `NEBIUS_API_KEY` keys; the job's service account reaches the bucket (no Google key in
+  the environment). Alerts are the shared search index ones (below).
 - `gcp_landing_search_index_flow` indexes company websites as the crawl stores them, one
-  document per site, into `landing_pages:1:4096` and the Zilliz collection
-  `landing_pages_v1` (alias `landing_pages`; ledger `sales.landing_search_index`,
+  document per site, into `landing_pages:1:4096` (ledger `sales.landing_search_index`,
   migration 075). Two modes sharing the ledger, so neither redoes the other's work:
   a **scoped run** (manual: `{"scope_name": "italy", "scope_countries": ["ITA", "IT"]}`,
   or `{"scope_name": "all"}` for every company) indexes exactly that scope, on its own
@@ -67,26 +65,20 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   search index ones (below): a scoped run is started by hand, so its failure posts at
   once. A batch that fails to load is retried after 15 s, 1 min and 4 min first.
 - `gcp_company_search_index_flow` indexes every company with a description into
-  `sales_companies:1:4096` and the Zilliz collection
-  `sales_companies_v1` at 1024 dims (ledger `sales.company_search_index`, migration
-  083), replacing the never-refreshed `sales_companies_hybrid`: once validated, that
-  collection is renamed away and `sales_companies_hybrid` and `sales_companies` become
-  aliases of `sales_companies_v1`, so readers keep their collection name. The
-  collection is a strict projection of the row store: nothing else writes to it (the
-  article bot stopped uploading the companies it creates in 2.5.82; the index finds
-  them by created_at). Each run discovers new and changed companies
+  `sales_companies:1:4096` (ledger `sales.company_search_index`, migration 083), which
+  the query service searches. Nothing else writes it: the flows that meet a company
+  (the article bot, the conversation backfill) place it through entity resolution in
+  Postgres only, and the index finds new ones by created_at. Each run discovers new and changed companies
   (`CompanyScanner`: a one-off walk of every company, then the created_at/updated_at
   cursors with fingerprints) and indexes until the queue is empty; the nightly
   maintenance sweep removes companies merged away. Reads `sales.company` only, with no
   trigger or index added. The logic lives in simpl_core (`search.companies`). The
-  schedule runs every 5 minutes (on since 2.5.67); nothing reads `sales_companies_v1`
-  until the alias is promoted by hand once the backfill is validated.
+  schedule runs every 5 minutes (on since 2.5.67).
 - `gcp_website_facts_search_index_flow` (every 5 minutes once live; 2.5.248) indexes what
   each company website runs and shows (`sales.website`, `sales.website_technology`,
   written by simpl_scraping's website signals extractor and crawl) into
-  `website_facts:2` (no vectors: a keyword-only kind) and the Zilliz collection
-  `website_facts_v2` (typed filter fields and BM25, no embeddings; ledger
-  `sales.website_facts_search_index`, migration 170, which also added version 1's
+  `website_facts:2` (no vectors: a keyword-only kind, typed filter fields and BM25;
+  ledger `sales.website_facts_search_index`, migration 170, which also added version 1's
   `row_store.dataset_configs` row; 197 adds version 2's for the column drops, which took
   nine site fields out of simpl_core's website facts `SITE_FIELDS`, and turns version 1
   off). Each run follows finished `website_signals` jobs
@@ -96,16 +88,13 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   first time; it is also what sees every other change, a day late at most: the crawl
   writer's site row, `website-risk apply`, sites gone (simpl_core 0.8.304 dropped the
   pass on `sales.website.updated_at`, which read the whole table: no index covers it).
-  It creates the collection, never moves the
-  `website_facts` alias: that is promoted by hand once the index check is clean. Reads
-  only; no trigger or index on the website tables. Needs the Doppler `ROW_STORE_URI`
-  and `MILVUS_*` keys (no Nebius key: nothing is embedded). The logic lives in
+  Reads only; no trigger or index on the website tables. Needs the Doppler
+  `ROW_STORE_URI` key (no Nebius key: nothing is embedded). The logic lives in
   simpl_core (`search.website_facts`). A host the ledger refuses as a key (a
   `#`, upper case, a `/`) is skipped and logged (`website_facts.scan_host_skipped`) and
-  counted (`skipped`) in the run's and the sweep's summaries; the index check leaves such
-  hosts out. **It shipped off**: its schedule
-  was inactive and 170 seeds `"sweep": false`, until the go-live steps in the README
-  ("Website facts search"). Its schedule was switched on by a PR that sets
+  counted (`skipped`) in the run's and the sweep's summaries. **It shipped off**: its
+  schedule was inactive and 170 seeds `"sweep": false`, until the go-live steps in the
+  README ("Website facts search"). Its schedule was switched on by a PR that sets
   `active: true` (2.5.249, go-live step 3), never resumed by hand:
   every deploy recreates schedules from `prefect.yaml`. Size (production 2026-11-06,
   `pg_class.reltuples`): about 220,000 sites and 1,885,000 technology rows, so about
@@ -113,31 +102,20 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   (`params.index.commit_bytes`, migration 177; every other kind keeps simpl_core's
   64 MiB) and runs in 2 GiB (2.5.261): at 1 GiB with 64 MiB groups, the first fill was
   killed before its first commit (2026-11-06).
-- **The website facts index check** is a step of `search_index_maintenance_flow`
-  that a run names (`checks: ["website_facts"]`), run after everything else, in the
-  `gcp_search_index_sweeps` deployment. It calls
-  simpl_core's `run_website_facts_index_check` (`search.website_facts`; the check's
-  parts and rules are documented there) on the collection the active `website_facts`
-  row names (`configured_collection`). Its report is the run's result
-  (`checks.website_facts`) and a warning log when it has differences
-  (`website_facts_search.index_check`); it posts to #data-lake only with
-  `announce_checks: true` (default false). No schedule runs it: by hand until go-live
-  (`prefect deployment run search_index_maintenance_flow/gcp_search_index_sweeps
-  -p 'checks=["website_facts"]'`), then weekly in Monday's nightly sweep run, by a PR
-  (README, "Website facts search", go-live step 8). Differences do not fail the run; a
-  check that cannot look does.
 - **Which dataset each search index flow writes, and how, is `row_store.dataset_configs`**
   (simpl_core migration `20261009_row_store_dataset_configs.sql`, seeded by migration
   084; website facts by 170), not deployment parameters. Each kind (`posts`, `landing`,
   `companies`, `website_facts`) writes
   its `active` row's dataset (`name:version:dims`) with the settings under
-  `params.index` (the flow's `SETTINGS`: collection, collection_dims, batch sizes,
-  concurrency, and for website facts `commit_bytes`, the commit group size
-  `index_batches` passes to simpl_core's `BatchPipeline`); a value a run passes still
-  wins, so a version built by hand is
-  `-p dataset=<name:version:dims>`. A key no flow reads fails the run. Moving a kind to
-  a new version, adding a dataset or changing a setting is an `UPDATE`/`INSERT` on that
-  table, picked up by the next run, with no deployment.
+  `params.index` (the flow's `SETTINGS`: batch sizes, concurrency, and for website facts
+  `commit_bytes`, the commit group size `index_batches` passes to simpl_core's
+  `BatchPipeline`); a value a run passes still wins, so a version built by hand is
+  `-p dataset=<name:version:dims>`. A key no flow reads fails the run: a row still
+  naming the Zilliz collection it was once projected into (`collection`,
+  `collection_dims`) stops its kind until simpl_core's migration 20261120090000 takes
+  both out, applied right after the index flows that no longer project are deployed.
+  Moving a kind to a new version, adding a dataset or changing a setting is an
+  `UPDATE`/`INSERT` on that table, picked up by the next run, with no deployment.
 - `gcp_search_index_maintenance_flow` maintains every `active` and `maintained` row of
   `row_store.dataset_configs` (posts, landing pages, companies, website facts): compaction, index
   segment merges and a week of versions, every 15 minutes, with each row's
@@ -156,20 +134,20 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   `search_index_sweeps` in its alerts, logs and failure (`run_job`): its failure streak
   reads "search_index_sweeps: the last N runs failed", and the maintenance deployment's
   stays `search_index_maintenance`. Each sweep logs `<job>.sweep_started` as it starts,
-  and its summary when it ends. A run can still name `datasets` and `sweeps` itself (`sweeps` runs a sweep
-  its row turns off), and index `checks` (`CHECKS`: `website_facts`), which only a run
-  that names them runs, last, posting with `announce_checks` only. A new kind adds a
-  spec to `KINDS` (`search_index_runtime`; a kind with no vector is named there like
-  `website_facts`), a sweep to `SWEEPS` and a check to `CHECKS` if it needs them.
-  A sweep, dataset or check that fails does not stop the others; the run then fails
+  and its summary when it ends. A run can still name `datasets` and `sweeps` itself
+  (`sweeps` runs a sweep its row turns off). A new kind adds a spec to `KINDS`
+  (`search_index_runtime`; a kind with no vector is named there like `website_facts`)
+  and a sweep to `SWEEPS` if it needs one.
+  A sweep or dataset that fails does not stop the others; the run then fails
   naming the run and each step (`MaintenanceFailed`: "search_index_sweeps failed: sweep
   posts: ..."). A row the code cannot read (a kind it does not know,
   dims that do not fit its kind, an unknown setting) is left out and the rest are
   maintained; the first run of each hour posts the rows left out to #data-lake
   (`announce_skipped_configs`, gated by `health_alert_due`), and every run returns them
   under `skipped`.
-- **Data lake alerts go to #data-lake** (posts, landing, companies and website facts index flows,
-  maintenance and its website facts index check when it announces, graphia v2 and the opportunity matcher; `services/run_health.py`,
+- **Data lake alerts go to #data-lake** (posts, landing, companies and website facts
+  index flows, maintenance, the query service evaluation, graphia v2 and the opportunity
+  matcher; `services/run_health.py`,
   `services/search_index_health.py`), through simpl_core's `data_lake_alert`: errors and
   warnings only, never success. Without `DISCORD_DATA_LAKE_WEBHOOK_URL`, or when Discord
   does not take a message, they go to #error or #warning instead.
@@ -184,8 +162,8 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
     up with (`Dataset.health`, a segment heal that failed), and for each `active`
     dataset an index that does not keep up (`read_index_progress`): documents due and
     no commit for `params.maintenance.stalled_after_minutes` (60 by default; 0 turns it
-    off, as migration 085 does for landing while its runs are held), or a Zilliz
-    projection that far behind the store. The frozen `graphia_extractions` (kind
+    off, as migration 085 does for landing while its runs are held). The frozen
+    `graphia_extractions` (kind
     `extractions`) has no progress check: its old ledger,
     `knowledge_graph.extraction_index`, is Graphia v2's queue, and a stopped v2 run
     read as this dataset's stalled index. `search_index_maintenance.health` and
@@ -206,6 +184,47 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   manual run, `build_indexes` (with `datasets`), with memory for a first vector build's
   training (`--job-variable memory=8Gi`); the health check reports it as unbuilt until
   then. The deployment runs at 2 vCPUs and 4 GiB for the section builds.
+- The row store's serving and backup flows, each on its own `simpl-gce-pool` VM, every
+  schedule shipped off:
+  - `gcp_row_store_consolidation_flow` (03:00 UTC): rebuilds each due vector index as one
+    section over its table (simpl_core `Dataset.consolidate_index`, more than 5% of the
+    rows outside the largest section); by hand with `datasets` and `force=true` for a
+    first consolidation.
+  - `gcp_row_store_computed_columns_flow` (no schedule, `datasets` required): on a table
+    that held rows before them, adds the columns the row store computes itself
+    (simpl_core `DatasetSpec.computed`: each kind's vector cut to its queries' width,
+    `vector_1024` or `vector_512`, which its vector index is on, and the posts'
+    `has_company`), fills them a part a commit while writers go on, checks them by
+    value, then builds that vector index as one section. Run it once per dataset,
+    smallest first, only after every writer and maintenance of the dataset runs a
+    release that declares the columns. A release that does not still writes the table
+    and leaves rows without them: the check fills those rows and fails the dataset
+    before its index (redeploy, then run again). Until it ends the query service answers
+    `index_not_ready` for the dataset's searches by meaning.
+- The matcher's lake (`pipelines.intelligence`) searches and scores each dataset on the
+  column its vector index is on (`LakeTable.vector_column`, `query_dims`): queries are
+  embedded at 1,024 or 512 dimensions, not at the 4,096 stored, so a similarity there is
+  the query service's for the same row. A table with no vector index is scored on the
+  stored vector at its own width, as before.
+  - `gcp_row_store_snapshot_flow` (02:00) and `gcp_row_store_snapshot_prune_flow`
+    (06:00): the nightly backup into `ROW_STORE_BACKUP_URI`, each as its own service
+    account (simpl_core `docs/row-store-backup.md`).
+  - `gcp_row_store_query_evaluation_flow` (weekly): every reader's cases on the query
+    service against exact answers, per dataset and operation, gated every run; an
+    operation under its gate alerts #data-lake and the run fails naming it. No load step
+    unless a run asks for one (`load_rps`).
+- Every search of the row store's nine datasets (companies, posts, landing pages,
+  website facts, the five sales kinds) reads the row store's query service (simpl_seek),
+  the only system that holds them: the opportunity matcher (company walks, the hybrid,
+  post, website and website facts signals) and verification's passages, entity
+  resolution's wider searches when a source that needs them is on (one client a run,
+  `er/wider_searches.py`), and the sales domain agent's website facts signal previews.
+  The article bot and the conversation processor no longer search similar companies
+  (entity resolution places them). The flows that read it (the sales domain's aside, whose
+  agent opens a client per preview) refuse to start without `ROW_STORE_QUERY_URL` and
+  `ROW_STORE_QUERY_TOKEN`; a search the service cannot answer fails, never falls back.
+  A Cloud Run deployment that reads it needs Direct VPC egress to `simpl-vms`
+  (`prefect.yaml`, `definitions`).
 - `gcp_verify_shortlist_candidates_flow` (no schedule, started by simpl_api) verifies a
   page of an ICP's shortlist candidates: parameters `icp_id`, `company_ids` (the ones
   simpl_api marked `checking` in `opportunity.icp_company_verdict`, migration 119) and
@@ -454,8 +473,9 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   (`updated_at`). On `sales_view.job_offer_with_location`, where `updated_at` is
   `COALESCE(job_offer.updated_at, created_at)`, that test runs on the base columns
   (`job_offer_updated_at`, `created_at`) so the `job_offer` indexes serve it.
-- A **post signal** (`sales.icp_signal.filter_json`) searches the LinkedIn posts in Zilliz
-  (alias `sales_posts`) by topic, by keywords, or both: `{"mode": "all_match",
+- A **post signal** (`sales.icp_signal.filter_json`) searches the LinkedIn posts the
+  posts index holds (`sales_posts`, through the query service) by topic, by keywords, or
+  both: `{"mode": "all_match",
   "conditions": [{"collection": "sales_posts", "search_mode": "semantic" | "keyword" |
   "hybrid", "embedded_text": "<topic>", "similarity_threshold": 0.5, "keywords":
   ["series A", "seed round"], "keyword_match": "any" | "all", "date_range_days": 30}]}`.
@@ -472,10 +492,10 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   post). The matcher embeds the topic itself, so a post signal stores no
   `embedding_vector`. Post signals are never SQL on `sales.post`.
 - A **website signal** searches the companies' sites, as the landing search index holds
-  them in Zilliz (alias `landing_pages`), the same three ways: `{"mode": "all_match",
-  "conditions": [{"collection": "landing_pages", "search_mode": "semantic" | "keyword" |
-  "hybrid", "embedded_text": "<topic>", "similarity_threshold": 0.5, "keywords":
-  ["ISO 9001"], "keyword_match": "any" | "all"}]}`. A company matches when a chunk of its
+  them (`landing_pages`, through the query service), the same three ways:
+  `{"mode": "all_match", "conditions": [{"collection": "landing_pages", "search_mode":
+  "semantic" | "keyword" | "hybrid", "embedded_text": "<topic>", "similarity_threshold":
+  0.5, "keywords": ["ISO 9001"], "keyword_match": "any" | "all"}]}`. A company matches when a chunk of its
   site's pages (legal pages left out) passes the mode's tests. Pages carry no date, so
   there is no window, and only sites the index holds can match (companies sharing a site
   share its match). The evidence is that chunk: `matching_objects = {"landing_pages":
@@ -485,7 +505,8 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   template (menu, footer), shown at the home URL.
 - A **website facts signal** tests what each company's site runs and shows
   (simpl_scraping's `sales.website` and `sales.website_technology`), as the website
-  facts index holds it in Zilliz (alias `website_facts`, keyword-only, no embedding):
+  facts index holds it (`website_facts`, keyword-only, no embedding; through the query
+  service):
   `{"mode": "all_match", "conditions": [{"collection": "website_facts", "technologies":
   {"names": ["PHP"], "risk": "past_eol"}, "site": [{"field": "uses_https", "op": "is",
   "value": false}], "keywords": ["ecommerce"], "keyword_match": "any"}]}`. The condition
