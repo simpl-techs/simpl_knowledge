@@ -3091,8 +3091,11 @@ decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution
   rows (`resolution.daily_summary`). `reopen_retired(db)` makes a retired company claim
   that now carries a key pending again.
 - **Measured against a known answer**: `resolution.site_reading` (`registry_examples`,
-  `replay_site_reading`: a registry row's own site scored against the page the row holds,
-  by grade and reader; `start_rule(registry, claims)`: the one-pointer reading starts only
+  `replay_site_reading(db, examples, sites, fetches)`: a registry row's own site, on a
+  site no other row holds, scored against the registry by grade and reader: the row's own
+  page is right, a page another row holds is wrong, a page no row holds scores nothing; a
+  fetch that stored no page is `failed`, and the sites whose home moved are also counted
+  apart in `moved`; `start_rule(registry, claims)`: the one-pointer reading starts only
   when both populations' lower bounds clear `MERGE_BAR` 0.99 on `MERGE_SAMPLE` 1,000
   scored pages; `apply_start_rule` moves the switch then, never otherwise) and
   `resolution.hidden_key` (`claim_examples`, `blocklist_examples`, `hide`,
