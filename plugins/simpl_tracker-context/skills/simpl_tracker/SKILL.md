@@ -319,8 +319,9 @@ export and loads each with `cost_tracking.load_gcp_billing_day`: the day in
 `gcp_billing_cost` (EUR before and after credits, tax excluded, USD at the ECB rate),
 the cost before credits split across the sessions that ran on each resource in
 `gcp_cost_allocation` (repos, customers and the rollup carry what Google was used for;
-what credits covered is only in `gcp_credit_coverage`), rollup
-rebuilt. `compute_cost_daily(from, to)` is the one source of compute cost per day,
+what credits covered is only in `gcp_credit_coverage`), and the day's rollup brought
+up to date: its infrastructure cost refolded on a day the rollup has counted, the day
+counted in full otherwise. `compute_cost_daily(from, to)` is the one source of compute cost per day,
 provider and repo; `run_daily_aggregation`, `infra_cost_daily` and
 `infra_cost_by_provider` read it.
 
@@ -480,6 +481,15 @@ way, and again after any later run of it (step `price_holds` creates
 created_at) WHERE state = 'unpriced' AND external_request_id IS NOT NULL`, the read of
 `openrouter_costs settle`, and makes `price_hold_calibration` (same arguments and result)
 read only the billed calls its open holds can match. Its `_rollback.sql` undoes both.
+
+`migrations/20261126150000_cost_jobs_within_the_statement_timeout.sql` (one
+transaction, `psql -X -v ON_ERROR_STOP=1 -f`) is applied after it, and again after any
+later run of it or of `20261016163000_gcp_billing_cost.sql` (they create
+`quote_price_calibration` and `load_gcp_billing_day` with the bodies this file
+replaces). Same arguments and results: `quote_price_calibration` reads the rates once per
+model, tag and pricing tier instead of quoting each call through `quote_llm_cost`, and
+`load_gcp_billing_day` refolds only the infrastructure cost of a day the rollup has
+counted instead of recounting its ledger. Its `_rollback.sql` puts both bodies back.
 
 `cost_tracking.llm_token_prices` is the read for routing: one row per `provider`,
 `model` and `upstream_tag` with a token price open today at the provider's current tier,
