@@ -6133,7 +6133,7 @@ scanner = WebsiteFactsScanner(db)
 await scanner.follow_extraction()   # every run: succeeded website_signals jobs -> hosts
 await scanner.sweep()               # nightly, and the first fill: every site by host
 
-indexer = website_facts_indexer(db, dataset=facts_dataset)  # website_facts_dataset_spec(), no embedder
+indexer = website_facts_indexer(db, dataset=facts_dataset)  # website_facts_dataset_spec(version=...), no embedder
 await indexer.run_batch(batch_size=500)
 
 errors = await check_condition(db, condition)       # before ANY save; [] = valid
@@ -6147,6 +6147,28 @@ found = await search.matching_companies(db, parse_condition(condition), company_
 shown = await website_facts_evidence(db, parse_condition(condition), list(found.values()))
 ```
 
+- **Two dataset shapes, by version** (0.8.532): `website_facts_dataset_spec(name=,
+  version=)` gives version 1 and 2 today's columns (spec hashes pinned in
+  `test_spec.py`), and version 3 on (`FAMILIES_VERSION`, `holds_families(version)`) adds
+  the site row's `families` (`DERIVED_SITE_FIELDS`) and drops the technology rows'
+  `max_severity` and `vulnerability_count` (`VULNERABILITY_FIELDS`, versions 1 and 2
+  only; `technology_fields(version)`). Build each version only with its own shape: pass
+  the config's version to the spec (simpl_seek's `search.served` and simpl_flow's
+  `DatasetRef` already do), and `website_facts_indexer(db, dataset=)` reads and builds for
+  `dataset.spec.version` (`WebsiteFactsSources(db, version=)`, `build_site_facts(host,
+  sources, version=)`; both default to version 1's shape). A version-3 build reads the
+  internal facts (`home_page_kind`, `missed_security_release`) and the family rules on
+  every load: its login needs SELECT on `sales.website_fact_families` **and** to see its
+  rows past row level security (the owner, or BYPASSRLS such as `service_role`). With no
+  enabled row readable it does not fail: it logs `website_facts.no_families` (once per
+  state of the rows, per process, as `website_facts.family_refused`) and stores an empty
+  `families` list on every site, so switching every family off never stops the index.
+  Only `build_site_facts` given sources read without the rules (`family_rules` None) for
+  version 3 raises: that is a caller's mistake.
+  `TECHNOLOGY_FIELDS` is now the four columns every version holds (`technology`,
+  `categories`, `version`, `eol_date`), and so is `MATCH_COLUMNS`'s technology part: a
+  reader of `TECHNOLOGY_FIELDS` that wants version 2's pair adds `VULNERABILITY_FIELDS`.
+  The scanner's fingerprint and `TEXT_PREP_VERSION` (2) do not change in this release.
 - **Signals on an ICP** (0.8.322): `WEBSITE_FACTS_KIND` is how every prompt that lists
   signal kinds describes this one, word for word (simpl_api's wizard and chat, which
   import it, and the Sales Domain skills); `NO_COMPANY_FILTERS` is the refusal on an ICP without an enabled
@@ -6213,11 +6235,11 @@ shown = await website_facts_evidence(db, parse_condition(condition), list(found.
     read through `served_shape(db)`, kept a minute): "families: a signal cannot ask for
     problem families yet: the website facts index served now (version 2) does not hold
     the sites' problem families, ...". The shape is read first; while it refuses, nothing
-    about families is read. No version holds `families` in 0.8.530, so moving the active
-    row to version 3 lifts the refusal only once a simpl_core with the two dataset shapes
-    (0.8.531) runs the check. Once served, a name that is not an enabled family is
-    refused, with its spelling. The reason-to-contact rule is **not** applied by any save
-    path yet.
+    about families is read. From 0.8.532 version 3's spec holds `families`, so the move of
+    the active row to version 3 lifts the refusal with no further release (0.8.530 alone
+    cannot: its version 3 has no such column). Once served, a name that is not an enabled
+    family is refused, with its spelling. The reason-to-contact rule is **not** applied by
+    any save path yet.
   - `family_rules(db)` (kept a minute) loads the enabled rows into `FamilyRules`; a row
     whose members do not all parse is refused whole and logged
     (`website_facts.family_refused`). Members are conditions in the signal grammar parsed
