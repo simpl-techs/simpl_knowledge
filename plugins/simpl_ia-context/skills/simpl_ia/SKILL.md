@@ -599,7 +599,9 @@ It differs from `run` in what it refuses to do, not in what it resolves:
   completion), and that accepts the parameters the request needs, when the offering
   lists its parameters: `tools` for function tools or tool output, `reasoning`, and
   `response_format` when the request resolves to native structured output, as
-  `output_mode: auto` does on most OpenRouter models. The candidates are **ranked by
+  `output_mode: auto` does on most OpenRouter models. A decision model
+  (`api: decisions`) may be on internal routing too: its requests need none of those
+  parameters, and each is pinned the same way. The candidates are **ranked by
   estimated cost per call**: prompt price × the agent's input tokens + completion price
   × its output tokens, from the source's `token_mix(agent, provider, model)` (a
   `TokenMix(input_tokens, output_tokens, samples)`), or 3 input tokens per output token
@@ -612,7 +614,15 @@ It differs from `run` in what it refuses to do, not in what it resolves:
   `prompt_price`, `completion_price` and `cache_read_price` in USD per token,
   `price_source` (`book` for the price book, `listing` for the gateway's listing) and
   `cancel_stops_billing` (`true` when a cancelled stream there is billed no more than it
-  streamed, `null` unknown; only marked offerings are hedged, above).
+  streamed, `null` unknown; only marked offerings are hedged, above), and `listed_tps` /
+  `listed_ttft_ms`: the gateway's own output speed and time to first token for the
+  endpoint over its recent requests, by percentile (`p50`, `p75`, `p90`, `p99`). Where
+  an offering's own statistics rest on fewer answers than `adaptive_deadline.min_samples`
+  (30), or it has none, the listed figure at the target's `speed_percentile` (default
+  `p50`, inherited from the policy like `exploration_share`; `p90` is the slower,
+  stricter figure) stands in for its tokens per second and median time to first chunk,
+  for the sort keys, the constraints and the expected latency alike
+  (`scoring.with_listed_speed`).
   `routing_table.rank_offerings` gives the ranking and the offerings left out with
   their reason; `candidate_upstreams` the upstream tags alone.
   `data_collection` and the other `max_price` limits are left to OpenRouter, which
@@ -652,16 +662,25 @@ It differs from `run` in what it refuses to do, not in what it resolves:
   latency_value_usd_per_s}` (`simpl_ia.agents.ObjectiveConfig`) orders them: `cost` (the
   default) the lowest K and, within `tie_band` (0.10) of it, the best on `then` (`tps`,
   the default, or `latency`); `latency` the lowest T; `blend` the lowest K + λ × T (λ =
-  `latency_value_usd_per_s`, required). `constraints: {min_tps, max_ttft_s,
+  `latency_value_usd_per_s`, required). `objective.order_by` instead lists sort keys,
+  most important first, applied in both ranking modes: `price` (K with `ranking:
+  effective`, C with `ranking: price`), `tps` (highest first), `latency` (T) and `ttft`
+  (median time to first chunk); each later key decides among the upstreams within
+  `tie_band` of the best on every key before it, and an unknown figure comes after the
+  known ones (`[price, tps]`, `[tps, price]`, `[ttft, price]`, …). It is refused beside
+  `minimize` or `then`, and the order is inherited whole from the most specific level
+  that says it (`ORDER_FIELDS`). `constraints: {min_tps, max_ttft_s,
   max_p90_latency_s, max_input_price_per_mtok, max_output_price_per_mtok,
   max_cost_per_call_usd, max_p_bad}` (`ConstraintsConfig`) leave upstreams out with
   `tps_below_min`, `ttft_above_max`, `p90_latency_over_max`, `price_above_max`,
-  `cost_per_call_above_max`, `p_bad_above_max`; an unknown figure never excludes, and
-  when they leave out every upstream they are kept only as `shadow`. An upstream without
+  `cost_per_call_above_max`, `p_bad_above_max`, in either ranking mode (an excluded
+  upstream is not sent and leaves the logged `candidates`); an unknown figure never
+  excludes, and when they leave out every upstream they are kept only as `shadow`. An upstream without
   statistics is scored on its price with no failures, after an equal one with them, so a
   source that measures nothing ranks by price. Degraded upstreams, and those an open
   `order` does not name, still rank after the rest. `ranking: price | effective`
-  (default `price`) picks what is sent: `price` sends the price order above; `effective`
+  (default `price`) picks what is sent: `price` sends the price order above, less the
+  upstreams the constraints leave out; `effective`
   sends the effective order, moves a uniformly drawn upstream of the best's band whose
   P(bad) is at most 1 point above the best's to the front `exploration_share` of the time
   (default 0.04; 0 off; the process's draws come from
@@ -764,7 +783,15 @@ It differs from `run` in what it refuses to do, not in what it resolves:
   between the target's own and the policy's (`chain_call_ceiling_seconds` reads them from
   the catalog). `require_zdr: true` (only on such a target, not inherited) keeps only
   zero-data-retention members: an OpenRouter endpoint by its listing, a provider without
-  sub-providers by the catalog's `zdr` map, else its listing. Left out, with `upstream`
+  sub-providers by the catalog's `zdr` map, else its listing. With it,
+  `zdr_exempt_providers: [deepseek, openai, cheaper_inference]` (any of them, never
+  `openrouter`; not inherited; also on a bucket target) keeps each named provider's own
+  offering as a member although it is not ZDR, ranked by price with the rest. The
+  target's `provider_routing` filters its OpenRouter endpoints only, with
+  `quantizations`, `require_parameters` and `sort: price` alone (an endpoint left out by
+  `quantizations` is logged `quantization`; the pinning fields and `zdr` are refused, and
+  the member OpenRouter routes itself when none is listed sends the filters in its
+  request); its `prompt_cache` is sent with its OpenAI member only. Left out, with `upstream`
   `""` in the route log: a provider without credentials (`no_credentials`), one that
   refuses the target's `output_mode` or `reasoning` (`incompatible:output_mode`,
   `incompatible:reasoning`), and one no member can be built on (`unsupported_provider`).
