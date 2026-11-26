@@ -2511,14 +2511,16 @@ run.report()  # overall, by method, by segment: precision and recall with Wilson
   concurrency=n)` runs `n` batches at once, for stages that call a model; each answer's
   `confidence` is kept in its features.
 - **The judge and its check** (`resolution.judge_replay`): `judge_stages(profiles, cache,
-  judge=, check=, evidence=, cases=)` is the name stages, `JudgeStage` without its gate,
-  then `JudgeCheckStage`; `replay_judge(examples, stages, cache=, policy=, run_id=, now=)`
-  runs them in shadow and returns a `JudgeReplay`: the judge and the check scored alone,
-  the judge on its floor alone and gated at each of `GATE_FLOORS` (`rule_answers` reads
-  the judge's answers under `judge_check.floored` / `gate`), on every example and on those
-  the stages before the judge left open (`open_before_judge`); what each rule keeps,
-  loses and catches (`rule_effects`), each model's answers on a company by confidence band
+  judge=, check=, evidence=, cases=)` is the name stages, `JudgeStage`, then
+  `JudgeCheckStage`; `replay_judge(examples, stages, cache=, policy=, run_id=, now=)`
+  runs them in shadow and returns a `JudgeReplay`: the judge and the check each scored
+  alone, on every example and on those the stages before the judge left open
+  (`open_before_judge`), each model's answers on a company by confidence band
   (`confidence_bands`) and its verdicts (`verdict_counts`); `markdown(title=)` is the
+  report. No rule reads one model's answer through the other's: the gate and its rows are
+  gone (the check repeated 76 of the judge's 98 wrong picks). `WithoutTruth(source,
+  truth_by_mention(examples))` is a candidate source with each example's true company and
+  its group taken out: every company a model then names is a namesake.
   report. A twin of the true row (a row of its group among the mention's candidates,
   `with_twins`) scores as the right company. The host gives the passages.
 
@@ -2743,10 +2745,6 @@ decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution
   `resolution/resolution_policy.yaml`: DeepSeek's own `deepseek-flash`, a GLM fallback, 90 s).
   `judged_links` writes an applied judged answer back as a weak `names` link (a brand's
   name for `part_of`). The host supplies an `EvidenceSource` (passages by source row).
-  `JudgeStage(..., check=)` passes every answer through an `AnswerCheck`
-  (`judge_check.CheckGate`); its version is then `1+check2`, a case reuses only a
-  decision of the same version, and a failed check leaves the mention to a later pass.
-  `company_stages(..., check=)` gives it one.
   `shown_candidates(ctx)` and `question_of(ctx, labelled, passages, mentions=)` build the
   judge's question; `run_ledger_agent(loader, resolver, db, agent_id=, inputs=)` runs a
   ledger agent of the judge's policy and keeps the call as an `agent_runs` row, and
@@ -2759,13 +2757,10 @@ decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution
   (`same_company`, `part_of`). `LedgerCheck` / `CheckOnFirstQuestion` return a
   `CheckReply` (`CheckFailed` when the answer carries no probability); `check_answer` maps
   it to `is`, `part_of`, `absent`, `not_an_entity` or `unknown` on the candidates shown,
-  the probability as its confidence. **The gate**: `gate(judged, checked, floor)` lets an
-  answer of `GATED` (`is`, `part_of`, `not_an_entity`) stand only at `JUDGE_FLOOR` (0.8)
-  or more and with the check's same verdict on the same company, else `unknown` with both
-  answers in its reasons; `floored` is the floor alone; `CheckGate(model)` is the gate as
-  the judge stage asks it, asking no check below the floor. `JudgeCheckStage`
-  (`stage.judge_check`) asks the check on every company mention with candidates, 8 calls
-  at once, recorded and never applied: it runs only in the judge's replay.
+  the probability as its confidence. `JudgeCheckStage` (`stage.judge_check`) asks the
+  check on every company mention with candidates, 8 calls at once, recorded and never
+  applied: it runs only in the judge's replay. No gate stands behind the judge: its
+  answer is a belief on the claim (`resolution.beliefs`), never a merge.
 - **Lanes** (`resolution.lanes`): a lane holds the `workpool` lease
   `lane_resource(shard)` and a `CaseStore(store, shards=n, shard=k)`, which writes only
   its shard (`cases.route` splits mentions by shard). It stages learned links with
@@ -2841,7 +2836,9 @@ decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution
   (`sales.company_merge`) and `ReversibleLeadMerge` (`sales.lead_merge`, migration
   `20261118160000_lead_merge_journal.sql`) merge only when the merge just moves rows, and
   `undo(merge_id, by=)` puts it back in one transaction. A lead merge moves connections (an
-  update of `lead_id`: nothing wakes); it keeps the source's contacts in full, since a
+  update of `lead_id`: nothing wakes), and with each what hangs on it: the colleague chosen
+  to take its call (`sales.lead_call_taker`) and its scored tries (`sales.strategy_outcome`,
+  whose `lead_id` follows the merge and its undo); it keeps the source's contacts in full, since a
   contact the target holds is dropped and a primary one demoted, and the undo puts each
   back. A merge that would fold two threads of one user, or drop any other row, raises
   `MergeNotReversible` with every reason. `CompanyMergeService` and `LeadMergeService` are
@@ -2852,14 +2849,35 @@ decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution
   then `settle(outcome, ...)` after its commit. The proof (`resolution.merge_proof`:
   `MergeProof`, `EntryPath`, `ProofKind`) is two entry points that collide (different
   keys, no shared link or source, one path of keys), the same page on both rows, a
-  placeholder's own key (`KEY_LOOKUP`), or a case's decision no key made (`DECISION`,
-  with a `DecisionRef`: stage `name@version`, method, source row, case decision id). An
+  placeholder's own key (`KEY_LOOKUP`), one pointer (`ONE_POINTER`: a site's path to the
+  page it declares, stage 8 under `stage.match.one_way`), or a team's namesake. An answer
+  is never a proof: `ProofKind.DECISION` is refused as malformed (`NOT_A_PROOF`). An
   ended `same` link refuses the merge; a merge the journal refuses is held in
-  `resolution.held_match` ("matched, not merged"); either way a `same` link is recorded:
-  trusted for a key, of the decision's origin (`rule`, `judged`) with its `decision_id`
-  for a decision, trusted by the merge and weak when only held. `resolution.merge_proof`
-  needs no row store, so `simpl_core.services.dedup` imports without the `row-store`
-  extras.
+  `resolution.held_match` ("matched, not merged"); either way a trusted `same` link is
+  recorded. `resolution.merge_proof` needs no row store, so `simpl_core.services.dedup`
+  imports without the `row-store` extras.
+- **A placeholder's keys stay links**: a merge never copies a placeholder company's
+  `landing_url`, `linkedin_url` or `company_linkedin_id` onto the row it merges into
+  (`merge.PLACEHOLDER_KEY_FIELDS`; `MergeOutcome.withheld`). `settle` writes each as an
+  `is` link from the key (`key_links.site_key`, `page_key`: `site:<host>`,
+  `linkedin:page:<name>`) to the row, its source the merge's journal row: weak (a
+  consumer's word), or trusted for the site a one-pointer merge read.
+  `key_links.LinkedKeyStage` (`stage.linked_keys`, off until switched on, second in
+  `company_stages`) reads them: trusted links to one row are an `is` on a key whose
+  reasons name the links followed (`link:<key>`), and the settlement puts them in its
+  proof's path; weak links bring candidates.
+- **A merge can be taken back**: `MergeDoor.undo(kind, merge_id, by=, reason=, now=,
+  run_id=, wrong=True)` undoes it through its journal (the source back, its claim
+  pending), ends every link the merge wrote (`LinkStore.of_source`), excludes the row for
+  the claims that came back, and undoes each merge whose proof followed one of those
+  links (`undo_standing_on(link_keys, ...)`, also what a pass calls for links that
+  ended). An undo as wrong moves the proof kind's switch (`kind_mechanism(kind)`:
+  `merge.<kind>`, segment `company` or `lead`) to shadow: `merge_in` then holds that
+  kind's merges (`KIND_STOPPED`). `resolution.merge_reaudit.reaudit_stopped(db, door,
+  sites=, now=, run_id=)` checks each stopped kind's last 50 merges again (the page the
+  merged row carried against the row kept, the sites read again for a site reading, a
+  namesake's name words), undoes the refuted ones and moves the kind back on when none
+  is; `one_pointer` returns by its replay alone.
 - `LeadTwinMerger(door)` and `LeadPlaceholderReconciler(door)` merge only through the door
   (`MergeIn`): twins on an agreeing LinkedIn identity, or the email every twin holds and
   the name; a placeholder on a key it carries. An identity the people search found by the
@@ -2989,24 +3007,82 @@ decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution
   or its placeholder's. Each consumer runs under its published policy, else
   `claim_policy(source)` (`CLAIM_POLICIES`, from the plan's "Accepts": identifiers only
   for a source with none).
-- **Settling** (`ClaimSettlement(door, switches=, segment=class_segment).settle(...,
-  decisions=)`, on the caller's session; the caller commits, then settles the merges with
-  the door): `is` on a key merges the placeholder into the row the key reaches through the
-  merge door (a key lookup from the claim's own key, journaled), or resolves a claim with
-  no placeholder; a rule's, a stored name's, the scorer's or the judge's `is` does the
-  same on a `DECISION` proof once someone moved its mechanism's switch `on` for the
-  claim's segment (`SwitchBoard.moved`: a consumer's default name stages answer, never
-  merge; no board passed: keys only), naming the case decision from `decisions`
-  (`LaneRun.decision_ids()`, by mention id) or the reused answer's own; below `on` it is
-  a proposal and changes nothing; `not_an_entity` retires the claim
-  (`resolution_state = 'retired'`, `mark_retired` on both ledgers), the placeholder kept;
-  an answer naming the placeholder itself waits. A placeholder gone abandons its claim, one promoted resolves it
-  on itself, a lead placeholder parked on a company a lead waits on is left to the
-  conversation backfill's lead reconciler.
+- **Settling** (`ClaimSettlement(door, holds=).settle(..., decisions=)`, on the caller's
+  session; the caller commits, then settles the merges with the door). **Only a key
+  merges; every other answer is a belief**: `is` on a key merges the placeholder into
+  the row the key reaches through the merge door (a key lookup from the claim's own key,
+  journaled), or resolves a claim with no placeholder. A rule's, a stored name's, the
+  scorer's or the judge's `is` is recorded on the claim (`believed_company_id` /
+  `believed_lead_id`, `believed_at`, `belief`: stage, method, confidence, decision id,
+  evidence hash; migration `20261128_claim_beliefs`), counted `believed`: nothing is
+  merged and a claim with no placeholder is not resolved, whatever a switch or a
+  confidence says. No belief on a row whose own LinkedIn page (a lead's profile) is
+  another than the claim's. A belief the ladder no longer gives ends (`belief_ended`); a
+  failed stage keeps it. `not_an_entity` by a rule retires the claim (`resolution_state =
+  'retired'`), a model's does not; an answer naming the placeholder itself waits. A
+  placeholder gone abandons its claim, one promoted resolves it on itself, a lead
+  placeholder parked on a company a lead waits on is left to the conversation backfill's
+  lead reconciler. `holds`: each consumer's `BeliefHolds` (`believed(session, claim, row,
+  now=)`, `ended(session, claim, landed=, now=)`), by claim source.
+- **Beliefs and rungs** (`resolution.beliefs`, no row store): `Belief`, `Exclusion` (a row
+  a rung refuted for a claim: the row, the rung and its version, the evidence hash; it
+  lapses when either changes and no merge reads it), `FoundKey` (a key a rung found, with
+  its `Grade`), `RungRecord` (a rung's last run on the claim), `owed(rungs, evidence,
+  now=, retry_after=)`, `evidence_class(...)` (what stands behind a belief). The rungs:
+  `STAGE8`, `CLAIM_SITE`; `UNDONE` excludes the row of a merge undone as wrong.
+  `ClaimMention` carries `evidence` (`claims.evidence_key(mention)`), `belief`,
+  `found_keys`, `rungs`, `held_out_connection_id`; the rows refuted for a claim on its
+  evidence are its mention's `Mention.excluded`: no stage's answer names one and none is
+  a candidate (`stages.never_it`). `PendingClaims.believed()` reads the believed claims;
+  a believed row gone from the registry ends its belief on the next read.
+- **The pass's policy** (`claims.pass_policy(policy)`): a source of `BELIEVED_BY_NAME`
+  (`crm_blocklist`) is also resolved by the name rules and the judge in the worker's
+  claims pass, as beliefs; its requests keep `claim_policy` (keys alone).
+  `crm.flow.blocklist_holds.BlocklistHolds(switches)` is the blocklist's `BeliefHolds`:
+  while a claim believes a row, the scope's seller gets a claimed placeholder connection
+  on it at Not In Target (recorded as `held_out_connection_id`), unclaimed when the
+  belief ends; a connection the customer's sellers already hold there is left as it is
+  and counted (`connections_on(session, customer_id, company_ids)`). Off until
+  `claims.blocklist_hold` is on for `company/crm_blocklist`.
+- **Stage 8 on a claim's pair** (`resolution.match`, `match_research`):
+  `MatchOrigin.BELIEF` / `FOUND_KEY` (`CLAIM_ORIGINS`) let a placeholder be a side when
+  its pending claim carries a key (`claim_side(claim)`). `ask_beliefs(db, questions,
+  now=, run_id=)` opens the pairs that owe the rung (`MatchQuestions.reopen` for one
+  settled on older evidence or a week ago). `same` merges the placeholder into the row;
+  one pointer does so only under `stage.match.one_way`, on a `ONE_POINTER` proof;
+  `different` is an `Exclusion` on the claim and ends its belief (no link between the
+  rows; `linked_only(finding)`: a merely linked page ends the belief and excludes
+  nothing); `one_way` and `weak` leave it believed. `MatchResearch(..., holds=)` tells a
+  consumer's hold where a claim landed. `preview_claim_pairs(db, pairs, sites)` says what
+  a pass would find, written nowhere.
+- **The claim's own site** (`resolution.claim_sites.ClaimSites(db, questions, sites,
+  fetches).run(now=, run_id=)`): a pending claim with a site and no page has its site
+  read once (the crawl's pages, else a fetched landing page); a page it declares is a
+  `FoundKey` on the claim, never a field and never a row, and a real row holding it is a
+  pair asked of stage 8. It merges nothing. `preview_claim_sites` counts what the crawl
+  alone would find.
+- **What is owed** (`resolution.owed`): `owed_report(db, now=)` counts the beliefs by
+  consumer and age, the rungs each still owes and the oldest unpaid one, refutations,
+  retirements, held-out rows and the merges by proof kind with their undos;
+  `OwedReport.alerts()` names a rung whose oldest unpaid belief passed `ALERT_AFTER` (14
+  days); `rows(day)` and `blocklist_standing(db, day)` are the Entity resolution tab's
+  rows (`resolution.daily_summary`). `reopen_retired(db)` makes a retired company claim
+  that now carries a key pending again.
+- **Measured against a known answer**: `resolution.site_reading` (`registry_examples`,
+  `replay_site_reading`: a registry row's own site scored against the page the row holds,
+  by grade and reader; `start_rule(registry, claims)`: the one-pointer reading starts only
+  when both populations' lower bounds clear `MERGE_BAR` 0.99 on `MERGE_SAMPLE` 1,000
+  scored pages; `apply_start_rule` moves the switch then, never otherwise) and
+  `resolution.hidden_key` (`claim_examples`, `blocklist_examples`, `hide`,
+  `replay_hidden_keys`: claims a key settles resolved with that key hidden, per consumer
+  right / wrong / open, and what their own sites declare).
 - **Planning before settling** (`ClaimSettlement.plan(session, claim, resolution)`, a
-  query): the `SettlementPlan` `settle` acts on, `action` (`Settled`) and `target`, a
-  `PlannedMerge` for a merge, else `reason` (`Unsettled`: `no_answer`, `open`, `below_on`,
-  `other_kind`, `its_placeholder`, `parked`).
+  query): the `SettlementPlan` `settle` acts on, `action` (`Settled`, `believed` among
+  them) and `target`, a `PlannedMerge` for a merge, else `reason` (`Unsettled`:
+  `no_answer`, `open`, `not_an_entity_by_a_model`, `page_conflict`, `excluded`,
+  `row_gone`, `other_kind`, `its_placeholder`, `parked`). The claims dry run
+  (`resolution.claims_dry_run`) reports beliefs and what stands behind each
+  (`ClaimsDryRun.beliefs()`).
 - **A claim nothing settled is not asked again for nothing**: `settle(..., tried_as=)`
   (the ladder version each consumer's claims ran under) records on a claim the whole ladder
   left unsettled its `Tried` (`er_tried_version`, `er_tried_mention`, `er_tried_at`,
