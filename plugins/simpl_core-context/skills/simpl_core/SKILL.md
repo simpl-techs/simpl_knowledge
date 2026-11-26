@@ -377,7 +377,7 @@ model:
 ```
 
 **Internal routing picks the OpenRouter upstream.** A target with `routing: internal`
-(OpenRouter chat targets only) is sent one pinned upstream at a time, chosen by simpl_ia
+(OpenRouter chat or decision targets only) is sent one pinned upstream at a time, chosen by simpl_ia
 from the routing table: every endpoint of the model that passes the target's own
 `provider_routing` filters (`zdr`, `quantizations`, `only`, `ignore`), ranked by the
 estimated cost of one of the agent's calls (the endpoint's price × the agent's token mix,
@@ -435,21 +435,26 @@ with no `provider` (`model: {name: deepseek-v4.1-flash}`) names a model of the m
 catalog; simpl_ia sends it to every provider the active catalog offers it on, under each
 provider's own name and with the credentials the host bound for that provider, as one
 chain position whose attempts share one budget, ranked by price or by `ranking:
-effective`. `provider_routing`, `prompt_cache`, `base_url`, `routing` and `api:
-decisions` are refused on it; `require_zdr: true` (on such a target only, not inherited)
-keeps it on zero-data-retention offerings. A target naming a provider is unchanged. A new
+effective`. Its `provider_routing` filters its OpenRouter endpoints only
+(`quantizations`, `require_parameters`, `sort: price`; simpl_ia refuses the rest), and
+its `prompt_cache` reaches its OpenAI member only; `base_url`, `routing` and `api:
+decisions` are refused on it. `require_zdr: true` (on such a target or a bucket only, not
+inherited) keeps it on zero-data-retention offerings, except the own offering of each
+provider `zdr_exempt_providers: [deepseek, openai, cheaper_inference]` names (valid with
+`require_zdr` only). A target naming a provider is unchanged. A new
 config version may name only a canonical model the active catalog lists:
 `ConfigVersionRepository.insert_version` raises `UnknownCanonicalModelError` (a
 `ConfigAuthoringError` and a `ValueError`) otherwise, and `af_config_migrate` checks the
 names against a catalog document (`catalog=`, `--catalog`; by default the one simpl_core
 ships, `MODEL_CATALOG_DOCUMENT`). Since `require_zdr` is not inherited, a new version whose
 primary sets it must give every fallback its own: a canonical model or bucket with
-`require_zdr: true`, an OpenRouter target with `provider_routing.zdr: true`, or a
-provider's model the same catalog marks `zdr` (`ModelCatalogDocument.zdr_offers()`);
+`require_zdr: true`, an OpenRouter target with `provider_routing.zdr: true`, a
+provider's model the same catalog marks `zdr` (`ModelCatalogDocument.zdr_offers()`), or a
+model on a provider the primary's `zdr_exempt_providers` names;
 `insert_version` and `af_config_migrate` raise `ZdrFallbackError` (a
 `ConfigAuthoringError` and a `ValueError`) otherwise. The shipped catalog marks no
-provider `zdr`, so a direct provider cannot follow a `require_zdr` primary yet; stored
-versions are not re-checked.
+provider `zdr`, so a direct provider can follow a `require_zdr` primary only when the
+primary exempts it; stored versions are not re-checked.
 
 ```yaml
 model:
@@ -486,13 +491,16 @@ model:
 **The model catalog** is the config-ledger key `model_catalog` (`config_kind
 'model_catalog'`; `MODEL_CATALOG_KEY`, `MODEL_CATALOG_KIND` in
 `simpl_core.agent_framework.authoring`), versioned and activated like any other key but
-never projected: processes read the active version's content whole. Its document
-(`ModelCatalogDocument`, `parse_model_catalog(content)`):
+never projected: processes read the active version's content whole. Every offer of a
+model names the same snapshot: where a provider's name is an alias (DeepSeek's
+`deepseek-flash` serves DeepSeek-V4.1-Flash-1017), the other providers' offers name that
+snapshot's own id (`deepseek/deepseek-v4.1-flash-1017` on OpenRouter), not a name that
+serves an older one. Its document (`ModelCatalogDocument`, `parse_model_catalog(content)`):
 
 ```yaml
 models:
   deepseek-v4.1-flash:
-    offers: {deepseek: deepseek-flash, openrouter: deepseek/deepseek-v4.1-flash, cheaper_inference: ""}
+    offers: {deepseek: deepseek-flash, openrouter: deepseek/deepseek-v4.1-flash-1017, cheaper_inference: ""}
     budgets: {attempt_timeout_seconds: 60, max_output_tokens: 8000, max_invalid_responses: 3}
     zdr: {deepseek: true}
 quantization:
@@ -531,17 +539,19 @@ a provider's model offered under two canonical names, a bucket with no tier or a
 one, a tier naming a model the catalog does not list, and a model named twice in one
 bucket, with `ModelCatalogError`; the key `model_catalog` holds catalog versions only.
 The catalog simpl_core ships is
-`src/simpl_core/agent_framework/model_routing/model_catalog.yaml` (version 2: the models
-outreach names, `deepseek-v4.1-flash` on DeepSeek and OpenRouter, `glm-5.3-flash` and
-`glm-5.3` on OpenRouter, `gpt-6.1-sol` and `gpt-6-luna` on OpenAI, Cheaper Inference ids
-blank, first-party ZDR unset, every precision from fp4 up routable and int4 only for an
-agent cleared for it, and the buckets above). A new
-version is a seed:
+`src/simpl_core/agent_framework/model_routing/model_catalog.yaml` (version 3: the models
+outreach names, `deepseek-v4.1-flash` on DeepSeek and on OpenRouter as
+`deepseek/deepseek-v4.1-flash-1017`, `glm-5.3-flash` and `glm-5.3` on OpenRouter,
+`gpt-6.1-sol` and `gpt-6-luna` on OpenAI and OpenRouter, Cheaper Inference ids blank,
+first-party ZDR unset, every precision from fp4 up routable and int4 only for an agent
+cleared for it, and the buckets above). Its seed, step `seed_model_catalog_3` of
+`migrations/20261127_offering_listed_speed_and_model_catalog_3.sql`, registers version 3
+with parent 1 and activates it only while version 1 is the active one. A new version is a seed:
 
 ```bash
 simpl_core af_config_migrate --yaml src/simpl_core/agent_framework/model_routing/model_catalog.yaml \
   --dest migrations/ --config-key model_catalog --config-kind model_catalog \
-  --version 3 --parent 2 --prefix <migration number> --summary "..." --activate
+  --version 4 --parent 3 --prefix <migration number> --summary "..." --activate
 ```
 
 The adaptive LLM routing migration, `migrations/20261111_adaptive_llm_routing.sql`, holds every
@@ -562,13 +572,24 @@ a bucket can be written.
 The routing table is `llm_routing.offering` (table model
 `simpl_core.models.LlmRoutingOffering`), filled every hour by simpl_flow's
 `sync_openrouter_listing(db)` (`simpl_core.agent_framework.model_routing`) with every
-endpoint of each OpenRouter chat model an active policy names or the active catalog
-offers. Each model is written in
+endpoint of each OpenRouter chat or decision model an active policy names (a `typesafe`
+target included) or the active catalog offers, under the name the policy or catalog
+gives; an endpoint is ZDR when the gateway's ZDR list names it under that name or under
+the id the gateway answers it as (a dated snapshot answers as its model's id). It reads
+with the account's OpenRouter key (`sync_openrouter_listing(db, api_key=...)`, else
+`OPENROUTER_API_KEY`; without one it logs `listing_without_key` and reads keyless):
+OpenRouter then lists only the endpoints the account's data policy allows, and fills each
+one's speed over its last 30 minutes, which the row keeps as `listed_tps` (tokens per
+second) and `listed_ttft_ms` (time to first token), each `{p50, p75, p90, p99}`, handed to
+simpl_ia's `Offering` (step `offering_listed_speed` of migration
+`20261127_offering_listed_speed_and_model_catalog_3.sql`, applied before a simpl_core that
+reads them is deployed). Each model
+is written in
 its own transaction: a model whose listing cannot be read or written keeps its rows and
 is named in `ListingSyncResult.failed_models`. `sync_first_party_listing(db, *,
 dry_run=False, http=None, cheaper_inference_api_key=None,
 cheaper_inference_base_url=None)` writes one row per model the active catalog offers on
-DeepSeek or Cheaper Inference, with upstream `''` (they have no sub-providers), no
+DeepSeek, OpenAI or Cheaper Inference, with upstream `''` (they have no sub-providers), no
 prices (the price book prices them), Cheaper Inference's precision `unknown`, and `zdr`
 from the catalog's `zdr` for the provider, else, on Cheaper Inference, from its
 zero-data-retention catalog (`GET /models?zdr=true`, read with the account's key: the
@@ -597,7 +618,7 @@ Each offering is priced from the shared price book, simpl_tracker's
 `cost_tracking.llm_token_prices` (input, cache read and output, USD per token, at the
 tier a call made now is billed at: DeepSeek's `peak` or `off_peak`, `standard`
 elsewhere; the row of the endpoint's tag, or the model-level row, tag `''`, for an
-offering of DeepSeek or Cheaper Inference), and from the listing when the book has no
+offering of DeepSeek, OpenAI or Cheaper Inference), and from the listing when the book has no
 row for it; the offering's `price_source` (`book` or `listing`) says which. A listed
 price of 0 counts as none: an offering listed at $0 with no book row is unpriced, so
 simpl_ia ranks it after the priced ones instead of as the cheapest.
@@ -1109,8 +1130,8 @@ host runs this simpl_core: without `attempt.capabilities` every route write is d
 and without `offering_capability` every routing table load leaves the capability marks
 empty.
 
-**Offerings without an upstream.** DeepSeek and Cheaper Inference serve a model as one
-offering, stored with upstream `''`. A member of a canonical target on one of them
+**Offerings without an upstream.** DeepSeek, OpenAI and Cheaper Inference serve a model as
+one offering, stored with upstream `''`. A member of a canonical target on one of them
 reports no upstream; the health recorder counts it toward the offering `''`, the
 statistics read it there, `mark_capabilities_from_attempts` marks that offering from
 attempts sent to no upstream (never OpenRouter's own routing, which has no such
@@ -1123,7 +1144,7 @@ that name a model) and its buckets (`RoutingTable.catalog_bucket(name)`, simpl_i
 rest; a catalog version whose content fails the gate keeps the catalog in hand and logs
 `agent_framework.model_routing.model_catalog_unreadable` once. The routing migration's
 step `first_party_offerings` is applied before a host runs this simpl_core: without it
-every DeepSeek and Cheaper Inference row the first-party sync writes is refused.
+every DeepSeek, OpenAI and Cheaper Inference row the first-party sync writes is refused.
 
 **Routing proposals.** Changes to *what* runs (the model an agent names, the lowest
 precision it may run on, its time budget and output cap, its prompt) are prepared by the
