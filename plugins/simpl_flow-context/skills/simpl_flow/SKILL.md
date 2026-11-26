@@ -386,7 +386,12 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   (simpl_core `resolution.name_replay`, dataset `er_replay_outcomes`). Its result and a
   Markdown artifact (`er-name-replay`) give precision and recall, the stages in order and
   each mechanism alone per segment, with Wilson lower bounds; each mechanism's bound is
-  recorded as `resolution.reading.replay_lower`. It calls no model.
+  recorded as `resolution.reading.replay_lower`. It calls no model, unless started with
+  `judge=true` (and `record=false`): then the first `judge_sample` examples (1,500) go
+  through the name stages, the judge and its check (Jev) in shadow (simpl_core
+  `resolution.judge_replay`), the models asked and paid (sub-process `judge_replay`),
+  `judge_version` the ledger version both are asked under; the artifact is
+  `er-judge-replay`.
 - `gcp_open_graph_flow` (no schedule, started by hand) labels LinkedIn posts with
   llmgraph (LangChain's `LLMGraphTransformer`) once per teacher, as training data. A
   teacher is a model in one llmgraph mode, listed in
