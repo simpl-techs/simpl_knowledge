@@ -244,7 +244,9 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   `signal_hits:1` and `opportunities:1` (migration 096). Definitions are written in the
   matchers' DSL (simpl_core `opportunity_matcher.dsl`) and stored as versions in
   `opportunity.icp_spec` / `opportunity.signal_spec` (migration 095), added with
-  `python -m simpl_flow.pipelines.opportunities_v2 spec-add`. Query texts are embedded
+  `python -m simpl_flow.pipelines.opportunities_v2 spec-add`, which first runs
+  simpl_core's save check (`check_condition`) on every website facts condition in the
+  definition and stores nothing when it refuses one (2.5.401). Query texts are embedded
   with `NEBIUS_API_KEY`; nothing goes to Zilliz. The lake reads through DuckDB's `lance`
   extension, which the image installs (`DUCKDB_EXTENSION_DIRECTORY`). Plan and status:
   `docs/knowledge-graph-matchers-plan.md`.
@@ -529,6 +531,15 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   part only when the condition has it), plus `snippet`, one line on what matched (e.g.
   `PHP 7.2.34, end of life 2020-11-30; security headers: no strict-transport-security`),
   which shortlists show as for a website signal. No score (`total_score` null). A
+  condition with a `families` part (simpl_core 0.8.530: at least `min` of the problem
+  families `names`; its save check refuses one until the website facts index served
+  holds families) adds `families` to the evidence: `names`, `min`, `held`, and `facts`,
+  per family strongest first, the technology rows and site values behind it, each with
+  its `kind`, once, and without its `read_on` day (a sighting field); the snippet then
+  begins `problem families: old platform (PHP 7.2.34 end of life 2022-11-28), dated
+  (copyright year: 2017)`, at most 3 facts a family, a family Postgres no longer shows
+  as `dated (no longer seen)`, and a technology a family shows is not named again; matcher
+  v2's quote begins `problem families: old platform, dated`. A
   condition simpl_core can no longer read fails that signal the same way.
 - An **include filter** (`sales.icp_filters.filter_type = 'include'`, wish_list
   `company.id IN ('…', …)`) names companies an ICP holds on top of its rules. The
