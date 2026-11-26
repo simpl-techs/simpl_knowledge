@@ -496,25 +496,53 @@ and lets `authenticated` read `provider_offpeak_day`, which the tier reads). The
 `plan_prices` and `apply_prices` shared with Cheaper Inference, and
 `OpenRouterPriceSource`.
 
+### OpenAI's and DeepSeek's prices, from their pricing pages
+
+OpenAI and DeepSeek have no pricing API, and their calls carry no billed amount, so
+calibration cannot check their prices. `src/simpl_tracker/jobs/pricing_pages.py` reads
+their Markdown pricing pages and syncs the models called direct into `provider_pricing`,
+model-level: OpenAI's `gpt-6.1-sol` and `gpt-6-luna` (`standard`; input, cache read,
+30-minute cache write and output, short context) and DeepSeek's `deepseek-flash`
+(`off_peak` and `peak`; input, cache read, output), with `source = 'sync:openai'` or
+`'sync:deepseek'` and the sync date as `source_version`. Any other OpenAI or DeepSeek
+model keeps its hand-entered rows; a new one is an entry in its page's `models` in
+`simpl_tracker.pricing.pages`.
+
+```bash
+doppler run --config dev -- python -m simpl_tracker.jobs.pricing_pages [--provider openai|deepseek] [--accept-jumps] --apply
+```
+
+Dry run by default (each model's page rates beside the book's). Price jumps are held
+back like the other syncs' and accepted at the third `--apply` run in a row (never a
+move to 0) or by `--accept-jumps`. A page that cannot be read or parsed, or that no
+longer lists a mapped model or one of its prices, writes nothing for that provider and is
+posted to the cost-tracking channel (`pricing_pages.pricing_incomplete`); it always exits
+0. Needs `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. `PricingPage`,
+`PricingPageSource`, `openai_prices`, `deepseek_prices` and `PRICING_PAGES` are in
+`simpl_tracker.pricing`.
+
 ### Price rows: source, price jumps and calibration
 
 `provider_pricing.source` says where a price came from: `sync:openrouter`,
-`sync:cheaper_inference` or `manual`; `source_version` is the source's name for its
-listing. `replace_model_pricing(p_provider_name, p_model, p_effective_from, p_rows,
+`sync:cheaper_inference`, `sync:openai`, `sync:deepseek` or `manual`; `source_version` is
+the source's name for its listing. `replace_model_pricing(p_provider_name, p_model, p_effective_from, p_rows,
 p_close_current, p_upstream_tag, p_source, p_source_version)` takes both, `manual` and
 `NULL` by default: a price entered by hand (the dashboard's Pricing tab) is `manual`.
 
-**Price jumps.** `plan_prices(..., source=...)` holds back a set whose standard rate
+**Price jumps.** `plan_prices(..., source=...)` compares a set on the pricing tiers its
+rows list (`standard`, or `peak` and `off_peak`) and carries the open rows of the other
+tiers over. It holds back a set whose listed rate
 moves by more than 50% of the open one either way, drops to 0 or leaves 0, and a set
-with a component at 0 that its open rows have no standard rate for (a new set's, or
-one an existing set gains; detail `unit_type/cache_mode first price 0`), all through
+with a component at 0 that its open rows have no rate for in its tier (a new set's, or
+one an existing set gains; detail `unit_type/cache_mode first price 0`, with `/tier`
+after the cache mode for a tier other than standard), all through
 `price_jumps`: it goes to `PricingPlan.held_back` (`HeldBackChange`, reason
 `price_jump`, the components in `detail`) instead of `changes`. A first price above 0
 is never a jump.
 
 **Price holds.** A held-back set reaches `provider_pricing` only once accepted, through
 `cost_tracking.price_hold` (`service_role` only; one open row per provider, model and
-tag, `uq_price_hold_open`): `price_rows` (the standard rows listed, `hold_rows`),
+tag, `uq_price_hold_open`): `price_rows` (the rows of the listed tiers, `hold_rows`),
 `source`, `source_version`, `detail`, `first_seen_at`, `last_seen_at`, `sightings`,
 `refused_at`, `refusal`, `resolved_at`, `resolution` and `evidence`. With `--apply` each
 pricing job calls `keep_price_holds(backend, provider, plan, unread=..., accept_jumps=...,
