@@ -5786,7 +5786,11 @@ table, a version or SQL.
 - **The contract** (`seek.contract`, re-exported by `simpl_core.seek`):
   `nearest`, `words`, `fused` (reciprocal rank with `rank_constant` and `candidates`,
   60 and 1,024 by default: the Zilliz rankers'), `best_per_owner` (the best rows of each
-  company or site of a list), `rows` (by condition, paged by key), `lookup` (by key),
+  company or site of a list), `best_per_owner_queries` (up to `QUERIES_MAX` queries by
+  meaning over one list of owners, each with its own `id`, floor, rows per owner and
+  `where`: each answered as `best_per_owner` answers it alone, the owners' rows read once;
+  a query whose conditions the service cannot check is in `refused`, by id, and the
+  others are answered), `rows` (by condition, paged by key), `lookup` (by key),
   `above` (every row over a score by meaning or by keywords, paged, at most
   `ABOVE_MAX_ROWS`). A `Condition` is a value, a list or a `Between` per column, all
   holding; `None` asks for no value, alone or in a list; a time is ISO 8601 text.
@@ -5812,7 +5816,8 @@ table, a version or SQL.
   the service scans those rows only up to that bound (`unindexed="skip"` is still
   answered, without them). Caps are
   named in the contract (`ABOVE_MAX_ROWS`, `EXACT_MAX_ROWS`,
-  `PAGE_MAX_ROWS`, `KEYS_MAX`, `OWNERS_MAX`, `PER_OWNER_MAX`, `FUSED_CANDIDATES`):
+  `PAGE_MAX_ROWS`, `KEYS_MAX`, `OWNERS_MAX`, `PER_OWNER_MAX`, `QUERIES_MAX`,
+  `FUSED_CANDIDATES`):
   readers import them, never copy them. `AboveRequest.max_rows` is required.
 - **Errors, siblings named by what the caller does**: `QueryUnavailableError` (away:
   retry later; the only one the client retries), `IndexNotReadyError` (an index being
@@ -5839,6 +5844,28 @@ table, a version or SQL.
   an outage would reach it as a bare `TimeoutError`. A request that cannot be sent
   (httpx's `LocalProtocolError` / `UnsupportedProtocol`) is a `QueryServiceFaultError`,
   never retried, logged by type only (its message quotes the token).
+- **The client's pace** (`seek.pace`): every answer, a refusal included, carries the
+  caller's budget (`wire`: `X-Seek-Places-Reserved`, `-Held`, `-Available`, over all the
+  caller's processes; `X-Seek-Load`, the engine's CPU over its cores; `X-Seek-Server-Ms`;
+  `X-Seek-Owners-Max`, `X-Seek-Queries-Max`; `Retry-After` on a 503 over the limit).
+  `SeekClient` keeps a limit of searches in flight from it (`Pace`: 2 before any answer,
+  then the reserved places; one more every 2 s while searches wait, the load is under 0.7
+  and a place is free; ×0.7 on a refusal or a load over 0.9, once every 5 s; never above
+  held plus available) and waits `Retry-After` (with jitter) before trying a refused
+  search again. `client.budget` is the last answer's `Budget`, `client.limit` the limit.
+  `client.stream(calls)` runs `(key, call)` pairs (an iterable, or an async one read as
+  calls are needed: pages read from a database) at the client's limit and yields
+  `(key, answer)` as each comes back; the first failure cancels the rest and is raised. A
+  service built before the headers leaves the limit at 2.
+- **Several signals over one page**: `RowStoreSearcher.best_per_group_queries(queries,
+  group_by=, groups=)` (`GroupQuery`: id, dense vector, floor, conditions) splits groups
+  by `OWNERS_MAX` and queries by `QUERIES_MAX` and answers each query as `best_per_group`
+  does by meaning; a refused query raises `QueryRefusedError`.
+  `PostSearch.best_per_company_queries(queries, company_ids=)` (`PostQuery`) and
+  `LandingSearch.best_per_company_queries(db, queries, company_ids=)` (`LandingQuery`;
+  the companies' sites looked up once) answer each query as `best_per_company` answers it
+  alone, by meaning, keyed by the query's id. Keyword and hybrid searches stay one
+  request each.
 - **Walks**: `walk_above(client.above, request, reader=...)`, with `request.max_rows`
   the most the reader wants (`ABOVE_MAX_ROWS` for every row the service walks), ranks in
   `WALK_STAGES` (10,000, then 100,000, then the cap) so the first page never waits for
