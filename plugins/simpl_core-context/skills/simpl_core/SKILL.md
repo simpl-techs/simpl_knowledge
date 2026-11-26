@@ -5139,7 +5139,10 @@ row, its id, its connection or its seller. Modules in `simpl_core.services.osint
   name with no letter or digit), `company` / `employers` (`ResolvedCompany`: `names`,
   `websites` (its own host), `linkedin_url`; never a stand-in alias's name or site),
   `identity_keys`, `profiles`, `topic`, `records` (`RecordKey`s: table and key only, from `record_keys.py`),
-  `resolved_at`. T5 builds queries from it, T11a matches hard keys against it.
+  `index_hits` (research's posts from SimpL's own indexes, `InternalHit`s from
+  `index_hits.py`; empty until that search ran, and for a topic), `index_searched_at` (when
+  that search ended, found, empty or failed; `None` before), `resolved_at`. T5 builds
+  queries from it, T11a matches hard keys against it.
   - `NameForms`: `name`, `surname_first` (a tuple: the first given name moved to the end,
     and for three words or more the first two, "Rossi Maria Grazia"), `accent_free`,
     `without_legal_form` (a company's name without the legal forms at its end, only when
@@ -5166,7 +5169,16 @@ row, its id, its connection or its seller. Modules in `simpl_core.services.osint
   saved subject while the columns match its ids; once a merge or a delete moved one, it
   resolves the subject again by the columns' ids (not saved: no claim). `None` before a
   save, when the company or lead subject was deleted, or when the surviving row is refused
-  (logged, `osint.subject_reload_refused`).
+  (logged, `osint.subject_reload_refused`). A key it does not know (a newer worker's) is
+  ignored, as the read ignores it; a subject resolved again keeps the saved
+  `index_hits` and `index_searched_at` (since 0.8.537). The save leaves those two keys out
+  of the document: a worker before 0.8.537 loads the subject strictly.
+  - `await save_index_hits(session, request_id=, claim_token=, hits=, searched_at=)` writes
+    only `index_hits` and `index_searched_at` on the saved document (JSONB `||`), while
+    `claim_token` holds the request and a subject is saved (False otherwise). Only it
+    writes them: a new `save_resolved_subject` replaces the document and so clears both. `index_searched()` is the condition "that search
+    ended" on `osint.request`, for a claim query (`resolved_subject->>'index_searched_at'
+    IS NOT NULL`). Since 0.8.537.
 - **Record keys** (`record_keys.py`): `RecordTable` and `RecordKey`, apart from `records.py`, which
   imports SimpL's search packages: `subject.py` imports only this module, so the subject models
   load where the search stack is not installed (simpl_scraping's research worker).
@@ -5192,9 +5204,14 @@ row, its id, its connection or its seller. Modules in `simpl_core.services.osint
     `live_read` (`raw.source` is `profile_positions`: an extension read through SimpL's
     LinkedIn proxy), `employer_lost` (no company), `at_employer` (a current employer or one
     of its alias links). Addresses keep `bounced` and `another_persons_address`.
-- **Index hits** (`internal_search.py`): `InternalSearch(db, landing: LandingSearch, posts:
-  PostSearch, passages: PassageFinder | None = None)`, then `await search.hits(resolved,
-  hard_keys=policy.er.hard_keys, passage_questions=[...])` returns `InternalHit`s: `source`
+- **Index hits** (`internal_search.py`; the hit models in `index_hits.py`, which
+  `subject.py` imports, since 0.8.537): `InternalSearch(db, landing: LandingSearch | None,
+  posts: PostIndex, passages: PassageFinder | None = None, *, named_posts=True)`, then
+  `await search.hits(resolved, hard_keys=policy.er.hard_keys, passage_questions=[...])`
+  returns `InternalHits`: `hits`, `candidates` (posts the posts index returned for the
+  subject's names, at most `POST_CANDIDATES`) and `candidates_full` (it returned all of
+  them, so tags and reposts ranked below the cut were not checked). Each hit is an
+  `InternalHit`: `source`
   (`landing_pages`, `posts`, `post_mentions`, `company_passages`), `relation`
   (`own_site`, `mention`, `by_subject`, `reposted`, `tagged`, `passage`, `topic`), `url`,
   `record` (a post's `RecordKey`, `sales.post` by `id`; a post passage's too, from
@@ -5220,19 +5237,41 @@ row, its id, its connection or its seller. Modules in `simpl_core.services.osint
   - Each post comes back once (its reposts share the record; the subject's own relation
     first), and each landing page once, as its best-ranked chunk (by URL).
   - Company: its own site's pages naming it, one chunk per other site naming it or its
-    domain (phrases checked), its latest own posts (`sales.post`, reposts left out), posts
+    domain (phrases checked), its latest own posts and reposts (read, below), posts
     naming, tagging or reposted by it, and `PassageFinder`'s passages per passage question
     (its site only when its host is a hard key). Person: one chunk per site naming them
     (ranked and checked by the name alone), the employers' sites' pages naming them,
-    their own posts, posts naming, tagging or reposted by them; a one-word name is not
-    searched for, so such a lead gets only its own posts, its reposts and the posts
-    tagging it. Topic: landing pages and posts for the text and synonyms, minus
+    their latest own posts and reposts, posts naming, tagging or reposted by them; a
+    one-word name is not searched for, so such a lead gets only its own posts, its reposts
+    and the posts tagging it.
+  - Own posts and reposts are read from `sales.post` by the subject's company or lead,
+    newest first (`ix_post_company_posted_at`, `ix_post_lead_posted_at`): the latest
+    `OWN_POSTS` (20) own posts and `OWN_REPOSTS` (10) reposts (`is_repost` or a
+    `reshared_post_id`), not searched for. A repost's text is mostly its original author's,
+    so the subject's names rarely rank it (production sample: 20% of company reposts held
+    the company's name, 33% of person quotes the surname). A repost read so is
+    `reposted`, as the name search's hit of it: its record and link, its comment then the
+    quoted post's text, the quoted post's author, its own day; `same` by the LinkedIn key
+    when the policy lists it. The name search may find the same post: each record comes
+    back once, the one read first. A page's plain repost (`sales.post_repost`) is found by
+    the name search only (since 0.8.537). Topic: landing pages and posts for the text and synonyms, minus
     hits holding an excluded word; hybrid when the searches have `embed_query`,
     keyword-only without.
   - Post mentions have no index (`sales.post.mentions`, no GIN): the posts index finds the
     candidates by the subject's names, their mentions are read by id, and a tag whose URL
     is one of the subject's pages (slug decoded and case-folded, or the company page's
     numeric id) matches. A tag under another text is missed.
+  - Without `landing` no landing page is searched; `named_posts=False` keeps only the
+    hits a hard key proves (`same`): no post that only names a person or a company, and no
+    own post, repost or tag when the policy's `er.hard_keys` lists no LinkedIn key. The ranked query leaves out one-letter
+    words (a legal form's "S.r.l.") unless nothing else is left.
+  - Research's search: `seek_post_search(db, queries)` is `InternalSearch(db, None,
+    KeywordPostSearch(queries), named_posts=False)`: posts only, keyword only, without
+    simpl_ia, only what a hard key proves (own posts and reposts, read; tags, found by the
+    name search, whose only job there is tags). `queries` gives
+    the caller's `SeekClient`, which the caller closes. `internal_search` loads without
+    SimpL's search stack (the passages load only when a `PassageFinder` is passed). `posts`
+    is any `PostIndex` (`PostSearch` or `KeywordPostSearch`).
   - Wiring: keyword-only needs the query service alone (`RowStoreLandingSearch(queries)`,
     `RowStorePostSearch(queries)`); topics' dense half and passages need the Nebius
     embedders at each dataset's `QUERY_DIMS` (`embed_query=embedder.embed_query`;
@@ -6556,6 +6595,15 @@ hits = await search.search(
 )
 ```
 
+- **Without simpl_ia:** every `RowStoreSearcher` search builds simpl_ia's `SearchResult`,
+  whose package needs its vector store extra. `KeywordPostSearch(queries).search(keywords=,
+  limit=)` sends one `words` request, on the dataset's text columns
+  (`ServedDataset.request_text_columns`, as every searcher), asking for every hit column
+  but the text (`KEYWORD_HIT_COLUMNS`: up to 32 KB a row, 500 rows a search), and builds
+  `PostSearchHit`s from the hits' fields (`ServedDataset.fields`,
+  `PostSearchHit.from_fields`): the same hits as `PostSearch.search(keywords=...)` with
+  `content` None, for a reader with none of SimpL's search stack that reads the text from
+  `sales.post` (the research worker). Since 0.8.537.
 - **Records:** `p:{sales.post.id}` (a quote carries its comment, a blank line and the
   quoted text) and `r:{sales.post_repost.id}` (exactly the reposted post's text, so the
   same vector). `company_id` is the page the row is on; `is_company_post` is about the
