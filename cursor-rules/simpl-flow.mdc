@@ -190,7 +190,11 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   - `gcp_row_store_consolidation_flow` (03:00 UTC): rebuilds each due vector index as one
     section over its table (simpl_core `Dataset.consolidate_index`, more than 5% of the
     rows outside the largest section); by hand with `datasets` and `force=true` for a
-    first consolidation.
+    first consolidation. By hand with `datasets` and `compact_held=true`, it first
+    rewrites the fragments under a consolidated section that hold over 10% deleted rows
+    (simpl_core `Dataset.compact_held`, what maintenance's health asks for past 25%),
+    call after call on each table until none is left or `held_max_minutes` (360) pass;
+    each call holds the writers' lease, bounded by `held_max_rows`.
   - `gcp_row_store_computed_columns_flow` (no schedule, `datasets` required): on a table
     that held rows before them, adds the columns the row store computes itself
     (simpl_core `DatasetSpec.computed`: each kind's vector cut to its queries' width,
