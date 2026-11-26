@@ -724,7 +724,8 @@ pg_cron job the routing and cost migrations schedule (offering statistics and ca
 marks every 5 minutes, each a job of its own, cache statistics and model fit hourly,
 detectors and certification queueing hourly, response times hourly, pipeline run costs
 every 15 minutes and nightly, cancel billing daily at 01:23 UTC, prompt families and
-estimated costs daily) filters its command on `WHERE llm_routing.analytics_jobs_on()`
+estimated costs daily) filters its command on `WHERE llm_routing.analytics_jobs_on()`, or,
+for `pipeline_run_costs_recent`, whose command is a `CALL`, tests it in a `DO` block
 (the estimated costs also on `failure_estimates_in_use`, below): while the one row of
 `llm_routing.job_setting` (service role only) has `analytics_jobs` false, the migration's
 default, the job returns at once without reading anything. Turn them on with
@@ -1651,11 +1652,21 @@ part of `own_cost_usd` or `total_cost_usd`.
   `agent_framework.refresh_changed_pipeline_run_costs()` over the runs that changed since
   its last run: a node run started or a cost entry written from 5 minutes before the time
   `pipeline_run_costs_watermark` stores (the last day on a first run), and the runs of the
-  last day still running; it then stores the time it read up to. A late bill changes an
-  entry without writing one, so the nightly refresh picks it up. With `pg_cron` and the
-  analytics switch on, `pipeline_run_costs_recent` runs the changed runs' refresh every 15
-  minutes and `pipeline_run_costs_nightly` the window refresh at 02:30 UTC over the last 3
-  days; without it, a host schedules the same calls. A first fill after the migration and
+  last day still running; it then stores the time it read up to. Each of these is one
+  statement, so a window it cannot finish within the statement timeout writes nothing.
+  `CALL agent_framework.refresh_pipeline_run_costs_in_batches(p_slice, p_budget)` (15
+  minutes and 90 seconds by default; outside a transaction block) does the changed runs'
+  work one slice at a time, each slice committed with the watermark moved to its end, and
+  stops starting slices once the time spent plus its longest slice passes `p_budget`; the
+  next call goes on from the watermark. Once the watermark reaches now, it works through
+  the pending recheck the same way: `agent_framework.queue_pipeline_run_costs_recheck(p_since)`
+  queues the runs started from `p_since` to now (merged with a pending one) in
+  `pipeline_run_costs_recheck`. It returns `batches`, `refreshed` (rows written),
+  `refreshed_through` and `recheck_from` (NULL with no recheck pending). A late bill changes
+  an entry without writing one, so the recheck picks it up. With `pg_cron` and the
+  analytics switch on, `pipeline_run_costs_recent` calls the procedure every 15 minutes and
+  `pipeline_run_costs_nightly` queues a recheck of the last 3 days at 02:30 UTC; without
+  it, a host schedules the same calls. A first fill after the migration and
   simpl_tracker's run-id backfill: `SELECT agent_framework.refresh_pipeline_run_costs(now()
   - interval '7 days')`. `estimated_costs_refresh` (04:45 UTC daily) runs it over the last
   21 days, the window failure-cost estimates are written over, together with the response
