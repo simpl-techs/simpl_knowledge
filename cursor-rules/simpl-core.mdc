@@ -2972,7 +2972,10 @@ decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution
   for their versions alone.
 - **No placeholder is a candidate** (`rules.CandidateCache`): a company of origin
   `placeholder` is a claim's stand-in, no identity, so no rule, scorer or judge ever answers
-  it, for any mention. **A user is never a lead**: a lead claim the own side answers
+  it, for any mention. `CompanyResolver` drops a placeholder for a real row holding the same
+  key before it filters on the claim's name or place (a placeholder is named and placed
+  after its claim), so a placeholder whose site a real company holds settles by key at
+  stage 2. **A user is never a lead**: a lead claim the own side answers
   `is user:<id>` is retired, like `not_an_entity`. The people rules' `is` carries
   `people.PERSON_RULE_CONFIDENCE` (0.9), the pipeline match's included.
 - **The judge sees what the mention gives besides its name** (`JudgeQuestion.about`,
