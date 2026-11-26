@@ -81,7 +81,8 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   ledger `sales.website_facts_search_index`, migration 170, which also added version 1's
   `row_store.dataset_configs` row; 197 adds version 2's for the column drops, which took
   nine site fields out of simpl_core's website facts `SITE_FIELDS`, and turns version 1
-  off). Each run follows finished `website_signals` jobs
+  off; 212 adds version 3 `maintained` and 213 makes it active, both authored and not
+  applied: README "Website facts version 3"). Each run follows finished `website_signals` jobs
   (`scraping.extraction_jobs`) from where the last one stopped, and indexes until the
   queue is empty (at most 10 follow rounds a run). The follow pass starts at "now", so
   the website facts sweep (every site by host, fingerprinted again) is what fills it the
