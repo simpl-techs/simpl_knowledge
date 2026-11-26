@@ -5617,8 +5617,10 @@ await posts.build_index("vector")            # sections of a declared vector or 
   maintenance keeps building small sections for new rows around it; a `build_index`
   overtaken by a consolidation plans again once (`row_store.index_build_replanned`).
   Nothing compacts the fragments under a consolidated section in `maintain`: clear dead
-  rows by hand with `Dataset.compact_held(max_rows=...)` (`HeldCompaction`, log
-  `row_store.held_compacted`) when `DatasetHealth.held_dead_share` grows.
+  rows by hand with `Dataset.compact_held(max_rows=..., threads=...)` (`HeldCompaction`,
+  log `row_store.held_compacted`) when `DatasetHealth.held_dead_share` grows. Each call
+  remaps every section over what it rewrote once, the consolidated vector section whole,
+  so a backlog goes in calls of many fragments (a large `max_rows`, several `threads`).
 - **Logs to alert on**: `row_store.query.retried` (warning: a call retried a service
   away for a moment), `row_store.query.service_fault` (error: a crash, a refused token,
   an unreadable answer), `row_store.query.walk_restarted` (warning: a walk's ranking
