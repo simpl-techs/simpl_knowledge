@@ -316,7 +316,9 @@ the cost before credits split across the sessions that ran on each resource in
 `gcp_cost_allocation` (repos, customers and the rollup carry what Google was used for;
 what credits covered is only in `gcp_credit_coverage`), and the day's rollup brought
 up to date: its infrastructure cost refolded on a day the rollup has counted, the day
-counted in full otherwise. `compute_cost_daily(from, to)` is the one source of compute cost per day,
+counted in full otherwise. A reload of the bill the day already holds, with the same
+allocation (`gcp_billing_day_allocation(day)` against the stored one), writes only its
+export time and when it was checked. `compute_cost_daily(from, to)` is the one source of compute cost per day,
 provider and repo; `run_daily_aggregation`, `infra_cost_daily` and
 `infra_cost_by_provider` read it.
 
@@ -485,6 +487,14 @@ replaces). Same arguments and results: `quote_price_calibration` reads the rates
 model, tag and pricing tier instead of quoting each call through `quote_llm_cost`, and
 `load_gcp_billing_day` refolds only the infrastructure cost of a day the rollup has
 counted instead of recounting its ledger. Its `_rollback.sql` puts both bodies back.
+
+`migrations/20261126170000_gcp_reload_of_an_unchanged_bill_writes_nothing.sql` (one
+transaction, the same way) is applied after `20261126150000`, and again after any later
+run of `20261016163000_gcp_billing_cost.sql` or `20261107120000_gcp_cost_before_credits.sql`.
+It adds `gcp_billing_day_allocation(day)`, the allocation `allocate_gcp_billing_day`
+stores, as a read, and makes `load_gcp_billing_day` (same arguments and result) skip the
+rewrite of a reload that would change nothing. Its `_rollback.sql` puts back both
+functions as before and drops the read.
 
 `cost_tracking.llm_token_prices` is the read for routing: one row per `provider`,
 `model` and `upstream_tag` with a token price open today at the provider's current tier,
