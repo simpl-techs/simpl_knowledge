@@ -6185,7 +6185,53 @@ shown = await website_facts_evidence(db, parse_condition(condition), list(found.
   its rows as the website facts dataset holds them (`MATCH_COLUMNS`: a day as a
   `date`): what `RowStoreWebsiteFactsSearch` and simpl_flow's opportunity matcher v2
   ask. A `SiteMatch` or None; its keyword texts are every row holding the keywords,
-  each once.
+  each once. `match_columns(condition)` (0.8.530) is the columns it reads for one
+  condition: `families` only for a families part. **`MATCH_COLUMNS` never holds
+  `families`**: a reader selecting it would fail on a dataset version without the column;
+  select `match_columns(condition)` per condition instead.
+
+- **Problem families** (0.8.530, the website signals plan's S5 ported onto the query
+  service; **inert in this release**): named groups of website facts kept as data in
+  `sales.website_fact_families` (simpl_api `20261117130000`, seeded by `20261117130100`:
+  `placeholder_or_parked` tier 1, `old_platform` and `dated` tier 2 enabled;
+  `insecure`, `hidden_from_google`, `not_mobile_friendly` seeded off). A condition asks
+  for them with a `families` part:
+
+```json
+{"collection": "website_facts", "families": {"names": ["old_platform", "dated"], "min": 2}}
+```
+
+  - Holds when the site row's `families` holds at least `min` (default 1, at most the
+    number of names) of `names`. `SiteMatch.families` names those the site holds, in the
+    part's order. `condition_key`, `condition_in_words` ("sites with all of the problem
+    families old platform and dated") and the DSL's `WebsiteFacts.families` know the part
+    (an unset one is left out of the dump, so `spec_hash` of a spec without families is
+    unchanged). No error message names `families` to whoever writes a condition until
+    the reason-to-contact rule is switched on.
+  - **`check_condition` refuses a families part until the index served has a
+    `families` column** (the active `website_facts` row of `row_store.dataset_configs`,
+    read through `served_shape(db)`, kept a minute): "families: a signal cannot ask for
+    problem families yet: the website facts index served now (version 2) does not hold
+    the sites' problem families, ...". The shape is read first; while it refuses, nothing
+    about families is read. No version holds `families` in 0.8.530, so moving the active
+    row to version 3 lifts the refusal only once a simpl_core with the two dataset shapes
+    (0.8.531) runs the check. Once served, a name that is not an enabled family is
+    refused, with its spelling. The reason-to-contact rule is **not** applied by any save
+    path yet.
+  - `family_rules(db)` (kept a minute) loads the enabled rows into `FamilyRules`; a row
+    whose members do not all parse is refused whole and logged
+    (`website_facts.family_refused`). Members are conditions in the signal grammar parsed
+    with `parse_condition(member, internal=True)`, which also takes the internal facts
+    (`home_page_kind`, the risk `missed_security_release`, the op `is_null`); a seller's
+    condition naming one is refused. `judged_rows(sources)` builds a site's rows with
+    those internal facts; `FamilyRules.held(rows, today=)` the families it holds.
+  - Rules as functions, for the release that switches them on: `hook_refusal(condition,
+    rules)` / `hook_eligible` (one tier-1 family, or at least 2 families), and
+    `is_stack_condition` / `stated_problems` (a condition that only names technologies
+    needs no family, unless a family names one of them on its own as a problem, such as
+    Adobe Flash in `dated`).
+  - Callers of `check_condition` with a families part need SELECT on
+    `sales.website_fact_families` and `row_store.dataset_configs` too.
 
 - **The condition** (a signal filter's condition, `collection: "website_facts"`; every
   part given must hold, at least one):
@@ -6293,7 +6339,37 @@ shown = await website_facts_evidence(db, parse_condition(condition), list(found.
   tests them any more),
   `technologies_matched` (how many matched), `site` (the tested facts), `keywords` (the
   texts that held them). One read per table by primary key, hosts and names sent as
-  arrays: a page of any size is a few parameters.
+  arrays: a page of any size is a few parameters. A families part (0.8.530) adds
+  `families`: `names`, `min`, `held` (what the index said: `SiteMatch.families`) and
+  `facts`, one entry per held family, strongest first (tier 1, then 2, then one no
+  longer enabled), judged again on Postgres now (`family_facts`). For that condition the
+  site row is read whole, one more read takes all the site's technology rows, and the
+  family rules are read (kept a minute):
+
+```json
+"families": {"names": ["old_platform", "dated"], "min": 2, "held": ["old_platform", "dated"],
+  "facts": [
+    {"family": "old_platform", "label": "Old platform", "tier": 2, "holds_now": true,
+     "facts": [{"kind": "technology", "technology": "PHP", "version": "7.2.34",
+                "eol_date": "2022-11-28", "read_on": "2026-03-02"}]},
+    {"family": "dated", "label": "Dated", "tier": 2, "holds_now": true,
+     "facts": [{"kind": "site_field", "field": "copyright_year", "value": 2017,
+                "read_on": "2026-11-19"}]}]}
+```
+
+  Each fact has a `kind` (`technology`, `site_field`, `keyword`) and always a `read_on`,
+  the day the value was read: a version (prefix, end of life, missed security release)
+  when that version was seen (`version_seen_at`); a technology named alone when it was
+  last seen (`last_seen_at`); a page fact when its home page version was stored
+  (`content_observed_at`); a TLS fact, `home_outcome` or `home_http_status` on the
+  latest crawl run (`last_crawled_at`). **Null means the day is not known** (the crawl
+  facts of the latest answered run, the news date, the estimate): never claim one.
+  `SITE_FACT_DATES` maps each site fact to its column. A list fact shows only the values
+  asked for that the site holds (`missing` for a `lacks` test). Not listed: an `is_null`
+  test (an absence) and a crawl date compared with a cutoff. `read_on` moves with every
+  crawl, so a stored match must drop it (simpl_flow does); the draft reads freshness
+  when it is written. A family that no longer holds on Postgres (the index lags up to a
+  day) has `holds_now: false` and no facts. Quote one fact, not all (the plan's S6).
 - **Preview** (`open_website_facts_preview(db, queries=queries)`): `previewer.preview(condition,
   scope=PreviewScope.ICP, icp_id=..., limit=...)` on the ICP's companies, or
   `PreviewScope.ALL` on every site of the ledger stored at least once (one marked
