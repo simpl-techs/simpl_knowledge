@@ -2496,7 +2496,18 @@ run.report()  # overall, by method, by segment: precision and recall with Wilson
   uses); wrap either in `AnsweredStage` for `replay`. `replay_bounds` gives each
   mechanism's precision lower bound per `class_segment`, recorded with
   `ReadingRepository.record_replay` (`resolution.reading.replay_lower`, read back by
-  `replay_bounds`); `mechanisms_markdown` is the report.
+  `replay_bounds`); `mechanisms_markdown` is the report. `resolve_examples(...,
+  concurrency=n)` runs `n` batches at once, for stages that call a model; each answer's
+  `confidence` is kept in its features.
+- **The judge and its check** (`resolution.judge_replay`): `judge_stages(profiles, cache,
+  judge=, check=, evidence=, cases=)` is the name stages, `JudgeStage`, then
+  `JudgeCheckStage`; `replay_judge(examples, stages, policy=, run_id=, now=)` runs them in
+  shadow and returns a `JudgeReplay`: the judge and the check scored alone and the judge
+  checked at each of `FLOORS` (`checked_answers`: its answer stands only where the check
+  gave it with at least that probability), on every example and on those the stages
+  before the judge left open (`open_before_judge`); each model's answers on a company by
+  confidence band (`confidence_bands`) and what each floor keeps, loses and catches
+  (`floor_effects`); `markdown(title=)` is the report. The host gives the passages.
 
 ### The resolution contract (entity resolution, build item 2)
 
@@ -2719,6 +2730,20 @@ decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution
   `resolution/resolution_policy.yaml`: DeepSeek's own `deepseek-flash`, a GLM fallback, 90 s).
   `judged_links` writes an applied judged answer back as a weak `names` link (a brand's
   name for `part_of`). The host supplies an `EvidenceSource` (passages by source row).
+  `shown_candidates(ctx)` and `question_of(ctx, labelled, passages, mentions=)` build the
+  judge's question; `run_ledger_agent(loader, resolver, db, agent_id=, inputs=)` runs a
+  ledger agent of the judge's policy and keeps the call as an `agent_runs` row, and
+  `policy_loader(db, resolver, config_version=)` opens that policy.
+- **The judge's check** (`resolution.judge_check`): the ledger agent
+  `entity_resolution_judge_check` (version 3 of `entity_resolution_root`): TypeSafe's Jev
+  on OpenRouter's decision API, no fallback, asked the judge's own question, picking one
+  of `OPTIONS` (`C1`..`C8`, `none_of_them`, `not_a_company`, `not_stated`) with the
+  provider's probability of each. `LedgerCheck` / `CheckOnFirstQuestion` return a
+  `CheckReply` (`CheckFailed` when the answer carries no probability); `check_answer` maps
+  it to `is`, `absent`, `not_an_entity` or `unknown` on the candidates shown, the
+  probability as its confidence. `JudgeCheckStage` (`stage.judge_check`) asks it on every
+  company mention with candidates, 8 calls at once; it decides nothing yet and runs only in
+  the judge's replay.
 - **Lanes** (`resolution.lanes`): a lane holds the `workpool` lease
   `lane_resource(shard)` and a `CaseStore(store, shards=n, shard=k)`, which writes only
   its shard (`cases.route` splits mentions by shard). It stages learned links with
