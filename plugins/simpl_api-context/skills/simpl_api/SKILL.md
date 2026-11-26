@@ -282,6 +282,10 @@ staff come in for notes and from round 2. Per onboarding card:
 - `PUT /api/v1/admin/customers/{customer_id}/icp-request-review` with `review` (`auto` or
   `manual`) sets who carries on that customer's requests; `GET .../icp-requests` returns it as
   `review`. Stored in `sales.customer.metadata.icp_request_review`.
+- Setting a card or a customer to `auto` takes over what is still to do on work already in
+  progress (an account staff activated, a request sent before the switch): SimpL finishes a
+  round-1 draft whose messages are missing and sends it. Nothing runs for an account switched
+  off.
 - `ONBOARDING_AUTOSTART_ENABLED=false` stops it everywhere (`ONBOARDING_AUTOSTART_SECONDS`,
   default 120).
 
