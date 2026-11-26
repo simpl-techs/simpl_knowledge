@@ -265,6 +265,27 @@ Routes, under `/api/v1/admin/graph-explorer`, `require_admin` on each (a staff a
 
 `variant_name` defaults to the variant Graphia serves (`graphia-v2-nuextract-joint`). The tables stay at the version they were opened at for 5 minutes; a request after that reloads the ontologies (`knowledge_graph.ontology_version`), then opens a new set of tables (runs first) and swaps it in once all are open. The dashboard calls the service from its server (`/api/admin/graph-explorer/*` route handlers with the admin's Supabase token), never from a browser: there is no CORS.
 
+## A new customer's start, and a New ICP request (ENG-1330)
+
+Once a customer finishes onboarding, SimpL activates the account, saves its first ICP (the
+customer's chat agent builds it in the `first-icp` staff thread) and sends its first shortlist
+round, with no staff step. A "start" answer on round 1 with no note to apply starts them too;
+staff come in for notes and from round 2. Per onboarding card:
+
+- `PUT /api/v1/admin/onboarding/start-review` with `session_id` (a standalone signup) or
+  `customer_setup_id`, and `review`: `auto` or `manual`. A session of a setup sets its setup.
+  `manual` works as before, start included; switching stops what has not happened yet.
+- `GET /api/v1/admin/onboarding/pipeline` items carry `start_review`. Unset, cards created
+  since 25 Nov 2026 12:00 UTC are `auto`, older ones `manual`.
+- A New ICP request sent since then is carried on the same way: its ICP is built (the
+  `edit-icp:<icp id>` studio thread) and saved, and its first round is sent to who sent the
+  request. Activating it (price, offer, card) and later rounds stay with staff.
+- `PUT /api/v1/admin/customers/{customer_id}/icp-request-review` with `review` (`auto` or
+  `manual`) sets who carries on that customer's requests; `GET .../icp-requests` returns it as
+  `review`. Stored in `sales.customer.metadata.icp_request_review`.
+- `ONBOARDING_AUTOSTART_ENABLED=false` stops it everywhere (`ONBOARDING_AUTOSTART_SECONDS`,
+  default 120).
+
 ## Agent-run job (`simpl-api-agent-run`)
 
 Agent runs longer than the time between two simpl-api deploys run as executions of this Cloud Run job (europe-west4, built from this image, `python -m simpl_api.jobs.agent_run <kind> ...`), which a deploy of the service does not stop. Today one kind: the shortlist agent's automatic builds (`SHORTLIST_RUN_JOB` on simpl-api). The service still claims each run under its locks and starts the execution with the claim's identity; the execution re-reads the claim, runs it once and exits. Unset, off Cloud Run, or when the launch fails, the run stays in the service process. A failed run is the service's to try again (`--max-retries 0`).
