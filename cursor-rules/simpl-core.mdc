@@ -614,6 +614,13 @@ next such agent installs it again on its own Loader database and drains the old
 recorders, logging what they held as lost. Nothing drains an install made this way at
 exit: the outcomes and routes counted since the recorders' last flush (30 s) are lost,
 so a host that needs them installs and closes the table itself.
+Such an agent, called or streamed, also waits up to 30 s
+(`DEFAULT_CATALOG_WAIT_SECONDS`) for the installed routing table to load the model
+catalog, whoever installed it, before it is built (`wait_for_model_catalog()`): the
+first calls of a new process wait for the first load instead of having every catalog
+target refused unsent. When the catalog is still not loaded, the call raises
+`ModelCatalogNotLoadedError` naming the cause (the load still running, or the last load
+ended without the catalog) instead of failing as a chain with no answer.
 
 Each offering is priced from the shared price book, simpl_tracker's
 `cost_tracking.llm_token_prices` (input, cache read and output, USD per token, at the
