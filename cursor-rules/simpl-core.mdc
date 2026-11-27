@@ -739,6 +739,46 @@ approximate for percentiles); `cache_hit_share` is the rows' shares weighted by 
 routing migration's step `llm_response_times` is applied before a host runs this
 simpl_core: without its columns every route write is dropped.
 
+The Pricing tab reads `sales_view.llm_offering_calls(p_from timestamptz, p_to
+timestamptz)` (security invoker, execute for `service_role`), a wrapper of
+`llm_routing.offering_calls`: the attempts of `llm_routing.attempt` that started in
+`[p_from, p_to)` (an attempt stored without `started_at` from its `created_at`; one without
+a provider or model left out), one row per offering, most attempts first, then by
+provider, model and upstream. Columns, in order: `provider`, `model` (the provider's own
+model name), `upstream` (`''` for none), `attempts`, `answered`, `latency_p50_ms`,
+`latency_p90_ms`, `latency_p95_ms` (interpolated over the answered attempts' whole
+response time, as the Activity rollup takes it: a stream's `stream_duration_ms`, else its
+`latency_ms`, a request's `latency_ms`; rounded to whole milliseconds; null when no answered
+attempt has one, failures showing only in `attempts` against `answered`), `agents`
+(distinct agents, an attempt without one not counted), `error_classes` (distinct, sorted;
+empty without any). It reads only the attempts kept (30 days) and raises
+`invalid_parameter_value` unless `p_to` is after `p_from` and at most 7 days after it.
+
+The Routing tab reads `sales_view.llm_routing_flows(p_from timestamptz, p_to
+timestamptz)` (security invoker, execute for `service_role`), a wrapper of
+`llm_routing.routing_flows`: the same attempts as `llm_offering_calls`, one row per
+distinct `agent` (`''` for none), `canonical`, `provider`, `model`, `upstream` (`''` for
+none), `chain_step` (the attempt's `fallback_index`, null for none), `outcome`,
+`health_class` and `error_class` (both null for none), ordered by agent, chain step (none
+last) and attempts (most first). `canonical` is the canonical model the attempt served:
+the `canonical` of its decision's chain entry at its chain step, else that of the entry's
+candidate with the attempt's provider and model; null when neither names one, as under a
+fixed chain. The other columns, in order: `attempts`, `latency_p50_ms`, `latency_p95_ms`
+(as `llm_offering_calls` takes them, on an answered row only), `cost_usd` (the attempts'
+receipts by `routing_attempt_id`, a duplicate left out, priced in `service_cost_entry`;
+null when none is priced) and `costed_attempts` (the attempts with a priced receipt). It
+raises `invalid_parameter_value` on the same ranges. Attempts, canonical models and
+latencies are read from the attempts themselves; the cost of a UTC day wholly inside the
+range comes from the rollup `llm_routing.routing_flow_daily` for the attempts its last
+refresh counted (written up to its `computed_through`), plus the receipts of the day's
+attempts written since; a day the range cuts, or one the rollup does not hold, has every
+attempt's receipts read. `llm_routing.refresh_routing_flow_daily(p_since date)` recomputes
+the rollup's days from `p_since` through today from the attempts written up to 5 minutes
+before it started; pg_cron's `routing_flow_daily_recent` runs it for yesterday and today at
+7 minutes past every hour while `llm_routing.analytics_jobs_on()`, so a cost changed after
+its day's last refresh reaches the read with the next one, and an older day keeps the
+costs its last refresh read.
+
 A failed write is logged and never fails the call; `routing.aclose()` drains the route
 recorder and the epoch recorder beside the health recorder, within the same
 `timeout_seconds`, and logs `agent_framework.model_routing.route_decisions_lost` (and
