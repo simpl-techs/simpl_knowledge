@@ -2861,8 +2861,12 @@ decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution
   to take its call (`sales.lead_call_taker`) and its scored tries (`sales.strategy_outcome`,
   whose `lead_id` follows the merge and its undo); it keeps the source's contacts in full, since a
   contact the target holds is dropped and a primary one demoted, and the undo puts each
-  back. A merge that would fold two threads of one user, or drop any other row, raises
-  `MergeNotReversible` with every reason. `CompanyMergeService` and `LeadMergeService` are
+  back. A duplicate in a table of each merge's `restorable` set is dropped too, journaled in
+  full (`deleted_rows`; for leads migration `20261129_lead_merge_deleted_rows.sql`) and put
+  back by the undo: an ICP's match of a company (`opportunity.icp_company_matches`), a
+  language one source observed for a lead (`sales.lead_language_signal`). A merge that would
+  fold two threads of one user, or drop any other row, raises `MergeNotReversible` with
+  every reason. `CompanyMergeService` and `LeadMergeService` are
   no longer exported: they are the private engine of the journaled merges, and
   `tests/test_dedup_merge_surface.py` fails when another module names them.
 - **The merge door** (`resolution.merges.MergeDoor(db, links)`): `merge(source, target,
@@ -3082,6 +3086,19 @@ decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution
   `FoundKey` on the claim, never a field and never a row, and a real row holding it is a
   pair asked of stage 8. It merges nothing. `preview_claim_sites` counts what the crawl
   alone would find.
+- **The claim's own page** (`resolution.claim_pages.ClaimPages(db, questions,
+  reader).run(now=, run_id=)`): a pending claim that names a LinkedIn page by its name
+  has that page read once, `PER_PASS` (100) pages a pass. `reader` is the caller's
+  (`PageReader`: `read(urls) -> {url: PageReading(exists, linkedin_id, name, site)}`,
+  a page it could not read left out): the research API fetches no LinkedIn address, so
+  simpl_flow passes its LinkedIn company scraper. The id is a `FoundKey`
+  (`linkedin:id:<id>`), never a field and never a row. It is `Grade.CONFIRMED` when the
+  page names the claim's site or the real row holding the id stands on that site, and
+  then it is the claim's own key (`claims.company_claim_mention`,
+  `beliefs.own_page_id`) and, when a real row holds it, a pair asked of stage 8, which
+  merges one id under two page names (`Side.page_id`, reason `same_page_id`, a
+  `SAME_PAGE` proof on `id:<id>`). Unconfirmed it is `Grade.CONSUMER` and nothing reads
+  it. It merges nothing by itself.
 - **What is owed** (`resolution.owed`): `owed_report(db, now=)` counts the beliefs by
   consumer and age, the rungs each still owes and the oldest unpaid one, refutations,
   retirements, held-out rows and the merges by proof kind with their undos;
