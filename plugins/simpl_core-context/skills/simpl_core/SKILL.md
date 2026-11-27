@@ -3094,11 +3094,15 @@ decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution
   pair asked of stage 8. It merges nothing. `preview_claim_sites` counts what the crawl
   alone would find.
 - **The claim's own page** (`resolution.claim_pages.ClaimPages(db, questions,
-  reader).run(now=, run_id=)`): a pending claim that names a LinkedIn page by its name
-  has that page read once, `PER_PASS` (100) pages a pass. `reader` is the caller's
-  (`PageReader`: `read(urls) -> {url: PageReading(exists, linkedin_id, name, site)}`,
-  a page it could not read left out): the research API fetches no LinkedIn address, so
-  simpl_flow passes its LinkedIn company scraper. The id is a `FoundKey`
+  research).run(now=, run_id=)`): a pending claim that names a LinkedIn page by its name
+  has that page read once, `PER_PASS` (100) claims a pass. `research` is
+  `CompanyPageResearch(requests, stored_pages, caller=)`: the claim's placeholder is
+  researched as a company (policy `company`, source type `entity_resolution`, purpose
+  `entity_confirm`, no customer, one request a placeholder and day), and the company's own
+  LinkedIn page, which a company research reads under the fleet's `research_linkedin`
+  policy, is read from the stored copy (`linkedin_company_page.company_page_facts`, the
+  enricher's rules). A research still running or refused records nothing and is asked
+  again on the next pass. The id is a `FoundKey`
   (`linkedin:id:<id>`), never a field and never a row. It is `Grade.CONFIRMED` when the
   page names the claim's site or the real row holding the id stands on that site, and
   then it is the claim's own key (`claims.company_claim_mention`,
