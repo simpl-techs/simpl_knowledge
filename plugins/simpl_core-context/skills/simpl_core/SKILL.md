@@ -2873,7 +2873,11 @@ decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution
   back by the undo: an ICP's match of a company (`opportunity.icp_company_matches`), a
   language one source observed for a lead (`sales.lead_language_signal`). A merge that would
   fold two threads of one user, or drop any other row, raises `MergeNotReversible` with
-  every reason. `CompanyMergeService` and `LeadMergeService` are
+  every reason. A company's import record moves with its satellites (the nine tables keyed
+  to `sales.company_crustdata(company_id)`): the merge and its undo defer those keys while
+  they move the rows, so a database with those tables needs the keys deferrable (migration
+  `20261130_crustdata_satellite_fks_deferrable.sql`; without it every company merge
+  fails on `SET CONSTRAINTS`). `CompanyMergeService` and `LeadMergeService` are
   no longer exported: they are the private engine of the journaled merges, and
   `tests/test_dedup_merge_surface.py` fails when another module names them.
 - **The merge door** (`resolution.merges.MergeDoor(db, links)`): `merge(source, target,
@@ -3008,7 +3012,8 @@ decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution
     (never merged); a side with no page whose site names another page is `different`;
     nothing is `weak`;
   - `same` goes through the merge door (the row without a page into the one with it, else
-    the one less stands on into the other), journaled, or is held.
+    the one less stands on into the other, and between equals the one with no page id or
+    no site into the fuller one), journaled, or is held.
 - **Stage 9, create** (`resolution.create.CreateStage`, `stage.create`, last): a mention
   nothing closed that carries a site naming a company or a LinkedIn page
   (`writers.hard_identity_key`) gets a real row keyed by it through
