@@ -5857,7 +5857,10 @@ table, a version or SQL.
   search again. `client.budget` is the last answer's `Budget`, `client.limit` the limit.
   `client.stream(calls)` runs `(key, call)` pairs (an iterable, or an async one read as
   calls are needed: pages read from a database) at the client's limit and yields
-  `(key, answer)` as each comes back; the first failure cancels the rest and is raised. A
+  `(key, answer)` as each comes back. It keeps calls running while the reader works on
+  an answer (at most `STREAM_READ_AHEAD`, 32, answers wait), so the async iterable is
+  read beside the reader: it must not share a database session with it. The first
+  failure cancels the rest and is raised; a reader that stops early cancels them. A
   service built before the headers leaves the limit at 2.
 - **Several signals over one page**: `RowStoreSearcher.best_per_group_queries(queries,
   group_by=, groups=)` (`GroupQuery`: id, dense vector, floor, conditions) splits groups
