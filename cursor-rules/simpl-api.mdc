@@ -277,8 +277,9 @@ staff come in for notes and from round 2. Per onboarding card:
 - `PUT /api/v1/admin/onboarding/start-review` with `session_id` (a standalone signup) or
   `customer_setup_id`, and `review`: `auto` or `manual`. A session of a setup sets its setup.
   `manual` works as before, start included; switching stops what has not happened yet.
-- `GET /api/v1/admin/onboarding/pipeline` items carry `start_review`. Unset, cards created
-  since 25 Nov 2026 12:00 UTC are `auto`, older ones `manual`.
+- `GET /api/v1/admin/onboarding/pipeline` items carry `start_review`. Unset, a card is `auto`
+  unless it was already waiting for SimpL on 25 Nov 2026 12:00 UTC (someone of it had finished
+  their onboarding): an onboarding invited before then that finishes after starts on its own.
 - A New ICP request sent since then is carried on the same way: its ICP is built (the
   `edit-icp:<icp id>` studio thread) and saved, and its first round is sent to who sent the
   request. Activating it (price, offer, card) and later rounds stay with staff.
