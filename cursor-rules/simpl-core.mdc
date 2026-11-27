@@ -2891,7 +2891,11 @@ decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution
   is never a proof: `ProofKind.DECISION` is refused as malformed (`NOT_A_PROOF`). An
   ended `same` link refuses the merge; a merge the journal refuses is held in
   `resolution.held_match` ("matched, not merged"); either way a trusted `same` link is
-  recorded. `resolution.merge_proof` needs no row store, so `simpl_core.services.dedup`
+  recorded. A merge the database or the merge engine refuses part-way (a key it cannot
+  move, a timeout, `MergeConflictError`) runs in a savepoint of its own: it is rolled back
+  alone, logged (`er.merge_failed`) and held with `MERGE_FAILED` and the error's first
+  line, and the caller's transaction and pass go on. A held match is not asked again by
+  itself. `resolution.merge_proof` needs no row store, so `simpl_core.services.dedup`
   imports without the `row-store` extras.
 - **A placeholder's keys stay links**: a merge never copies a placeholder company's
   `landing_url`, `linkedin_url` or `company_linkedin_id` onto the row it merges into
