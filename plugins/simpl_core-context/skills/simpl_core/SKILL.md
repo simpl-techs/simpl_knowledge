@@ -5962,6 +5962,16 @@ table, a version or SQL.
   the companies' sites looked up once) answer each query as `best_per_company` answers it
   alone, by meaning, keyed by the query's id. Keyword and hybrid searches stay one
   request each.
+- **Articles by meaning** (`simpl_core.search.articles`): `RowStoreArticleSearch(queries,
+  embed_query=)` on `SALES_ARTICLES` (`sales_articles`, owner `company_id`, queried at
+  `QUERY_DIMS` 1,024 with `QUERY_TASK`, the articles' Qwen instruction).
+  `best_per_company(vector=, min_score=, filters=ArticleSearchFilters(company_ids=,
+  dated_after=, dated_before=))` gives each company's best chunk (`ArticleSearchHit`:
+  `article_id`, `company_id`, `title`, `dated_at`, `score`); `best_per_company_queries`
+  (`ArticleQuery`) answers several over the same companies in one request a page;
+  `embed(text)` embeds a topic with the searcher's `embed_query`. The service serves the
+  dataset's `active` version: every company's articles, written by simpl_flow's
+  `sales_fill_flow`.
 - **Walks**: `walk_above(client.above, request, reader=...)`, with `request.max_rows`
   the most the reader wants (`ABOVE_MAX_ROWS` for every row the service walks), ranks in
   `WALK_STAGES` (10,000, then 100,000, then the cap) so the first page never waits for
