@@ -4044,7 +4044,8 @@ window is a message's rule, not a read's), in SQL under the seat's lock
 research_read_repository.ResearchReadRepository(session)`, migration `20261119150200`): the
 research login holds no grant on the `extension_proxy` tables, which have no row-level
 security; it calls `SECURITY DEFINER` functions that take the profile read's id and never a
-seat or a profile: each finds the seat (the read's parent's `seat_user_id`), the profile
+seat or a profile: each finds the seat (a child read's parent's `seat_user_id`; a read
+submitted alone names its own, `20261127160100`), the profile
 (the read's own URL, its public identifier) and research's share (the pinned policy's
 `SeatReader.max_view_share` of the limit, rounded down, at least 1; default
 `DEFAULT_MAX_VIEW_SHARE` 0.25, which is also its bound, in the model and in SQL; version
@@ -4052,7 +4053,8 @@ seat or a profile: each finds the seat (the read's parent's `seat_user_id`), the
 and touches research's rows only (source type `RESEARCH_PROFILE_READ_SOURCE`,
 `osint_profile_read`; idempotency key `osint_profile_read:<read id>`), on the caller's
 session: `admit(read_id=, linkedin_account_id=, timeout_seconds=, presence_stale_seconds=)`
-(the read's seat, customer, URL and policy read once, its parent row kept `FOR SHARE`;
+(the read's seat, customer, URL and policy read once, the row naming the seat kept `FOR
+SHARE`: a child read's parent, or a read submitted alone itself;
 `existing`, else under the seat's lock, at the clock read after it (`clock_timestamp()`, also
 the request's `created_at`), a refusal, else the request for the seat's live extension
 signed in to that account: `admitted`, `extension_offline`, `linkedin_account_mismatch`; the
@@ -4070,9 +4072,10 @@ and a login granted `research_read_admit(uuid)` cannot call the four-argument on
 `refusal(read_id)` (a pre-check:
 `no_read`, `no_seat`, `seat_not_the_customers`, `seller_off_duty`, `seat_views_spent`,
 `research_share_spent`, or `None`). The rows they trust are kept by osint's triggers
-(`20261119210000`): a research request's `seat_user_id` never changes after admission
-(only cleared by the user's delete), and a profile read's customer and lead are its
-parent's and its URL the lead's stored LinkedIn URL in the platform's one spelling; `of_read(read_id)`, `next_slot_at(read_id)` and `reserve_slot(read_id)` (the seat's
+(`20261119210000`, `20261127160000`): a research request's `seat_user_id`, and a profile
+read's submitted alone, never change after admission (only cleared by the user's delete),
+a child read's customer and lead are its parent's, and every read's URL is its lead's
+stored LinkedIn URL in the platform's one spelling (case aside); `of_read(read_id)`, `next_slot_at(read_id)` and `reserve_slot(read_id)` (the seat's
 `profile_positions` pacing slot, as `reserve_operation_slot` reserves it, once per read:
 since `20261123130000` a repeat returns the read's slot, kept in
 `extension_proxy.research_read_slot`, and moves the seat's slot no further; since
@@ -4413,8 +4416,9 @@ what research finds is later work. "Questions" (`request.questions`, a policy's
     beside the news default), so the run in flight is one per `(subject_type, subject_key,
     policy_key, questions)` (`request_research_in_flight_key`).
   - **`purpose`** (`20261118130000`): why the request was made, a key the pinned policy's
-    `purposes` accept, set at submit and fixed; NULL only on a profile read (its parent's
-    purpose applies).
+    `purposes` accept, set at submit and fixed; NULL only on a profile read a person
+    research started (its parent's purpose applies); a read submitted alone carries its
+    submit's.
   - **`RequestSubmission`** (`osint.request_submission`, `20261118130000`, service_role
     only): one row per submit that admitted a request, whatever it found: `outcome`
     `created`, `joined` (the run in flight) or `fresh` (a done run within freshness), with
@@ -4467,12 +4471,15 @@ what research finds is later work. "Questions" (`request.questions`, a policy's
     platform, read for its positions and activity. From X58 (`20261123120000`) the
     research worker queues one scraper inbox row per reader it tries (kind
     `profile_read_<reader type>`), so a fetcher reads and the extractor parses.
-    - **No caller asks for one:** T3's public submit refuses kind `profile_read`. The
-      research search pass (T4/T5) starts one, as a child of a person research request
-      (`parent_request_id`, no action on delete: a parent with a read is never deleted),
-      when the person has a profile URL of an enabled platform, given in the request or
-      stored on the lead. A trigger holds that the parent is a person research request, of
-      any customer (runs are shared).
+    - **Two ways to start one:** the research search pass (T4/T5) starts one, as a child
+      of a person research request (`parent_request_id`, no action on delete: a parent with
+      a read is never deleted), when the person has a profile URL of an enabled platform,
+      given in the request or stored on the lead; or a caller submits one alone
+      (`OsintRequests.submit_profile_read`, research LinkedIn fetch plan P3,
+      `20261127160000`), with no parent. A trigger holds that a child's parent is a person
+      research request of the read's customer and lead, and that every read, with a parent
+      or not, reads the profile its own lead stores. A `fetch` never reads a profile: it
+      refuses a LinkedIn `/in/` URL at submit (`linkedin_profile`), never redirecting it.
     - **Platforms are data** (`ProfilePlatform`, `osint.profile_platform`: key, anchored
       `url_pattern`, `canonical_form`, `is_enabled`; seeded `linkedin`,
       `https://www.linkedin.com/in/<id>` as `normalize_lead_linkedin_url` writes it). A
@@ -4484,9 +4491,13 @@ what research finds is later work. "Questions" (`request.questions`, a policy's
       read of the same platform and `lower(url)` younger than the platform policy's
       `reuse_max_age_s` is reused (`request_profile_read_reuse_idx`). Its budget is the
       platform policy's daily cap per customer (and `by_source_type`), counted on its own
-      `customer_id` (usually the parent's), not the parent's research budget. It takes the
-      parent's `source_type` and `source_id`, the lead, the parent's `company_id`, and an
-      idempotency key from the parent (`profile_read:<parent id>:<platform>`). What it read
+      `customer_id` (a child's is its parent's), not the parent's research budget. A child
+      takes the parent's `source_type` and `source_id`, the lead, the parent's
+      `company_id`, and an idempotency key from the parent
+      (`profile_read:<parent id>:<platform>`); its seat is the parent's. A read submitted
+      alone takes its caller's customer, source, purpose and key, no company, and the seat
+      the caller named in its own `seat_user_id` (kept as admitted, as a research
+      request's; none: Olostep only). What it read
       is kept by identifier (`raw_page_object_key`), with the job rows it inserted
       (`lead_experience_ids`, X58); other facts built from it are later work.
       The relay writes its progress into the parent's log (event type `profile_read`, dedup
@@ -4823,7 +4834,7 @@ search. The seed migrations' headers explain every key (`20261112100100`, `20261
   versions; for `add`, `created_by`). Activating in production needs Jackie's yes.
 
 **OSINT requests** (`simpl_core.services.osint.requests`, plan T3): submit and read
-research, fetch, crawl and search requests. There are no HTTP endpoints (simpl_api#897 was
+research, fetch, crawl, search and LinkedIn profile read requests. There are no HTTP endpoints (simpl_api#897 was
 closed): SimpL services and agents call `OsintRequests` directly, in process, on the
 service's own database login. It admits and reads; the research worker runs every request.
 
@@ -4832,17 +4843,29 @@ service's own database login. It admits and reads; the research worker runs ever
   the role `osint_caller` (`GRANT osint_caller TO <login>`, in production with Jackie's
   yes, once the service calls research). The role may submit and read, never do the
   worker's writes:
-  - `osint.policy` SELECT; `osint.request` SELECT, INSERT (admission writes the request);
+  - `osint.policy` SELECT; `osint.profile_platform` SELECT (`20261127160200`: a submitted
+    profile read's admission and the request's insert trigger read it with the caller's
+    rights); `osint.request` SELECT, INSERT (admission writes the request);
     `osint.request_event` SELECT; `osint.request_submission` SELECT, INSERT;
     `osint.search_call` and `osint.research_source` SELECT; `scraping.research_inbox`
     SELECT, INSERT of fetch and crawl rows only (a RESTRICTIVE rule,
     `osint_caller_inbox_kinds`, `20261123120000`); `scraping.research_crawl_page`, `scraping.pages` and
     `scraping.page_versions` SELECT (page metadata of every page, since research may reuse
     the landing crawl's copy; never text).
-  - EXECUTE on two SECURITY DEFINER functions, which run with their owner's rights:
-    `osint.append_request_events` (every event, and the row's `last_sequence`) and
+  - EXECUTE on three SECURITY DEFINER functions, which run with their owner's rights:
+    `osint.append_request_events` (every event, and the row's `last_sequence`),
     `osint.time_out_request` (`OsintRequestRepository.time_out`: a submit that finds a run
-    past its deadline ends it). So the role holds no INSERT on `osint.request_event` and no
+    past its deadline ends it) and `osint.lead_for_profile(url)` (`20261127160400`, EXECUTE
+    for `osint_caller` only: the lead of a profile read submitted by URL alone, found among
+    the leads storing one of the profile's spellings (http or https, www or not, a trailing
+    slash, the id as asked or lowercased) through the unique `lead_linkedin_url_key`, else
+    the lead holding its member id as `mini_profile_urn`, else created with `linkedin_url`
+    and origin `osint_profile_read` only, so the role writes no `sales.lead` row itself.
+    **Known gap, to revisit:** the look matches the stored text, so a lead stored with
+    capitals (`/in/Ada-Lovelace`) is found only when asked in that case; asked in another
+    (`/in/ada-lovelace`) it is missed and a second lead of the person is created. A
+    case-insensitive look needs an index on `lower(linkedin_url)`, left out for now:
+    `sales.lead` is about 100M rows and 42 GB, and its build's WAL costs too much). So the role holds no INSERT on `osint.request_event` and no
     UPDATE on `osint.request`: a caller cannot write an event that skips the function's
     claim and numbering checks, nor claim, end or move the times of another customer's
     request (extension plan X38, since simpl_core 0.8.429; before it the role had both).
@@ -4851,15 +4874,16 @@ service's own database login. It admits and reads; the research worker runs ever
     UPDATE back, the second recreates `append_request_events` with the caller's rights. It
     fails when a role still holds either right through another grantor, PUBLIC or a
     membership.
-  - Not granted: `osint.host_list`, `osint.profile_platform`, `osint.er_label`,
-    `scraping.research_fact`, and any UPDATE or DELETE.
+  - Not granted: `osint.host_list`, `osint.er_label`, `scraping.research_fact`, and any
+    UPDATE or DELETE.
   - Each of those tables has row-level security, and the role's rule lets every row through.
     A login with grants but no rule reads zero rows and gets no error, so give a login the
     role, never the table grants alone.
 - **What the login needs besides:** SELECT on `sales.customer`, `sales.lead` and
   `sales.company` (admission checks the customer, lead or company exists and is no
-  placeholder; service logins have it already), and a Wasabi read key for the page bucket to
-  read the pages a request returns (`services/osint/pages.py`).
+  placeholder; service logins have it already), a Wasabi read key for the page bucket to
+  read the pages a request returns (`services/osint/pages.py`). A seat named on a read
+  needs what research's seat check reads (`sales."user"`, `sales.identity_loan`).
 - **Tests:** a login holding only the role submits and reads every kind
   (`tests/services/osint/test_osint_caller_role.py`); callers test against
   `FakeOsintRequests` and `WorkerSimulator` (below).
@@ -4908,7 +4932,8 @@ heads = await requests.heads(open_request_ids)  # many states in one query
   5-7 s and a page takes about 5 s more to be stored, so in the 2026-11-25 benchmark (8
   requests) 28% of the final pages were stored by 10 s, and three requests had none.
 
-- **Submit** (`submit_research`, `submit_fetch`, `submit_crawl`, `submit_search`): one
+- **Submit** (`submit_research`, `submit_fetch`, `submit_crawl`, `submit_search`,
+  `submit_profile_read`): one
   transaction each, which returns an `Admission` (`request_id`, `kind`, `status`,
   `outcome`, `retry_after_s`, `pages_due_at`, `deadline_at`, and for `fresh` `fresh_until`:
   the done run's `finished_at` plus the policy's `freshness_days`) or raises
@@ -4925,7 +4950,24 @@ heads = await requests.heads(open_request_ids)  # many states in one query
   LinkedIn seat its profile read may spend, an active user of the customer or lent to it
   through an open `sales.identity_loan`; an internal request (no customer) names none; None:
   the read goes to the public page, never a seat (Q16 (a)); stored on the request, not
-  compared on a retry, and a joined or fresh run keeps its own), `FetchSpec(url, max_age_s)`, `CrawlSpec(start_url, max_age_s,
+  compared on a retry, and a joined or fresh run keeps its own), `FetchSpec(url, max_age_s)`
+  (on LinkedIn only a named company page: a sub-page, query or fragment is read as
+  `https://www.linkedin.com/company/<name>`, admission's `fetch_target`, before the key is
+  compared, and simpl_scraping fetches it under `research_linkedin`; a profile is refused
+  `linkedin_profile`, any other LinkedIn URL `linkedin_url_refused`),
+  `ProfileReadSpec(lead_id, linkedin_url, seat_user_id)` (one LinkedIn profile read, under
+  the active `profile_read_linkedin`; at least one of `lead_id` and `linkedin_url`, a
+  LinkedIn `/in/` URL read as `https://www.linkedin.com/in/<id>`. A URL alone reads the lead
+  that stores one of its spellings (a lead stored with capitals only in that case: the
+  known gap above), or holds its member id, created from it when none does (`osint.lead_for_profile`, origin `osint_profile_read`, in the submit's transaction,
+  so a refusal after it leaves no lead); both must
+  name the same lead's stored profile (case aside), else `lead_profile_mismatch`; the read
+  reads the URL as asked, else the lead's stored spelling. `seat_user_id` as a person
+  research's: the seat tried first, then Olostep; None: Olostep only. Any customer's ready
+  read of the profile within `reuse_max_age_s` answers `fresh` (`fresh_until`: its
+  `finished_at` plus `reuse_max_age_s`), the read in flight `joined`, whoever started it, with
+  its own seat; a retry compares the URL without case. Its read is the base `RequestRead`,
+  whose `profile_read` event names its end and the job rows it inserted), `CrawlSpec(start_url, max_age_s,
   policy_key)` (`max_age_s` None: the policy's `default_max_age_s`; `policy_key`, default
   `crawl`: an active crawl policy, `book_probe` for the book discovery run's probes; the
   request pins its version, whose `scraper_policy` the drainer seeds under once
@@ -4950,7 +4992,11 @@ heads = await requests.heads(open_request_ids)  # many states in one query
   `failed` there); the daily budget over the last 24 hours; the insert (`created`), its
   first `status_changed` event and, for fetch and crawl, its inbox row; the submit's record
   (`created`, `joined` or `fresh`). `fresh` and `joined` count nothing. A lost insert race is
-  read back by key, then by the in-flight key.
+  read back by key, then by the in-flight key. A submitted profile read runs the same steps
+  under `profile_read_linkedin`: its kind's checks are the seat, the lead (named, or found
+  or created by its URL) and its profile, and the reuse and in-flight rules stand for the
+  fresh rule and the run in flight; a retry is compared on the profile URL (the one asked,
+  or the named lead's stored one), without case.
 - **Budgets:** a customer's requests count in its bucket: research and search in requests
   (the kind's cap, and a source type's own cap from `by_source_type`); fetch in pages (one
   each); crawl at the policy's `pages_per_crawl` until its inbox row finishes, then the
@@ -4974,8 +5020,12 @@ heads = await requests.heads(open_request_ids)  # many states in one query
   `.home.arpa`, a one-label host or an all-digit last label; no DNS lookup, `addresses.py`
   keeps simpl_scraping's `is_public_address` rule; `url_rejections` and excluded hosts are
   the drainer's), `too_many_queries`, `engine_refused`, `idempotency_key_reused`,
-  `seat_refused` (a person research's `seat_user_id` is no active user of the customer nor
-  lent to it, or the request is internal). There is no submit for `profile_read`.
+  `seat_refused` (a person research's or a profile read's `seat_user_id` is no active user
+  of the customer nor lent to it, or the request is internal), `profile_refused` (the
+  platform is disabled), `lead_profile_mismatch` (a profile read's lead stores no LinkedIn
+  profile, or another than the URL), `linkedin_profile` (a fetch of a LinkedIn profile:
+  submit a profile read), `linkedin_url_refused` (a fetch of a LinkedIn URL that is no named
+  company page).
 - **Read** (`read(request_id, after=0, limit=200, kind=None)`): one `REPEATABLE READ READ
   ONLY` transaction; `RequestNotFound` for an id that is no request of `kind`. Every read
   (`RequestRead`): status and reason, `final` (the stored status is final), `expired` (past
