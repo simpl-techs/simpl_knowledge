@@ -3147,10 +3147,14 @@ decision, case = await cases.decide(held[m.mention_id], answer, stage=resolution
   migration `20261127_claim_er_tried`), counted `unsettled`; a resolution with a failed
   stage (`Resolution.failed`, from `StageOutput.failed`: the judge's model call) is not
   recorded. `worth_trying(claim, version, now=)` asks it again once
-  `ladder_version(stages, policy=, board=, judge=)` (stage versions, policy, every switch
-  moved, `judge_agent.judge_version`) or `mention_key(mention)` changed, or after
-  `RETRY_AFTER` (7 days). `run.stage_list(stages_for, store, shards=)` gives the stages
-  for their versions alone.
+  `ladder_version(stages, policy=, board=, judge=)` (stage versions, policy, every stage's
+  or rule's switch moved, `judge_agent.judge_version`) or `mention_key(mention)` changed,
+  or after `RETRY_AFTER` (7 days). A merge kind's switch (`switches.MERGE_KIND_PREFIX`)
+  is no part of the version: the recheck stops and reopens it by itself. The version is
+  the same in every process: `ConsumerPolicy.document()` writes its sets sorted, and
+  anything else hashed into it must keep no set's order (Python orders a set of strings
+  anew in each process, which once made every pass ask every claim again).
+  `run.stage_list(stages_for, store, shards=)` gives the stages for their versions alone.
 - **No placeholder is a candidate** (`rules.CandidateCache`): a company of origin
   `placeholder` is a claim's stand-in, no identity, so no rule, scorer or judge ever answers
   it, for any mention. `CompanyResolver` drops a placeholder for a real row holding the same
