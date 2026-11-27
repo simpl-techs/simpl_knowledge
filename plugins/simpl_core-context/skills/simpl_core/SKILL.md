@@ -6440,6 +6440,24 @@ shown = await website_facts_evidence(db, parse_condition(condition), list(found.
   `categories`, `version`, `eol_date`), and so is `MATCH_COLUMNS`'s technology part: a
   reader of `TECHNOLOGY_FIELDS` that wants version 2's pair adds `VULNERABILITY_FIELDS`.
   The scanner's fingerprint and `TEXT_PREP_VERSION` (2) do not change in this release.
+- **The fill release** (0.8.537, the website signals plan's A1): `TEXT_PREP_VERSION` 3,
+  and the scanner's fingerprint gains what version 3's families are judged from: the
+  family rules' hash, `home_page_kind`, each technology's `missed_security_release`, and
+  whether its end of life has passed by today (UTC, by the database's clock, which the
+  build of version 3 reads too). **It moves every site's fingerprint**: wherever it is
+  deployed, the next sweep marks every site, and the index runs build them into the
+  version they target. Deployed before simpl_flow's window, it re-reads every site,
+  writes nothing (version 2's rows and their hashes did not move: `ROW_PREP_VERSIONS`)
+  and uses up the marks; the window sets the ledger's `source_hash` to `'cleared'`
+  before its sweep, which recovers it (simpl_flow's README, "Website facts version 3"):
+  no print and not null (a gone site's print), so the sweep marks every site the ledger
+  holds, a gone one as gone. So it may merge
+  before the window's day. Version 2 does not move: its spec hash, its built rows and
+  their hashes are as before. Each dataset version hashes its rows with its own number
+  (`ROW_PREP_VERSIONS`: 1 and 2 keep 2, 3 has 3), so a later fingerprint-only bump of
+  `TEXT_PREP_VERSION` rewrites no stored row. Since then a changed family row re-marks
+  every site at the next sweep, and a site whose end of life passes is re-marked the next
+  day. A family fact of kind `keyword` names only the keywords the site's texts hold.
 - **Signals on an ICP** (0.8.322): `WEBSITE_FACTS_KIND` is how every prompt that lists
   signal kinds describes this one, word for word (simpl_api's wizard and chat, which
   import it, and the Sales Domain skills); `NO_COMPANY_FILTERS` is the refusal on an ICP without an enabled
