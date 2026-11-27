@@ -82,7 +82,11 @@ Only deploy when the user explicitly asks. For code changes, work under `src/sim
   `row_store.dataset_configs` row; 197 adds version 2's for the column drops, which took
   nine site fields out of simpl_core's website facts `SITE_FIELDS`, and turns version 1
   off; 212 adds version 3 `maintained` and 213 makes it active, both authored and not
-  applied: README "Website facts version 3"). Each run follows finished `website_signals` jobs
+  applied: README "Website facts version 3"; from 2.5.414 the deployment names
+  `website_facts:3` for the fill, until the deploy after 213; a named `dataset` with
+  no `row_store.dataset_configs` row is refused, so 2.5.414 merges only after 212;
+  the fill sets the ledger's `source_hash` to `'cleared'` before its sweep, so every
+  site is marked again, a gone one as gone). Each run follows finished `website_signals` jobs
   (`scraping.extraction_jobs`) from where the last one stopped, and indexes until the
   queue is empty (at most 10 follow rounds a run). The follow pass starts at "now", so
   the website facts sweep (every site by host, fingerprinted again) is what fills it the
