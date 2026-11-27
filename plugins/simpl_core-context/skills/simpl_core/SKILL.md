@@ -5492,16 +5492,21 @@ await posts.build_index("vector")            # sections of a declared vector or 
   segments like a binary counter, at most `INDEX_SEGMENT_MAX_ROWS` (2M) rows and
   `INDEX_MERGE_MAX_BYTES` (64 MiB) from `INDEX_SEGMENTS_PER_MERGE` (64) segments a
   merge (its memory is about six times the bytes it reads); segments the size of a commit's
-  always merge, and a backlog of them merges over successive runs. It also heals, best
-  effort, one segment over those caps a run (built before them, or of unknown size):
-  rebuilt from its fragments' rows as capped pieces, which frees the fragments
-  compaction held for it. With none, it rebuilds instead the oldest run of
-  commit-sized segments stranded behind a larger, newer one (a merge of the newest
-  segments never reaches them) into one, within the same caps
-  (`MaintenanceResult.segments_healed`; a failure is `heal_error` and the rest of the
-  run goes on). It drops indexes
-  the spec no longer plans and builds a missing one per run (a new index reads its
-  whole column).
+  always merge, and a backlog of them merges over successive runs. Every segment is
+  built within those caps: rows outside the indexes (a commit's, or a bulk build's
+  backlog through `index_pending`) and a new index on a filled table are built in
+  pieces of at most 2M rows, fewer when the index's bytes per row would put a piece over
+  the bytes cap; a backlog over a piece is cut together with the index's partial newest
+  segment, so pieces come out full. It also heals, best effort, up to `HEAL_MAX_ROWS`
+  (20M) rows a run: the segments over the caps (built before them, or of unknown size),
+  and partial ones no merge of the newest segments reaches, are rebuilt together from
+  their fragments' rows into full pieces, which frees the fragments compaction held for
+  them (`MaintenanceResult.segments_healed`; a failure is `heal_error` and the rest of
+  the run goes on). It drops indexes the spec no longer plans and builds a missing one
+  per run (a new index reads its whole column, a piece at a time).
+  `DatasetHealth.most_extra_segments` counts the segments an index has over the fewest
+  its rows fit in within the caps; `problems()` warns past `HEALTH_MAX_EXTRA_SEGMENTS`
+  (100), so a large table is not warned on for the segments it needs.
   Its memory does not depend on fragment size or row width either: compaction reads
   `COMPACTION_BATCH_BYTES` (16 MiB) of rows at a time, and importing the row store
   caps Lance's read-ahead at `IO_BUFFER_BYTES` (128 MiB, `LANCE_DEFAULT_IO_BUFFER_SIZE`
